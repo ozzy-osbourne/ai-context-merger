@@ -26,9 +26,9 @@
     "views": {
       "ai-context-merger-sidebar": [
         {
+          "type": "webview",
           "id": "aiContextMergerView",
-          "name": "Project Context",
-          "icon": "resources/icon.svg"
+          "name": "AI Context Merger"
         }
       ]
     },

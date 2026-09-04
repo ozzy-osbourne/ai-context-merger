@@ -1,40 +1,47 @@
 import * as vscode from 'vscode';
-import { FileTreeProvider } from './treeProvider';
+import { ContextMergerSidebarProvider } from './sidebarProvider';
 
 export function activate(context: vscode.ExtensionContext) {
-		console.log('>>> AI CONTEXT MERGER УСПЕШНО АКТИВИРОВАН! <<<');
+    console.log('>>> AI CONTEXT MERGER УСПЕШНО АКТИВИРОВАН! <<<');
 
-    // 1. Создаем экземпляр нашего провайдера файлового дерева
-    const treeProvider = new FileTreeProvider();
+    // 1. Создаем провайдер кастомного интерфейса сайдбара
+    const provider = new ContextMergerSidebarProvider(context.extensionUri);
 
-    // 2. Регистрируем дерево в боковой панели
-    const treeView = vscode.window.createTreeView('aiContextMergerView', {
-        treeDataProvider: treeProvider,
-        showCollapseAll: true
+    // 2. Регистрируем Webview View в левой панели
+    const viewDisposable = vscode.window.registerWebviewViewProvider(
+        ContextMergerSidebarProvider.viewType,
+        provider
+    );
+
+    // 3. Регистрация глобальных команд тулбара
+    const refreshCmd = vscode.commands.registerCommand('ai-context-merger.refresh', () => {
+        provider.refresh();
     });
 
-    // 3. Подписываемся на клик по чекбоксам
-    const checkboxDisposable = treeView.onDidChangeCheckboxState(async (event) => {
-        for (const [item, state] of event.items) {
-            await treeProvider.handleCheckboxChange(item, state);
-        }
+    const clearCmd = vscode.commands.registerCommand('ai-context-merger.clearSelection', () => {
+        provider.clearSelection();
     });
 
-    // 4. Регистрируем базовые команды шапки
-    const refreshDisposable = vscode.commands.registerCommand('ai-context-merger.refresh', () => {
-        treeProvider.refresh();
+    const copyCmd = vscode.commands.registerCommand('ai-context-merger.copyToClipboard', () => {
+        provider.copyContextToClipboard();
     });
 
-    const clearDisposable = vscode.commands.registerCommand('ai-context-merger.clearSelection', () => {
-        treeProvider.clearSelection();
+    const exportCmd = vscode.commands.registerCommand('ai-context-merger.exportToFile', () => {
+        provider.exportContextToFile();
     });
 
-    // Добавляем все подписки в контекст для автоматической очистки памяти при выключении плагина
+    const previewCmd = vscode.commands.registerCommand('ai-context-merger.preview', () => {
+        provider.previewContext();
+    });
+
+    // Добавляем все обработчики в подписки контекста для корректной очистки памяти
     context.subscriptions.push(
-        treeView,
-        checkboxDisposable,
-        refreshDisposable,
-        clearDisposable
+        viewDisposable,
+        refreshCmd,
+        clearCmd,
+        copyCmd,
+        exportCmd,
+        previewCmd
     );
 }
 
