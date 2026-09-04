@@ -1,23 +1,93 @@
 {
   "name": "ai-context-merger",
   "displayName": "AI Context Merger - Combine Code to Prompt & Markdown",
-  "description": "Combine Code to Prompt & Markdown for LLMs",
+  "description": "Combine code files into formatted Markdown for LLMs",
   "version": "0.0.1",
   "engines": {
-    "vscode": "^1.136.0"
+    "vscode": "^1.85.0"
   },
   "categories": [
+    "AI",
+    "Programming Languages",
     "Other"
   ],
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ai-context-merger-sidebar",
+          "title": "AI Context Merger",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "ai-context-merger-sidebar": [
+        {
+          "id": "aiContextMergerView",
+          "name": "Project Context",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
     "commands": [
       {
-        "command": "ai-context-merger.helloWorld",
-        "title": "Hello World"
+        "command": "ai-context-merger.refresh",
+        "title": "Обновить дерево файлов",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ai-context-merger.clearSelection",
+        "title": "Снять все галочки",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "ai-context-merger.preview",
+        "title": "Предпросмотр Markdown",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "ai-context-merger.copyToClipboard",
+        "title": "Скопировать контекст в буфер",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "ai-context-merger.exportToFile",
+        "title": "Экспортировать в файл .md",
+        "icon": "$(save)"
       }
-    ]
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "ai-context-merger.preview",
+          "when": "view == aiContextMergerView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "ai-context-merger.copyToClipboard",
+          "when": "view == aiContextMergerView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "ai-context-merger.exportToFile",
+          "when": "view == aiContextMergerView",
+          "group": "navigation@3"
+        },
+        {
+          "command": "ai-context-merger.clearSelection",
+          "when": "view == aiContextMergerView",
+          "group": "navigation@4"
+        },
+        {
+          "command": "ai-context-merger.refresh",
+          "when": "view == aiContextMergerView",
+          "group": "navigation@5"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
@@ -34,19 +104,15 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.136.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "24.x",
-    "typescript-eslint": "^8.61.1",
-    "eslint": "^10.5.0",
-    "esbuild": "^0.28.1",
-    "npm-run-all": "^4.1.5",
-    "typescript": "^6.0.3",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.85.0",
     "@vscode/test-cli": "^0.0.15",
-    "@vscode/test-electron": "^3.0.0"
-  },
-  "overrides": {
-    "diff": "^8.0.4",
-    "serialize-javascript": "^7.0.6"
+    "@vscode/test-electron": "^3.0.0",
+    "esbuild": "^0.28.1",
+    "eslint": "^9.0.0",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.0.0"
   }
 }
