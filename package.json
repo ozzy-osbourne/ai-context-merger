@@ -35,7 +35,7 @@
     "commands": [
       {
         "command": "ai-context-merger.refresh",
-        "title": "Обновить дерево файлов",
+        "title": "Обновить дерево",
         "icon": "$(refresh)"
       },
       {
@@ -45,17 +45,17 @@
       },
       {
         "command": "ai-context-merger.preview",
-        "title": "Предпросмотр Markdown",
+        "title": "Превью .md",
         "icon": "$(eye)"
       },
       {
         "command": "ai-context-merger.copyToClipboard",
-        "title": "Скопировать контекст в буфер",
+        "title": "Скопировать контекст",
         "icon": "$(copy)"
       },
       {
         "command": "ai-context-merger.exportToFile",
-        "title": "Экспортировать в файл .md",
+        "title": "Экспорт в .md",
         "icon": "$(save)"
       }
     ],
