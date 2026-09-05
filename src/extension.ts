@@ -2,46 +2,31 @@ import * as vscode from 'vscode';
 import { ContextMergerSidebarProvider } from './sidebarProvider';
 
 export function activate(context: vscode.ExtensionContext) {
-    console.log('>>> AI CONTEXT MERGER УСПЕШНО АКТИВИРОВАН! <<<');
+    const sidebarProvider = new ContextMergerSidebarProvider(context.extensionUri);
 
-    // 1. Создаем провайдер кастомного интерфейса сайдбара
-    const provider = new ContextMergerSidebarProvider(context.extensionUri);
-
-    // 2. Регистрируем Webview View в левой панели
-    const viewDisposable = vscode.window.registerWebviewViewProvider(
-        ContextMergerSidebarProvider.viewType,
-        provider
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(
+            ContextMergerSidebarProvider.viewType,
+            sidebarProvider
+        )
     );
 
-    // 3. Регистрация глобальных команд тулбара
-    const refreshCmd = vscode.commands.registerCommand('ai-context-merger.refresh', () => {
-        provider.refresh();
-    });
-
-    const clearCmd = vscode.commands.registerCommand('ai-context-merger.clearSelection', () => {
-        provider.clearSelection();
-    });
-
-    const copyCmd = vscode.commands.registerCommand('ai-context-merger.copyToClipboard', () => {
-        provider.copyContextToClipboard();
-    });
-
-    const exportCmd = vscode.commands.registerCommand('ai-context-merger.exportToFile', () => {
-        provider.exportContextToFile();
-    });
-
-    const previewCmd = vscode.commands.registerCommand('ai-context-merger.preview', () => {
-        provider.previewContext();
-    });
-
-    // Добавляем все обработчики в подписки контекста для корректной очистки памяти
     context.subscriptions.push(
-        viewDisposable,
-        refreshCmd,
-        clearCmd,
-        copyCmd,
-        exportCmd,
-        previewCmd
+        vscode.commands.registerCommand('ai-context-merger.refresh', () => {
+            sidebarProvider.refresh();
+        }),
+        vscode.commands.registerCommand('ai-context-merger.clearSelection', () => {
+            sidebarProvider.clearSelection();
+        }),
+        vscode.commands.registerCommand('ai-context-merger.preview', () => {
+            sidebarProvider.previewContext();
+        }),
+        vscode.commands.registerCommand('ai-context-merger.copyToClipboard', () => {
+            sidebarProvider.copyContextToClipboard();
+        }),
+        vscode.commands.registerCommand('ai-context-merger.exportToFile', () => {
+            sidebarProvider.exportContextToFile();
+        })
     );
 }
 

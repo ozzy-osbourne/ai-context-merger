@@ -10,7 +10,10 @@
 			"type": "extensionHost",
 			"request": "launch",
 			"args": [
-				"--extensionDevelopmentPath=${workspaceFolder}"
+				"${workspaceFolder}",
+				"--extensionDevelopmentPath=${workspaceFolder}",
+        "--user-data-dir=${workspaceFolder}/.vscode-test-user-data",
+        "--extensions-dir=${workspaceFolder}/.vscode-test-extensions"
 			],
 			"outFiles": [
 				"${workspaceFolder}/dist/**/*.js"

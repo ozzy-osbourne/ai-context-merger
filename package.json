@@ -13,6 +13,9 @@
   ],
   "activationEvents": [],
   "main": "./dist/extension.js",
+  "extensionDependencies": [
+    "vscode.git"
+  ],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
