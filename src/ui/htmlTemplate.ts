@@ -10,8 +10,9 @@ export function getHtmlTemplate(): string {
             --color-green: #2ea043;
             --color-yellow: #d29922;
             --color-red: #f85149;
-            --git-modified: #e2c08d;
-            --git-untracked: #73c991;
+            /* Используем нативные переменные темы оформления VS Code для Git */
+            --git-modified: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);
+            --git-untracked: var(--vscode-gitDecoration-untrackedResourceForeground, #73c991);
         }
         body {
             font-family: var(--font-family);
@@ -113,7 +114,7 @@ export function getHtmlTemplate(): string {
             text-align: right;
         }
 
-        /* Блок фильтров */
+        /* Панель фильтров */
         .filter-section {
             margin-top: 10px;
             background-color: var(--vscode-editor-background);
@@ -173,7 +174,7 @@ export function getHtmlTemplate(): string {
 
         .tree-container {
             margin-top: 8px;
-            max-height: calc(100vh - 380px);
+            max-height: calc(100vh - 410px);
             overflow-y: auto;
         }
         .tree-row {
@@ -182,6 +183,7 @@ export function getHtmlTemplate(): string {
             padding: 3px 2px;
             font-size: 12px;
             border-radius: 3px;
+            cursor: pointer;
         }
         .tree-row:hover {
             background-color: var(--vscode-list-hoverBackground);
@@ -193,14 +195,20 @@ export function getHtmlTemplate(): string {
         .folder-toggle {
             cursor: pointer;
             margin-right: 4px;
-            font-size: 10px;
+            font-size: 9px;
             width: 12px;
             display: inline-block;
             text-align: center;
+            opacity: 0.8;
         }
         .node-icon {
             margin-right: 6px;
             opacity: 0.8;
+        }
+        .node-title {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         .nested {
             margin-left: 14px;
@@ -215,6 +223,7 @@ export function getHtmlTemplate(): string {
         .git-untracked {
             color: var(--git-untracked) !important;
         }
+
         .git-badge {
             margin-left: auto;
             font-size: 10px;
@@ -228,13 +237,21 @@ export function getHtmlTemplate(): string {
         .git-badge-u {
             color: var(--git-untracked);
         }
+
+        /* Индикатор-точка для папок */
         .git-folder-dot {
-            width: 5px;
-            height: 5px;
+            width: 6px;
+            height: 6px;
             border-radius: 50%;
-            background-color: var(--git-modified);
             margin-left: auto;
             margin-right: 4px;
+            flex-shrink: 0;
+        }
+        .git-folder-dot-m {
+            background-color: var(--git-modified);
+        }
+        .git-folder-dot-u {
+            background-color: var(--git-untracked);
         }
     </style>
 </head>
@@ -251,16 +268,25 @@ export function getHtmlTemplate(): string {
         <button class="btn-secondary" id="btnExport">💾 Экспорт в .md</button>
     </div>
 
+    <!-- Ряд выбора файлов -->
     <div class="btn-grid-2">
+        <button class="btn-secondary" id="btnSelectAll">✅ Выбрать всё</button>
         <button class="btn-secondary" id="btnClear">🧹 Снять всё</button>
+    </div>
+
+    <!-- Ряд управления раскрытием дерева -->
+    <div class="btn-grid-2">
+        <button class="btn-secondary" id="btnExpandAll">📂 Развернуть всё</button>
         <button class="btn-secondary" id="btnCollapse">📁 Свернуть всё</button>
     </div>
-    <div class="btn-grid-2" style="margin-top: 6px;">
+
+    <!-- Ряд обновления и Git Diff -->
+    <div class="btn-grid-2">
         <button class="btn-secondary" id="btnRefresh">🔄 Обновить</button>
         <button class="btn-secondary" id="btnGit">🌿 Измененные (Git)</button>
     </div>
 
-    <!-- Блок фильтрации -->
+    <!-- Панель фильтров -->
     <div class="filter-section">
         <div class="filter-title"><span>⚙️</span> Фильтры скрытия:</div>
         <div class="filter-row">
@@ -299,6 +325,9 @@ export function getHtmlTemplate(): string {
 
         let rawTreeData = [];
         let selectedFilesSet = new Set();
+        // Состояние раскрытых папок, сохраняемое между обновлениями
+        let expandedFoldersSet = new Set();
+        let isInitialLoadState = true;
 
         window.addEventListener('message', event => {
             const message = event.data;
@@ -312,8 +341,24 @@ export function getHtmlTemplate(): string {
                     document.getElementById('filterLock').checked = message.filters.hideLockFiles;
                     document.getElementById('filterBinary').checked = message.filters.hideBinaryFiles;
                 }
+
+                // Логика умного открытия или первичной инициализации 1-го уровня
+                if (message.smartGitExpand) {
+                    expandedFoldersSet.clear();
+                    applySmartGitExpansion(rawTreeData);
+                } else if (message.isInitialLoad || isInitialLoadState) {
+                    expandedFoldersSet.clear();
+                    applyFirstLevelExpansion(rawTreeData);
+                    isInitialLoadState = false;
+                }
                 
                 renderTree(rawTreeData, document.getElementById('treeView'));
+                
+                // Восстанавливаем фильтрацию, если в строке поиска есть текст
+                const searchQuery = document.getElementById('searchInput').value.trim();
+                if (searchQuery) {
+                    applySearchFilter(searchQuery);
+                }
             } else if (message.type === 'updateStats') {
                 selectedFilesSet = new Set(message.selectedFiles);
                 updateStatsUI(message.stats);
@@ -321,20 +366,75 @@ export function getHtmlTemplate(): string {
             }
         });
 
-        // Слушатели кнопок
+        // Слушатели кнопок действий
         document.getElementById('btnCopy').addEventListener('click', () => vscode.postMessage({ type: 'copyContext' }));
         document.getElementById('btnPreview').addEventListener('click', () => vscode.postMessage({ type: 'previewContext' }));
         document.getElementById('btnExport').addEventListener('click', () => vscode.postMessage({ type: 'exportFile' }));
+        document.getElementById('btnSelectAll').addEventListener('click', () => vscode.postMessage({ type: 'selectAll' }));
         document.getElementById('btnClear').addEventListener('click', () => vscode.postMessage({ type: 'clearSelection' }));
         document.getElementById('btnRefresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
         document.getElementById('btnGit').addEventListener('click', () => vscode.postMessage({ type: 'selectModified' }));
         
-        document.getElementById('btnCollapse').addEventListener('click', () => {
-            document.querySelectorAll('.nested').forEach(el => el.classList.add('hidden'));
-            document.querySelectorAll('.folder-toggle').forEach(el => el.innerText = '▶');
+        // Развернуть все папки
+        document.getElementById('btnExpandAll').addEventListener('click', () => {
+            collectAllFolderPaths(rawTreeData);
+            renderTree(rawTreeData, document.getElementById('treeView'));
         });
 
-        // Слушатели переключения фильтров
+        // Свернуть все папки
+        document.getElementById('btnCollapse').addEventListener('click', () => {
+            expandedFoldersSet.clear();
+            renderTree(rawTreeData, document.getElementById('treeView'));
+        });
+
+        /**
+         * Рекурсивное добавление всех директорий в множество раскрытых
+         */
+        function collectAllFolderPaths(nodes) {
+            if (!nodes) return;
+            nodes.forEach(node => {
+                if (node.isDirectory) {
+                    expandedFoldersSet.add(node.path);
+                    collectAllFolderPaths(node.children);
+                }
+            });
+        }
+
+        /**
+         * Раскрытие только 1-го уровня (корень и его прямые папки)
+         */
+        function applyFirstLevelExpansion(nodes) {
+            if (!nodes) return;
+            nodes.forEach(rootNode => {
+                if (rootNode.isDirectory) {
+                    expandedFoldersSet.add(rootNode.path);
+                    if (rootNode.children) {
+                        rootNode.children.forEach(child => {
+                            if (child.isDirectory) {
+                                expandedFoldersSet.add(child.path);
+                            }
+                        });
+                    }
+                }
+            });
+        }
+
+        /**
+         * Умное раскрытие: открывает только директории, содержащие измененные файлы Git
+         */
+        function applySmartGitExpansion(nodes) {
+            if (!nodes) return;
+            nodes.forEach(node => {
+                if (node.isDirectory) {
+                    if (node.gitFolderStatus && node.gitFolderStatus !== 'none') {
+                        expandedFoldersSet.add(node.path);
+                    }
+                    applySmartGitExpansion(node.children);
+                }
+            });
+        }
+
+        // Слушатели фильтров
         function notifyFilterChange() {
             vscode.postMessage({
                 type: 'updateFilters',
@@ -349,19 +449,58 @@ export function getHtmlTemplate(): string {
         document.getElementById('filterLock').addEventListener('change', notifyFilterChange);
         document.getElementById('filterBinary').addEventListener('change', notifyFilterChange);
 
-        // Поиск
+        // Поиск с поддержкой вложенности
         document.getElementById('searchInput').addEventListener('input', (e) => {
-            const query = e.target.value.toLowerCase().trim();
-            const rows = document.querySelectorAll('.tree-item');
-            rows.forEach(row => {
-                const name = row.getAttribute('data-name').toLowerCase();
-                if (name.includes(query)) {
-                    row.classList.remove('hidden');
-                } else {
-                    row.classList.add('hidden');
-                }
-            });
+            applySearchFilter(e.target.value.trim());
         });
+
+        /**
+         * Корректный поиск: элемент виден, если совпадает имя или если есть совпадения внутри
+         * @param query строка поиска
+         */
+        function applySearchFilter(query) {
+            const rootContainer = document.getElementById('treeView');
+            if (!query) {
+                // Если запрос пуст — восстанавливаем отображение по expandedFoldersSet
+                renderTree(rawTreeData, rootContainer);
+                return;
+            }
+
+            const lowerQuery = query.toLowerCase();
+
+            function checkNodeVisibility(element) {
+                let hasMatchingChild = false;
+                const childContainer = element.querySelector(':scope > .nested');
+                
+                if (childContainer) {
+                    const childItems = childContainer.querySelectorAll(':scope > .tree-item');
+                    childItems.forEach(child => {
+                        const isChildVisible = checkNodeVisibility(child);
+                        if (isChildVisible) hasMatchingChild = true;
+                    });
+                }
+
+                const name = (element.getAttribute('data-name') || '').toLowerCase();
+                const isSelfMatch = name.includes(lowerQuery);
+                const shouldBeVisible = isSelfMatch || hasMatchingChild;
+
+                if (shouldBeVisible) {
+                    element.classList.remove('hidden');
+                    if (childContainer) {
+                        childContainer.classList.remove('hidden');
+                        const toggle = element.querySelector(':scope > .tree-row .folder-toggle');
+                        if (toggle) toggle.innerText = '▼';
+                    }
+                } else {
+                    element.classList.add('hidden');
+                }
+
+                return shouldBeVisible;
+            }
+
+            const topItems = rootContainer.querySelectorAll(':scope > .tree-item');
+            topItems.forEach(item => checkNodeVisibility(item));
+        }
 
         function updateStatsUI(stats) {
             document.getElementById('statCount').innerText = stats.count;
@@ -390,48 +529,66 @@ export function getHtmlTemplate(): string {
             nodes.forEach(node => {
                 container.appendChild(createNodeElement(node));
             });
+            syncFolderCheckboxes(container);
         }
 
+        /**
+         * Генерация DOM-структуры для отдельного узла файлового дерева
+         */
         function createNodeElement(node) {
             const wrapper = document.createElement('div');
             wrapper.className = 'tree-item';
             wrapper.setAttribute('data-name', node.name);
             wrapper.setAttribute('data-path', node.path);
+            wrapper.setAttribute('data-is-dir', node.isDirectory ? 'true' : 'false');
 
             const row = document.createElement('div');
             row.className = 'tree-row';
 
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
+            checkbox.addEventListener('click', (e) => e.stopPropagation());
 
             if (node.isDirectory) {
+                const isExpanded = expandedFoldersSet.has(node.path);
+
                 const toggle = document.createElement('span');
                 toggle.className = 'folder-toggle';
-                toggle.innerText = '▼';
+                toggle.innerText = isExpanded ? '▼' : '▶';
 
                 const icon = document.createElement('span');
                 icon.className = 'node-icon';
-                icon.innerText = '📁';
+                icon.innerText = isExpanded ? '📂' : '📁';
 
                 const title = document.createElement('span');
+                title.className = 'node-title';
                 title.innerText = node.name;
+
+                // Подкрашиваем текст названия папки, как в проводнике VS Code
+                if (node.gitFolderStatus === 'modified') {
+                    title.classList.add('git-modified');
+                } else if (node.gitFolderStatus === 'untracked') {
+                    title.classList.add('git-untracked');
+                }
 
                 row.appendChild(toggle);
                 row.appendChild(checkbox);
                 row.appendChild(icon);
                 row.appendChild(title);
 
-                if (node.hasModifiedChildren) {
+                // Отрисовка цветного индикатора-точки
+                if (node.gitFolderStatus && node.gitFolderStatus !== 'none') {
                     const dot = document.createElement('span');
-                    dot.className = 'git-folder-dot';
-                    dot.title = 'Содержит измененные файлы';
+                    dot.className = 'git-folder-dot ' + (node.gitFolderStatus === 'untracked' ? 'git-folder-dot-u' : 'git-folder-dot-m');
+                    dot.title = node.gitFolderStatus === 'untracked' ? 'Содержит новые файлы (Untracked)' : 'Содержит измененные файлы (Modified)';
                     row.appendChild(dot);
                 }
 
                 wrapper.appendChild(row);
 
                 const childrenContainer = document.createElement('div');
-                childrenContainer.className = 'nested';
+                childrenContainer.className = 'nested' + (isExpanded ? '' : ' hidden');
+                
                 if (node.children) {
                     node.children.forEach(child => {
                         childrenContainer.appendChild(createNodeElement(child));
@@ -439,9 +596,20 @@ export function getHtmlTemplate(): string {
                 }
                 wrapper.appendChild(childrenContainer);
 
-                toggle.addEventListener('click', () => {
-                    const isHidden = childrenContainer.classList.toggle('hidden');
-                    toggle.innerText = isHidden ? '▶' : '▼';
+                // Переключение состояния папки по клику на всю строку (кроме самого чекбокса)
+                row.addEventListener('click', () => {
+                    const currentlyOpen = expandedFoldersSet.has(node.path);
+                    if (currentlyOpen) {
+                        expandedFoldersSet.delete(node.path);
+                        childrenContainer.classList.add('hidden');
+                        toggle.innerText = '▶';
+                        icon.innerText = '📁';
+                    } else {
+                        expandedFoldersSet.add(node.path);
+                        childrenContainer.classList.remove('hidden');
+                        toggle.innerText = '▼';
+                        icon.innerText = '📂';
+                    }
                 });
 
                 checkbox.addEventListener('change', (e) => {
@@ -451,8 +619,6 @@ export function getHtmlTemplate(): string {
                         checked: e.target.checked
                     });
                 });
-
-                updateFolderCheckboxState(checkbox, childrenContainer);
             } else {
                 checkbox.checked = selectedFilesSet.has(node.path);
 
@@ -461,33 +627,36 @@ export function getHtmlTemplate(): string {
                 icon.innerText = '📄';
 
                 const title = document.createElement('span');
+                title.className = 'node-title';
                 title.innerText = node.name;
+
+                row.appendChild(checkbox);
+                row.appendChild(icon);
+                row.appendChild(title);
 
                 if (node.gitStatus === 'modified') {
                     title.classList.add('git-modified');
                     const badge = document.createElement('span');
                     badge.className = 'git-badge git-badge-m';
                     badge.innerText = 'M';
-                    row.appendChild(checkbox);
-                    row.appendChild(icon);
-                    row.appendChild(title);
                     row.appendChild(badge);
                 } else if (node.gitStatus === 'untracked') {
                     title.classList.add('git-untracked');
                     const badge = document.createElement('span');
                     badge.className = 'git-badge git-badge-u';
                     badge.innerText = 'U';
-                    row.appendChild(checkbox);
-                    row.appendChild(icon);
-                    row.appendChild(title);
                     row.appendChild(badge);
-                } else {
-                    row.appendChild(checkbox);
-                    row.appendChild(icon);
-                    row.appendChild(title);
                 }
 
-                wrapper.appendChild(row);
+                // Клик по строке файла переключает его чекбокс
+                row.addEventListener('click', () => {
+                    checkbox.checked = !checkbox.checked;
+                    vscode.postMessage({
+                        type: 'toggleFile',
+                        filePath: node.path,
+                        checked: checkbox.checked
+                    });
+                });
 
                 checkbox.addEventListener('change', (e) => {
                     vscode.postMessage({
@@ -496,29 +665,42 @@ export function getHtmlTemplate(): string {
                         checked: e.target.checked
                     });
                 });
+
+                wrapper.appendChild(row);
             }
 
             return wrapper;
         }
 
+        /**
+         * Пересчет состояния чекбокса папки (checked / indeterminate / unchecked)
+         * Анализируются только прямые и вложенные чекбоксы файлов, игнорируя промежуточные папки.
+         */
         function updateFolderCheckboxState(folderCheckbox, childrenContainer) {
-            const childCheckboxes = childrenContainer.querySelectorAll('input[type="checkbox"]');
-            if (childCheckboxes.length === 0) return;
+            // Находим чекбоксы только конкретных файлов
+            const fileItems = childrenContainer.querySelectorAll('.tree-item:not([data-is-dir="true"]) input[type="checkbox"]');
+            if (fileItems.length === 0) return;
 
-            let allChecked = true;
-            let anyChecked = false;
-
-            childCheckboxes.forEach(cb => {
-                if (cb.checked || cb.indeterminate) anyChecked = true;
-                if (!cb.checked) allChecked = false;
+            let checkedCount = 0;
+            fileItems.forEach(cb => {
+                if (cb.checked) checkedCount++;
             });
 
-            folderCheckbox.checked = allChecked;
-            folderCheckbox.indeterminate = !allChecked && anyChecked;
+            if (checkedCount === 0) {
+                folderCheckbox.checked = false;
+                folderCheckbox.indeterminate = false;
+            } else if (checkedCount === fileItems.length) {
+                folderCheckbox.checked = true;
+                folderCheckbox.indeterminate = false;
+            } else {
+                folderCheckbox.checked = false;
+                folderCheckbox.indeterminate = true;
+            }
         }
 
         function syncFolderCheckboxes(container) {
-            const nestedContainers = container.querySelectorAll('.nested');
+            // Обходим дерево снизу вверх, чтобы вложенные структуры корректно обновляли родителей
+            const nestedContainers = Array.from(container.querySelectorAll('.nested')).reverse();
             nestedContainers.forEach(nc => {
                 const parentRow = nc.previousElementSibling;
                 if (parentRow) {
@@ -530,6 +712,7 @@ export function getHtmlTemplate(): string {
             });
         }
 
+        // Запрос начальных данных
         vscode.postMessage({ type: 'requestInitialData' });
     </script>
 </body>

@@ -23,7 +23,10 @@ export class WorkspaceScanner {
     }
 
     /**
-     * Сканирование директории и построение файлового дерева
+     * Сканирование директории и построение файлового дерева с определением статусов Git для папок
+     */
+    /**
+     * Сканирование директории и построение файлового дерева с рекурсивным поднятием Git-статусов к корню
      */
     public static async scanDirectory(
         dirPath: string,
@@ -37,7 +40,7 @@ export class WorkspaceScanner {
             path: normalizedDirPath,
             isDirectory: true,
             gitStatus: 'none',
-            hasModifiedChildren: false,
+            gitFolderStatus: 'none',
             children: []
         };
 
@@ -53,19 +56,25 @@ export class WorkspaceScanner {
                     return a.isDirectory() ? -1 : 1;
                 });
 
+            let hasUntracked = false;
+            let hasModified = false;
+
             for (const entry of sortedEntries) {
                 const fullPath = path.normalize(path.join(normalizedDirPath, entry.name));
+
                 if (entry.isDirectory()) {
                     const childFolder = await this.scanDirectory(fullPath, gitStatusMap, filters);
-                    if (childFolder.hasModifiedChildren || childFolder.gitStatus !== 'none') {
-                        node.hasModifiedChildren = true;
-                    }
+                    
+                    // Если сама директория или что-то внутри неё изменено/не отслеживается
+                    if (childFolder.gitFolderStatus === 'untracked') hasUntracked = true;
+                    if (childFolder.gitFolderStatus === 'modified') hasModified = true;
+
                     node.children?.push(childFolder);
                 } else {
                     const fileStatus = gitStatusMap.get(fullPath) || 'none';
-                    if (fileStatus !== 'none') {
-                        node.hasModifiedChildren = true;
-                    }
+                    if (fileStatus === 'untracked') hasUntracked = true;
+                    if (fileStatus === 'modified') hasModified = true;
+
                     node.children?.push({
                         name: entry.name,
                         path: fullPath,
@@ -73,6 +82,14 @@ export class WorkspaceScanner {
                         gitStatus: fileStatus
                     });
                 }
+            }
+
+            // Определение итогового статуса папки:
+            // Если есть и modified, и untracked — приоритет у modified (как в проводнике VS Code)
+            if (hasModified) {
+                node.gitFolderStatus = 'modified';
+            } else if (hasUntracked) {
+                node.gitFolderStatus = 'untracked';
             }
         } catch {}
 

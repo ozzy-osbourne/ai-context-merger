@@ -34,62 +34,6 @@
           "name": "AI Context Merger"
         }
       ]
-    },
-    "commands": [
-      {
-        "command": "ai-context-merger.refresh",
-        "title": "Обновить дерево",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "ai-context-merger.clearSelection",
-        "title": "Снять все галочки",
-        "icon": "$(clear-all)"
-      },
-      {
-        "command": "ai-context-merger.preview",
-        "title": "Превью .md",
-        "icon": "$(eye)"
-      },
-      {
-        "command": "ai-context-merger.copyToClipboard",
-        "title": "Скопировать контекст",
-        "icon": "$(copy)"
-      },
-      {
-        "command": "ai-context-merger.exportToFile",
-        "title": "Экспорт в .md",
-        "icon": "$(save)"
-      }
-    ],
-    "menus": {
-      "view/title": [
-        {
-          "command": "ai-context-merger.preview",
-          "when": "view == aiContextMergerView",
-          "group": "navigation@1"
-        },
-        {
-          "command": "ai-context-merger.copyToClipboard",
-          "when": "view == aiContextMergerView",
-          "group": "navigation@2"
-        },
-        {
-          "command": "ai-context-merger.exportToFile",
-          "when": "view == aiContextMergerView",
-          "group": "navigation@3"
-        },
-        {
-          "command": "ai-context-merger.clearSelection",
-          "when": "view == aiContextMergerView",
-          "group": "navigation@4"
-        },
-        {
-          "command": "ai-context-merger.refresh",
-          "when": "view == aiContextMergerView",
-          "group": "navigation@5"
-        }
-      ]
     }
   },
   "scripts": {

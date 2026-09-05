@@ -8,7 +8,7 @@ export interface FileNode {
     path: string;
     isDirectory: boolean;
     gitStatus: GitFileStatus;
-    hasModifiedChildren?: boolean;
+    gitFolderStatus?: GitFileStatus; // 'modified' | 'untracked' | 'none' для папок
     children?: FileNode[];
 }
 

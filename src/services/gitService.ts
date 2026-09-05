@@ -30,16 +30,26 @@ export class GitService {
 
             const repo = gitApi.repositories[0];
 
-            for (const change of repo.state.workingTreeChanges) {
-                statusMap.set(path.normalize(change.uri.fsPath), 'modified');
-            }
+            // 1. Неотслеживаемые новые файлы (Untracked)
             for (const change of repo.state.untrackedChanges) {
                 statusMap.set(path.normalize(change.uri.fsPath), 'untracked');
             }
+
+            // 2. Изменения в рабочей директории (Working Tree)
+            for (const change of repo.state.workingTreeChanges) {
+                const normPath = path.normalize(change.uri.fsPath);
+                // Status 7 в VS Code Git API = UNTRACKED / INDEX_ADDED
+                const isUntracked = change.status === 7;
+                statusMap.set(normPath, isUntracked ? 'untracked' : 'modified');
+            }
+
+            // 3. Изменения в индексе (Staged Changes)
             for (const change of repo.state.indexChanges) {
                 const normPath = path.normalize(change.uri.fsPath);
+                // Status 1 в VS Code Git API = INDEX_ADDED
+                const isAdded = change.status === 1;
                 if (!statusMap.has(normPath)) {
-                    statusMap.set(normPath, 'modified');
+                    statusMap.set(normPath, isAdded ? 'untracked' : 'modified');
                 }
             }
         } catch (error) {
