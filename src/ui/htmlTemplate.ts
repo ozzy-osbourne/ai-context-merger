@@ -1,9 +1,26 @@
-export function getHtmlTemplate(): string {
+import * as vscode from 'vscode';
+import * as crypto from 'crypto';
+
+/**
+ * Генерация криптографически стойкого случайного токена (nonce) для CSP
+ */
+function getNonce(): string {
+    return crypto.randomBytes(16).toString('base64');
+}
+
+/**
+ * Генерация HTML-разметки сайдбара со строгой политикой CSP (Content Security Policy)
+ * @param webview Экземпляр Webview панели VS Code
+ */
+export function getHtmlTemplate(webview: vscode.Webview): string {
+    const nonce = getNonce();
+
     return `<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource};">
     <style>
         :root {
             --font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
@@ -76,7 +93,6 @@ export function getHtmlTemplate(): string {
             background-color: var(--vscode-button-secondaryHoverBackground);
         }
 
-        /* Блок пользовательской инструкции */
         .prompt-card {
             background-color: var(--vscode-editor-background);
             border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
@@ -156,7 +172,6 @@ export function getHtmlTemplate(): string {
             background-color: var(--vscode-button-secondaryHoverBackground);
         }
 
-        /* Блок статистики */
         .stats-card {
             background-color: var(--vscode-editor-background);
             border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
@@ -194,7 +209,6 @@ export function getHtmlTemplate(): string {
             text-align: right;
         }
 
-        /* Фильтры и поиск */
         .filter-section {
             margin-top: 8px;
             background-color: var(--vscode-editor-background);
@@ -252,7 +266,6 @@ export function getHtmlTemplate(): string {
             opacity: 0.6;
         }
 
-        /* Дерево файлов */
         .tree-container {
             margin-top: 8px;
             max-height: calc(100vh - 460px);
@@ -339,7 +352,6 @@ export function getHtmlTemplate(): string {
 
     <div class="header-title">AI Context Merger</div>
 
-    <!-- Карточка пользовательской инструкции -->
     <div class="prompt-card">
         <div class="prompt-header">
             <label>
@@ -420,7 +432,7 @@ export function getHtmlTemplate(): string {
 
     <div class="tree-container" id="treeView"></div>
 
-    <script>
+    <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
 
         const previousState = vscode.getState() || {};
@@ -489,7 +501,6 @@ export function getHtmlTemplate(): string {
             syncPromptWithExtension();
         });
 
-        // Очистка поля ввода промпта в один клик
         btnClearPrompt.addEventListener('click', (e) => {
             e.stopPropagation();
             promptInput.value = '';
@@ -510,15 +521,17 @@ export function getHtmlTemplate(): string {
 
         window.addEventListener('message', event => {
             const message = event.data;
+            if (!message || typeof message.type !== 'string') return;
+
             if (message.type === 'setData') {
-                rawTreeData = message.tree;
-                selectedFilesSet = new Set(message.selectedFiles);
-                updateStatsUI(message.stats);
+                rawTreeData = Array.isArray(message.tree) ? message.tree : [];
+                selectedFilesSet = new Set(Array.isArray(message.selectedFiles) ? message.selectedFiles : []);
+                if (message.stats) updateStatsUI(message.stats);
                 
                 if (message.filters) {
-                    document.getElementById('filterGit').checked = message.filters.hideGitIgnored;
-                    document.getElementById('filterLock').checked = message.filters.hideLockFiles;
-                    document.getElementById('filterBinary').checked = message.filters.hideBinaryFiles;
+                    document.getElementById('filterGit').checked = Boolean(message.filters.hideGitIgnored);
+                    document.getElementById('filterLock').checked = Boolean(message.filters.hideLockFiles);
+                    document.getElementById('filterBinary').checked = Boolean(message.filters.hideBinaryFiles);
                 }
 
                 if (message.smartGitExpand) {
@@ -539,8 +552,9 @@ export function getHtmlTemplate(): string {
                     applySearchFilter(searchQuery);
                 }
             } else if (message.type === 'updateStats') {
-                selectedFilesSet = new Set(message.selectedFiles);
-                updateStatsUI(message.stats);
+                selectedFilesSet = new Set(Array.isArray(message.selectedFiles) ? message.selectedFiles : []);
+                if (message.stats) updateStatsUI(message.stats);
+                syncTreeCheckboxesWithSet(document.getElementById('treeView'), selectedFilesSet);
                 syncFolderCheckboxes(document.getElementById('treeView'));
             }
         });
@@ -548,7 +562,12 @@ export function getHtmlTemplate(): string {
         document.getElementById('btnCopy').addEventListener('click', () => vscode.postMessage({ type: 'copyContext' }));
         document.getElementById('btnPreview').addEventListener('click', () => vscode.postMessage({ type: 'previewContext' }));
         document.getElementById('btnExport').addEventListener('click', () => vscode.postMessage({ type: 'exportFile' }));
-        document.getElementById('btnClear').addEventListener('click', () => vscode.postMessage({ type: 'clearSelection' }));
+        document.getElementById('btnClear').addEventListener('click', () => {
+            selectedFilesSet.clear();
+            syncTreeCheckboxesWithSet(document.getElementById('treeView'), selectedFilesSet);
+            syncFolderCheckboxes(document.getElementById('treeView'));
+            vscode.postMessage({ type: 'clearSelection' });
+        });
         document.getElementById('btnRefresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
         document.getElementById('btnGit').addEventListener('click', () => vscode.postMessage({ type: 'selectModified' }));
         
@@ -557,6 +576,9 @@ export function getHtmlTemplate(): string {
             if (searchQuery) {
                 const visibleFileElements = document.querySelectorAll('#treeView .tree-item:not([data-is-dir="true"]):not(.hidden)');
                 const paths = Array.from(visibleFileElements).map(el => el.getAttribute('data-path')).filter(Boolean);
+                paths.forEach(p => selectedFilesSet.add(p));
+                syncTreeCheckboxesWithSet(document.getElementById('treeView'), selectedFilesSet);
+                syncFolderCheckboxes(document.getElementById('treeView'));
                 vscode.postMessage({ type: 'selectMultipleFiles', filePaths: paths });
             } else {
                 vscode.postMessage({ type: 'selectAll' });
@@ -637,7 +659,7 @@ export function getHtmlTemplate(): string {
 
             if (!query) {
                 selectAllBtn.innerText = '✅ Выбрать всё';
-                renderTree(rawTreeData, rootContainer);
+                restoreTreeVisibility(rootContainer);
                 return;
             }
 
@@ -651,7 +673,9 @@ export function getHtmlTemplate(): string {
                     const childItems = childContainer.querySelectorAll(':scope > .tree-item');
                     childItems.forEach(child => {
                         const isChildVisible = checkNodeVisibility(child);
-                        if (isChildVisible) hasMatchingChild = true;
+                        if (isChildVisible) {
+                            hasMatchingChild = true;
+                        }
                     });
                 }
 
@@ -663,8 +687,14 @@ export function getHtmlTemplate(): string {
                     element.classList.remove('hidden');
                     if (childContainer) {
                         childContainer.classList.remove('hidden');
+                        const folderPath = element.getAttribute('data-path');
+                        if (folderPath) {
+                            expandedFoldersSet.add(folderPath);
+                        }
                         const toggle = element.querySelector(':scope > .tree-row .folder-toggle');
                         if (toggle) toggle.innerText = '▼';
+                        const icon = element.querySelector(':scope > .tree-row .node-icon');
+                        if (icon) icon.innerText = '📂';
                     }
                 } else {
                     element.classList.add('hidden');
@@ -675,14 +705,39 @@ export function getHtmlTemplate(): string {
 
             const topItems = rootContainer.querySelectorAll(':scope > .tree-item');
             topItems.forEach(item => checkNodeVisibility(item));
+            saveState();
 
             const visibleFiles = rootContainer.querySelectorAll('.tree-item:not([data-is-dir="true"]):not(.hidden)');
             selectAllBtn.innerText = '✅ Выбрать найденное (' + visibleFiles.length + ')';
         }
 
+        function restoreTreeVisibility(container) {
+            const allItems = container.querySelectorAll('.tree-item');
+            allItems.forEach(item => item.classList.remove('hidden'));
+
+            const allNested = container.querySelectorAll('.nested');
+            allNested.forEach(nested => {
+                const parentItem = nested.closest('.tree-item');
+                const folderPath = parentItem ? parentItem.getAttribute('data-path') : null;
+                const isExpanded = folderPath ? expandedFoldersSet.has(folderPath) : false;
+
+                if (isExpanded) {
+                    nested.classList.remove('hidden');
+                } else {
+                    nested.classList.add('hidden');
+                }
+
+                const toggle = parentItem ? parentItem.querySelector(':scope > .tree-row .folder-toggle') : null;
+                if (toggle) toggle.innerText = isExpanded ? '▼' : '▶';
+                const icon = parentItem ? parentItem.querySelector(':scope > .tree-row .node-icon') : null;
+                if (icon) icon.innerText = isExpanded ? '📂' : '📁';
+            });
+
+            syncFolderCheckboxes(container);
+        }
+
         function updateStatsUI(stats) {
             document.getElementById('statCount').innerText = stats.count;
-            // Отображаем приблизительное значение токенов со знаком ~
             document.getElementById('statTokens').innerText = '~' + stats.tokens.toLocaleString();
             
             const bar = document.getElementById('progressBar');
@@ -787,10 +842,33 @@ export function getHtmlTemplate(): string {
                 });
 
                 checkbox.addEventListener('change', (e) => {
+                    const isChecked = e.target.checked;
+
+                    const childCheckboxes = childrenContainer.querySelectorAll('input[type="checkbox"]');
+                    childCheckboxes.forEach(cb => {
+                        cb.checked = isChecked;
+                        cb.indeterminate = false;
+
+                        const fileItem = cb.closest('.tree-item');
+                        if (fileItem && fileItem.getAttribute('data-is-dir') === 'false') {
+                            const p = fileItem.getAttribute('data-path');
+                            if (p) {
+                                if (isChecked) {
+                                    selectedFilesSet.add(p);
+                                } else {
+                                    selectedFilesSet.delete(p);
+                                }
+                            }
+                        }
+                    });
+
+                    checkbox.indeterminate = false;
+                    syncFolderCheckboxes(document.getElementById('treeView'));
+
                     vscode.postMessage({
                         type: 'toggleFolder',
                         folderPath: node.path,
-                        checked: e.target.checked
+                        checked: isChecked
                     });
                 });
             } else {
@@ -822,21 +900,29 @@ export function getHtmlTemplate(): string {
                     row.appendChild(badge);
                 }
 
-                row.addEventListener('click', () => {
-                    checkbox.checked = !checkbox.checked;
+                function onFileCheckboxChange(isChecked) {
+                    if (isChecked) {
+                        selectedFilesSet.add(node.path);
+                    } else {
+                        selectedFilesSet.delete(node.path);
+                    }
+                    syncFolderCheckboxes(document.getElementById('treeView'));
+
                     vscode.postMessage({
                         type: 'toggleFile',
                         filePath: node.path,
-                        checked: checkbox.checked
+                        checked: isChecked
                     });
+                }
+
+                row.addEventListener('click', (e) => {
+                    if (e.target === checkbox) return;
+                    checkbox.checked = !checkbox.checked;
+                    onFileCheckboxChange(checkbox.checked);
                 });
 
                 checkbox.addEventListener('change', (e) => {
-                    vscode.postMessage({
-                        type: 'toggleFile',
-                        filePath: node.path,
-                        checked: e.target.checked
-                    });
+                    onFileCheckboxChange(e.target.checked);
                 });
 
                 wrapper.appendChild(row);
@@ -846,24 +932,53 @@ export function getHtmlTemplate(): string {
         }
 
         function updateFolderCheckboxState(folderCheckbox, childrenContainer) {
-            const fileItems = childrenContainer.querySelectorAll('.tree-item:not([data-is-dir="true"]) input[type="checkbox"]');
-            if (fileItems.length === 0) return;
+            const directChildItems = childrenContainer.querySelectorAll(':scope > .tree-item');
+            if (directChildItems.length === 0) {
+                folderCheckbox.checked = false;
+                folderCheckbox.indeterminate = false;
+                return;
+            }
 
             let checkedCount = 0;
-            fileItems.forEach(cb => {
-                if (cb.checked) checkedCount++;
+            let indeterminateCount = 0;
+            let totalCount = 0;
+
+            directChildItems.forEach(item => {
+                const cb = item.querySelector(':scope > .tree-row input[type="checkbox"]');
+                if (cb) {
+                    totalCount++;
+                    if (cb.indeterminate) {
+                        indeterminateCount++;
+                    } else if (cb.checked) {
+                        checkedCount++;
+                    }
+                }
             });
 
-            if (checkedCount === 0) {
+            if (totalCount === 0) {
                 folderCheckbox.checked = false;
                 folderCheckbox.indeterminate = false;
-            } else if (checkedCount === fileItems.length) {
+            } else if (checkedCount === totalCount) {
                 folderCheckbox.checked = true;
                 folderCheckbox.indeterminate = false;
-            } else {
+            } else if (checkedCount > 0 || indeterminateCount > 0) {
                 folderCheckbox.checked = false;
                 folderCheckbox.indeterminate = true;
+            } else {
+                folderCheckbox.checked = false;
+                folderCheckbox.indeterminate = false;
             }
+        }
+
+        function syncTreeCheckboxesWithSet(container, set) {
+            const fileItems = container.querySelectorAll('.tree-item:not([data-is-dir="true"])');
+            fileItems.forEach(item => {
+                const p = item.getAttribute('data-path');
+                const cb = item.querySelector('input[type="checkbox"]');
+                if (p && cb) {
+                    cb.checked = set.has(p);
+                }
+            });
         }
 
         function syncFolderCheckboxes(container) {
@@ -871,7 +986,7 @@ export function getHtmlTemplate(): string {
             nestedContainers.forEach(nc => {
                 const parentRow = nc.previousElementSibling;
                 if (parentRow) {
-                    const folderCheckbox = parentRow.querySelector('input[type="checkbox"]');
+                    const folderCheckbox = parentRow.querySelector(':scope > input[type="checkbox"]');
                     if (folderCheckbox) {
                         updateFolderCheckboxState(folderCheckbox, nc);
                     }

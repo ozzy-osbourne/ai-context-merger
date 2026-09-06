@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { FilterSettings, PromptSettings } from './types';
+import { FilterSettings, PromptSettings, FileNode } from './types';
 import { GitService } from './services/gitService';
 import { WorkspaceScanner } from './services/workspaceScanner';
 import { StatsCalculator } from './services/statsCalculator';
@@ -10,8 +10,7 @@ import { getHtmlTemplate } from './ui/htmlTemplate';
 
 /**
  * Провайдер боковой панели управления контекстом AI.
- * Поддерживает файловый сканер, Git-интеграцию, сборку Markdown и реактивное автообновление
- * с изолированным управлением жизненным циклом ресурсов и наблюдателей.
+ * Реализует защиту от Race Condition, отслеживание поколений наблюдателей и CSP безопасность.
  */
 export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'aiContextMergerView';
@@ -26,33 +25,28 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         hideBinaryFiles: true
     };
 
-    // Настройки пользовательской инструкции для ИИ
     private promptSettings: PromptSettings = {
         enabled: false,
         text: ''
     };
 
     private debounceTimer?: NodeJS.Timeout;
-
-    // Глобальные подписки провайдера (команды, общие события VS Code)
     private readonly disposables: vscode.Disposable[] = [];
-
-    // Изолированные подписки наблюдателей (FileWatcher, Git API), которые могут безопасно перезапускаться
     private watcherDisposables: vscode.Disposable[] = [];
+
+    // Счетчики поколений для отмены устаревших асинхронных операций
+    private refreshGeneration: number = 0;
+    private gitWatcherGeneration: number = 0;
 
     constructor(private readonly _extensionUri: vscode.Uri) {
         this.initAutoWatchers();
 
-        // Переинициализация вотчеров при изменении структуры мульти-рут воркспейса
         vscode.workspace.onDidChangeWorkspaceFolders(() => {
             this.initAutoWatchers();
             this.triggerDebouncedRefresh();
         }, this, this.disposables);
     }
 
-    /**
-     * Очистка только активных файловых и Git наблюдателей
-     */
     private disposeWatchers(): void {
         this.watcherDisposables.forEach(d => {
             try {
@@ -62,25 +56,20 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         this.watcherDisposables = [];
     }
 
-    /**
-     * Инициализация слушателей файловой системы и Git с защитой от утечек памяти
-     */
     private initAutoWatchers(): void {
-        // Очищаем предыдущие наблюдатели перед созданием новых
         this.disposeWatchers();
 
         const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*');
         this.watcherDisposables.push(fileWatcher);
-        
+
         this.watcherDisposables.push(
             fileWatcher.onDidCreate(() => this.triggerDebouncedRefresh()),
             fileWatcher.onDidChange(() => this.triggerDebouncedRefresh()),
             fileWatcher.onDidDelete((uri: vscode.Uri) => {
                 const deletedPath = path.normalize(uri.fsPath);
-                const folderPrefix = deletedPath.endsWith(path.sep) ? deletedPath : deletedPath + path.sep;
 
                 for (const file of Array.from(this.selectedFiles)) {
-                    if (file === deletedPath || file.startsWith(folderPrefix)) {
+                    if (WorkspaceScanner.isPathInside(file, deletedPath)) {
                         this.selectedFiles.delete(file);
                     }
                 }
@@ -92,9 +81,11 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
     }
 
     /**
-     * Безопасная подписка на репозитории Git с регистрацией в watcherDisposables
+     * Безопасная инициализация слушателей Git с защитой от гонок при перезапуске (Generation Lock)
      */
     private async initGitWatcher(): Promise<void> {
+        const currentGeneration = ++this.gitWatcherGeneration;
+
         try {
             const gitExtension = vscode.extensions.getExtension('vscode.git');
             if (!gitExtension) {
@@ -102,19 +93,21 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
             }
 
             const gitExports = gitExtension.isActive ? gitExtension.exports : await gitExtension.activate();
-            const gitApi = gitExports?.getAPI(1);
-            if (!gitApi) {
+            if (this._isDisposed || this.gitWatcherGeneration !== currentGeneration) {
                 return;
             }
 
-            // Подписка на открытие новых репозиториев
+            const gitApi = gitExports?.getAPI(1);
+            if (!gitApi || this._isDisposed || this.gitWatcherGeneration !== currentGeneration) {
+                return;
+            }
+
             const onDidOpenRepoDisposable = gitApi.onDidOpenRepository((repo: any) => {
                 const repoChangeDisposable = repo.state.onDidChange(() => this.triggerDebouncedRefresh());
                 this.watcherDisposables.push(repoChangeDisposable);
             });
             this.watcherDisposables.push(onDidOpenRepoDisposable);
 
-            // Подписка на текущие открытые репозитории
             gitApi.repositories.forEach((repo: any) => {
                 const repoChangeDisposable = repo.state.onDidChange(() => this.triggerDebouncedRefresh());
                 this.watcherDisposables.push(repoChangeDisposable);
@@ -124,9 +117,6 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         }
     }
 
-    /**
-     * Запуск обновления UI с подавлением дребезга (debounce 300мс)
-     */
     public triggerDebouncedRefresh(): void {
         if (this._isDisposed) {
             return;
@@ -152,20 +142,28 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
             localResourceRoots: [this._extensionUri]
         };
 
-        webviewView.webview.html = getHtmlTemplate();
+        // Передаем webview для генерации CSP и nonce
+        webviewView.webview.html = getHtmlTemplate(webviewView.webview);
 
-        // Сброс ссылки при закрытии/уничтожении webview в UI
         webviewView.onDidDispose(() => {
             this._view = undefined;
         }, null, this.disposables);
 
         webviewView.webview.onDidReceiveMessage(async (message) => {
+            if (!message || typeof message.type !== 'string') {
+                return;
+            }
+
             switch (message.type) {
                 case 'toggleFile':
-                    this.handleFileToggle(message.filePath, message.checked);
+                    if (typeof message.filePath === 'string') {
+                        this.handleFileToggle(message.filePath, Boolean(message.checked));
+                    }
                     break;
                 case 'toggleFolder':
-                    await this.handleFolderToggle(message.folderPath, message.checked);
+                    if (typeof message.folderPath === 'string') {
+                        await this.handleFolderToggle(message.folderPath, Boolean(message.checked));
+                    }
                     break;
                 case 'selectAll':
                     await this.selectAllFiles();
@@ -174,9 +172,11 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
                     if (Array.isArray(message.filePaths)) {
                         this.selectedFiles.clear();
                         for (const filePath of message.filePaths) {
-                            this.selectedFiles.add(path.normalize(filePath));
+                            if (typeof filePath === 'string') {
+                                this.selectedFiles.add(path.normalize(filePath));
+                            }
                         }
-                        await this.refresh();
+                        await this.updateStatsOnly();
                     }
                     break;
                 case 'clearSelection':
@@ -195,13 +195,19 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
                     await this.selectModifiedGitFiles();
                     break;
                 case 'updateFilters':
-                    this.filters = message.filters;
-                    await this.refresh();
+                    if (message.filters && typeof message.filters === 'object') {
+                        this.filters = {
+                            hideGitIgnored: Boolean(message.filters.hideGitIgnored),
+                            hideLockFiles: Boolean(message.filters.hideLockFiles),
+                            hideBinaryFiles: Boolean(message.filters.hideBinaryFiles)
+                        };
+                        await this.refresh();
+                    }
                     break;
                 case 'updatePrompt':
                     this.promptSettings = {
                         enabled: Boolean(message.enabled),
-                        text: String(message.text || '')
+                        text: typeof message.text === 'string' ? message.text : ''
                     };
                     break;
                 case 'refresh':
@@ -214,32 +220,35 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         });
     }
 
-    /**
-     * Выбор всех доступных файлов рабочей области
-     */
     public async selectAllFiles(): Promise<void> {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders || workspaceFolders.length === 0) {
             return;
         }
 
-        const rootPath = path.normalize(workspaceFolders[0].uri.fsPath);
         this.selectedFiles.clear();
-        await WorkspaceScanner.toggleFolderRecursive(rootPath, true, this.filters, this.selectedFiles);
-        await this.refresh();
+        for (const folder of workspaceFolders) {
+            const rootPath = path.normalize(folder.uri.fsPath);
+            await WorkspaceScanner.toggleFolderRecursive(rootPath, true, this.filters, this.selectedFiles);
+        }
+        await this.updateStatsOnly();
     }
 
-    /**
-     * Выбор измененных и новых файлов Git
-     */
     public async selectModifiedGitFiles(): Promise<void> {
         const gitStatuses = await GitService.getGitStatusMap();
+        const workspaceFolders = vscode.workspace.workspaceFolders;
 
         this.selectedFiles.clear();
+
         for (const [filePath, status] of gitStatuses.entries()) {
             if (status === 'modified' || status === 'untracked') {
-                const fileName = path.basename(filePath);
-                const isFiltered = WorkspaceScanner.shouldFilterItem(fileName, false, this.filters);
+                const matchedFolder = workspaceFolders?.find(f => 
+                    WorkspaceScanner.isPathInside(filePath, path.normalize(f.uri.fsPath))
+                );
+
+                const rootPath = matchedFolder ? path.normalize(matchedFolder.uri.fsPath) : undefined;
+                const isFiltered = WorkspaceScanner.shouldFilterItem(filePath, false, this.filters, rootPath);
+
                 if (!isFiltered) {
                     this.selectedFiles.add(filePath);
                 }
@@ -251,12 +260,16 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
     }
 
     /**
-     * Полное обновление дерева файлов, валидация путей и пересчет статистики
+     * Обновление дерева файлов с механизмом предотвращения Race Condition
      */
     public async refresh(smartGitExpand: boolean = false, isInitialLoad: boolean = false): Promise<void> {
         if (!this._view || this._isDisposed) {
             return;
         }
+
+        // Фиксируем ID текущего запуска
+        const currentGeneration = ++this.refreshGeneration;
+        const isCanceled = () => this._isDisposed || this.refreshGeneration !== currentGeneration;
 
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -273,18 +286,29 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
             return;
         }
 
-        const rootPath = path.normalize(workspaceFolders[0].uri.fsPath);
-        
-        // Валидация корня рабочей области
-        if (!fs.existsSync(rootPath)) {
-            this.selectedFiles.clear();
+        const gitStatusMap = await GitService.getGitStatusMap();
+        if (isCanceled()) {
             return;
         }
 
-        const gitStatusMap = await GitService.getGitStatusMap();
-        const tree = await WorkspaceScanner.scanDirectory(rootPath, gitStatusMap, this.filters);
+        const treeNodes: FileNode[] = [];
 
-        // Очистка удаленных файлов и файлов из несуществующих папок
+        for (const folder of workspaceFolders) {
+            if (isCanceled()) {
+                return;
+            }
+
+            const rootPath = path.normalize(folder.uri.fsPath);
+            if (fs.existsSync(rootPath)) {
+                const folderTree = await WorkspaceScanner.scanDirectory(rootPath, gitStatusMap, this.filters, isCanceled);
+                treeNodes.push(folderTree);
+            }
+        }
+
+        if (isCanceled()) {
+            return;
+        }
+
         for (const file of Array.from(this.selectedFiles)) {
             if (!fs.existsSync(file)) {
                 this.selectedFiles.delete(file);
@@ -292,10 +316,13 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         }
 
         const stats = await StatsCalculator.calculateStats(this.selectedFiles);
+        if (isCanceled()) {
+            return;
+        }
 
         this._view.webview.postMessage({
             type: 'setData',
-            tree: [tree],
+            tree: treeNodes,
             stats,
             selectedFiles: Array.from(this.selectedFiles),
             filters: this.filters,
@@ -306,7 +333,7 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
 
     public clearSelection(): void {
         this.selectedFiles.clear();
-        this.refresh();
+        this.updateStatsOnly();
     }
 
     private handleFileToggle(filePath: string, checked: boolean): void {
@@ -322,7 +349,7 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
     private async handleFolderToggle(folderPath: string, checked: boolean): Promise<void> {
         const normalized = path.normalize(folderPath);
         await WorkspaceScanner.toggleFolderRecursive(normalized, checked, this.filters, this.selectedFiles);
-        await this.refresh();
+        await this.updateStatsOnly();
     }
 
     private async updateStatsOnly(): Promise<void> {
@@ -380,9 +407,6 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
     }
 
-    /**
-     * Полное освобождение ресурсов при деактивации расширения
-     */
     public dispose(): void {
         this._isDisposed = true;
 

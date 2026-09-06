@@ -4,18 +4,29 @@ import { MAX_CONTEXT_TOKENS } from '../constants';
 
 export class StatsCalculator {
     /**
-     * Подсчет размера и приблизительного количества токенов
+     * Параллельный подсчет размера и приблизительного количества токенов
+     * @param selectedFiles Множество путей выбранных файлов
      */
     public static async calculateStats(selectedFiles: Set<string>): Promise<ContextStats> {
         let totalChars = 0;
+        const filesArray = Array.from(selectedFiles);
 
-        for (const filePath of selectedFiles) {
+        // Параллельное чтение метаданных файлов через Promise.all
+        const sizePromises = filesArray.map(async (filePath) => {
             try {
                 const stat = await fs.promises.stat(filePath);
-                totalChars += stat.size;
-            } catch {}
+                return stat.size;
+            } catch {
+                return 0;
+            }
+        });
+
+        const sizes = await Promise.all(sizePromises);
+        for (const size of sizes) {
+            totalChars += size;
         }
 
+        // Приблизительная оценка: 1 токен ≈ 4 символа исходного кода
         const estimatedTokens = Math.ceil(totalChars / 4);
         const percentage = Math.min(100, Math.round((estimatedTokens / MAX_CONTEXT_TOKENS) * 100));
 

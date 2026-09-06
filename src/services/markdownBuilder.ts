@@ -4,9 +4,6 @@ import * as fs from 'fs';
 import { BINARY_EXTENSIONS, LANGUAGE_MAP } from '../constants';
 import { PromptSettings } from '../types';
 
-/**
- * Внутренний узел структуры для формирования иерархии ASCII-дерева
- */
 interface AsciiTreeNode {
     name: string;
     isDirectory: boolean;
@@ -21,6 +18,25 @@ export class MarkdownBuilder {
     public static getLanguageTag(filePath: string): string {
         const ext = path.extname(filePath).toLowerCase();
         return LANGUAGE_MAP[ext] || 'text';
+    }
+
+    /**
+     * Динамический расчет закрывающего блока бэктиков (защита от коллизий c кодом Markdown)
+     * @param content Содержимое файла
+     */
+    private static getFenceSequence(content: string): string {
+        const matches = content.match(/`{3,}/g);
+        if (!matches) {
+            return '```';
+        }
+        let maxLen = 2;
+        for (const match of matches) {
+            if (match.length > maxLen) {
+                maxLen = match.length;
+            }
+        }
+        // Оборачивающий блок должен быть минимум на один символ длиннее внутреннего
+        return '`'.repeat(maxLen + 1);
     }
 
     /**
@@ -98,6 +114,35 @@ export class MarkdownBuilder {
     }
 
     /**
+     * Вычисление относительного пути с корректной поддержкой Multi-Root воркспейсов
+     * @param filePath Абсолютный путь к файлу
+     * @param workspaceFolders Список открытых папок рабочей области
+     */
+    private static getRelativePath(filePath: string, workspaceFolders?: readonly vscode.WorkspaceFolder[]): string {
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return path.basename(filePath);
+        }
+
+        // Если открыто несколько корневых папок, находим соответствующую
+        for (const folder of workspaceFolders) {
+            const folderPath = path.normalize(folder.uri.fsPath);
+            const normFilePath = path.normalize(filePath);
+
+            const isMatching = process.platform === 'win32'
+                ? normFilePath.toLowerCase().startsWith(folderPath.toLowerCase())
+                : normFilePath.startsWith(folderPath);
+
+            if (isMatching) {
+                const rel = path.relative(folderPath, normFilePath).replace(/\\/g, '/');
+                // Для Multi-Root добавляем имя корневой папки в начало пути
+                return workspaceFolders.length > 1 ? `${folder.name}/${rel}` : rel;
+            }
+        }
+
+        return path.basename(filePath);
+    }
+
+    /**
      * Сборка итогового Markdown документа
      * @param selectedFiles Множество путей выбранных файлов
      * @param promptSettings Настройки пользовательской инструкции
@@ -107,16 +152,13 @@ export class MarkdownBuilder {
         promptSettings?: PromptSettings
     ): Promise<string> {
         const workspaceFolders = vscode.workspace.workspaceFolders;
-        const rootPath = workspaceFolders ? path.normalize(workspaceFolders[0].uri.fsPath) : '';
-
         const sortedFiles = Array.from(selectedFiles).sort();
-        const relativePaths = sortedFiles.map(file => path.relative(rootPath, file).replace(/\\/g, '/'));
+        const relativePaths = sortedFiles.map(file => this.getRelativePath(file, workspaceFolders));
 
         const outputBlocks: string[] = [];
 
         // ---------------------------------------------------------------------
         // 1. Формирование пользовательской инструкции для ИИ
-        // Если галочка активна, но поле пустое — блок инструкции не добавляется
         // ---------------------------------------------------------------------
         if (promptSettings && promptSettings.enabled) {
             const trimmedPrompt = promptSettings.text.trim();
@@ -126,7 +168,7 @@ export class MarkdownBuilder {
         }
 
         // ---------------------------------------------------------------------
-        // 2. Заголовочная ASCII-структура проекта
+        // 2. ASCII-дерево структуры выбранных файлов
         // ---------------------------------------------------------------------
         const asciiTree = this.generateAsciiTree(relativePaths);
         outputBlocks.push(asciiTree);
@@ -155,7 +197,9 @@ export class MarkdownBuilder {
                 try {
                     const text = (await fs.promises.readFile(filePath, 'utf-8')).trimEnd();
                     const langTag = this.getLanguageTag(filePath);
-                    contentBlock = `\`\`\`${langTag}\n${text}\n\`\`\``;
+                    const fence = this.getFenceSequence(text);
+                    // Оборачиваем вычисленной последовательностью бэктиков
+                    contentBlock = `${fence}${langTag}\n${text}\n${fence}`;
                 } catch (err) {
                     contentBlock = `\`\`\`text\n<Ошибка чтения файла: ${err}>\n\`\`\``;
                 }

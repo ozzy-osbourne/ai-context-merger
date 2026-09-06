@@ -3,10 +3,16 @@ import * as path from 'path';
 import { GitFileStatus } from '../types';
 
 export class GitService {
+    private static cachedGitApi: any = null;
+
     /**
-     * Получение экземпляра API встроенного расширения Git
+     * Получение и кэширование экземпляра API встроенного расширения Git
      */
     private static async getGitApi(): Promise<any | null> {
+        if (this.cachedGitApi) {
+            return this.cachedGitApi;
+        }
+
         try {
             const gitExtension = vscode.extensions.getExtension('vscode.git');
             if (!gitExtension) {
@@ -21,14 +27,16 @@ export class GitService {
                 return null;
             }
 
-            return gitExports.getAPI(1);
+            this.cachedGitApi = gitExports.getAPI(1);
+            return this.cachedGitApi;
         } catch {
             return null;
         }
     }
 
     /**
-     * Проверка списка путей на соответствие правилам .gitignore через VS Code Git API
+     * Высокопроизводительная проверка путей через .gitignore
+     * Репозитории сопоставляются синхронно в памяти без лишних IPC-запросов к API
      * @param paths Массив абсолютных путей для проверки
      * @returns Множество путей, которые проигнорированы Git
      */
@@ -40,18 +48,51 @@ export class GitService {
 
         try {
             const gitApi = await this.getGitApi();
-            if (!gitApi || gitApi.repositories.length === 0) {
+            if (!gitApi || !gitApi.repositories || gitApi.repositories.length === 0) {
                 return ignoredPaths;
             }
 
-            const repo = gitApi.repositories[0];
-            // Используем нативный метод checkIgnore API репозитория VS Code Git
-            if (typeof repo.checkIgnore === 'function') {
-                const result: Set<string> = await repo.checkIgnore(paths);
-                for (const item of result) {
-                    ignoredPaths.add(path.normalize(item));
+            // Создаем быструю карту корней репозиториев для сопоставления путей в O(1)
+            const repos = gitApi.repositories as any[];
+            const repoMap = repos.map(repo => {
+                const rootFsPath = path.normalize(repo.rootUri.fsPath);
+                return {
+                    repo,
+                    rootPath: rootFsPath,
+                    rootLower: process.platform === 'win32' ? rootFsPath.toLowerCase() : rootFsPath
+                };
+            });
+
+            const repoPathsMap = new Map<any, string[]>();
+
+            for (const itemPath of paths) {
+                const normalizedPath = path.normalize(itemPath);
+                const comparePath = process.platform === 'win32' ? normalizedPath.toLowerCase() : normalizedPath;
+
+                // Быстрый поиск соответствующего репозитория по префиксу пути в памяти
+                const matched = repoMap.find(r => 
+                    comparePath === r.rootLower || 
+                    comparePath.startsWith(r.rootLower.endsWith(path.sep) ? r.rootLower : r.rootLower + path.sep)
+                );
+
+                if (matched && typeof matched.repo.checkIgnore === 'function') {
+                    const group = repoPathsMap.get(matched.repo) || [];
+                    group.push(normalizedPath);
+                    repoPathsMap.set(matched.repo, group);
                 }
             }
+
+            // Параллельный запуск пакетной проверки для каждого задействованного репозитория
+            const checkPromises = Array.from(repoPathsMap.entries()).map(async ([repo, repoPaths]) => {
+                try {
+                    const result: Set<string> = await repo.checkIgnore(repoPaths);
+                    for (const item of result) {
+                        ignoredPaths.add(path.normalize(item));
+                    }
+                } catch {}
+            });
+
+            await Promise.all(checkPromises);
         } catch (error) {
             console.warn('[AI Context Merger] Ошибка проверки правил .gitignore:', error);
         }
@@ -60,38 +101,36 @@ export class GitService {
     }
 
     /**
-     * Получение карты статусов файлов в системе контроля версий Git
+     * Получение карты статусов файлов во всех открытых репозиториях Git рабочей области
      */
     public static async getGitStatusMap(): Promise<Map<string, GitFileStatus>> {
         const statusMap = new Map<string, GitFileStatus>();
         try {
             const gitApi = await this.getGitApi();
-            if (!gitApi || gitApi.repositories.length === 0) {
+            if (!gitApi || !gitApi.repositories || gitApi.repositories.length === 0) {
                 return statusMap;
             }
 
-            const repo = gitApi.repositories[0];
+            for (const repo of gitApi.repositories) {
+                // 1. Неотслеживаемые новые файлы (Untracked)
+                for (const change of repo.state.untrackedChanges) {
+                    statusMap.set(path.normalize(change.uri.fsPath), 'untracked');
+                }
 
-            // 1. Неотслеживаемые новые файлы (Untracked)
-            for (const change of repo.state.untrackedChanges) {
-                statusMap.set(path.normalize(change.uri.fsPath), 'untracked');
-            }
+                // 2. Изменения в рабочей директории (Working Tree)
+                for (const change of repo.state.workingTreeChanges) {
+                    const normPath = path.normalize(change.uri.fsPath);
+                    const isUntracked = change.status === 7;
+                    statusMap.set(normPath, isUntracked ? 'untracked' : 'modified');
+                }
 
-            // 2. Изменения в рабочей директории (Working Tree)
-            for (const change of repo.state.workingTreeChanges) {
-                const normPath = path.normalize(change.uri.fsPath);
-                // Status 7 в VS Code Git API = UNTRACKED / INDEX_ADDED
-                const isUntracked = change.status === 7;
-                statusMap.set(normPath, isUntracked ? 'untracked' : 'modified');
-            }
-
-            // 3. Изменения в индексе (Staged Changes)
-            for (const change of repo.state.indexChanges) {
-                const normPath = path.normalize(change.uri.fsPath);
-                // Status 1 в VS Code Git API = INDEX_ADDED
-                const isAdded = change.status === 1;
-                if (!statusMap.has(normPath)) {
-                    statusMap.set(normPath, isAdded ? 'untracked' : 'modified');
+                // 3. Изменения в индексе (Staged Changes)
+                for (const change of repo.state.indexChanges) {
+                    const normPath = path.normalize(change.uri.fsPath);
+                    const isAdded = change.status === 1;
+                    if (!statusMap.has(normPath)) {
+                        statusMap.set(normPath, isAdded ? 'untracked' : 'modified');
+                    }
                 }
             }
         } catch (error) {
