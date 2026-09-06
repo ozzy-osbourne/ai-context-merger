@@ -10,7 +10,7 @@ import { getHtmlTemplate } from './ui/htmlTemplate';
 
 /**
  * Провайдер боковой панели управления контекстом AI.
- * Реализует защиту от Race Condition, отслеживание поколений наблюдателей и CSP безопасность.
+ * Реализует защиту от Race Condition, отслеживание поколений и умную фильтрацию вотчера.
  */
 export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'aiContextMergerView';
@@ -34,7 +34,6 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
     private readonly disposables: vscode.Disposable[] = [];
     private watcherDisposables: vscode.Disposable[] = [];
 
-    // Счетчики поколений для отмены устаревших асинхронных операций
     private refreshGeneration: number = 0;
     private gitWatcherGeneration: number = 0;
 
@@ -56,6 +55,38 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         this.watcherDisposables = [];
     }
 
+    /**
+     * Проверка, следует ли игнорировать событие изменения файла вотчером
+     */
+    private async shouldIgnoreWatcherUri(uri: vscode.Uri): Promise<boolean> {
+        const fsPath = path.normalize(uri.fsPath);
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        const matchedFolder = workspaceFolders?.find(f =>
+            WorkspaceScanner.isPathInside(fsPath, path.normalize(f.uri.fsPath))
+        );
+        const rootPath = matchedFolder ? path.normalize(matchedFolder.uri.fsPath) : undefined;
+
+        if (WorkspaceScanner.isIgnoredByPathSegments(fsPath, rootPath)) {
+            return true;
+        }
+
+        const fileName = path.basename(fsPath);
+        const isDir = fs.existsSync(fsPath) ? fs.statSync(fsPath).isDirectory() : false;
+
+        if (WorkspaceScanner.isFilteredByType(fileName, isDir, this.filters)) {
+            return true;
+        }
+
+        if (this.filters.hideGitIgnored) {
+            const ignored = await GitService.checkIgnoredPaths([fsPath]);
+            if (ignored.has(fsPath)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private initAutoWatchers(): void {
         this.disposeWatchers();
 
@@ -63,9 +94,17 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         this.watcherDisposables.push(fileWatcher);
 
         this.watcherDisposables.push(
-            fileWatcher.onDidCreate(() => this.triggerDebouncedRefresh()),
-            fileWatcher.onDidChange(() => this.triggerDebouncedRefresh()),
-            fileWatcher.onDidDelete((uri: vscode.Uri) => {
+            fileWatcher.onDidCreate(async (uri) => {
+                if (!(await this.shouldIgnoreWatcherUri(uri))) {
+                    this.triggerDebouncedRefresh();
+                }
+            }),
+            fileWatcher.onDidChange(async (uri) => {
+                if (!(await this.shouldIgnoreWatcherUri(uri))) {
+                    this.triggerDebouncedRefresh();
+                }
+            }),
+            fileWatcher.onDidDelete(async (uri) => {
                 const deletedPath = path.normalize(uri.fsPath);
 
                 for (const file of Array.from(this.selectedFiles)) {
@@ -73,16 +112,16 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
                         this.selectedFiles.delete(file);
                     }
                 }
-                this.triggerDebouncedRefresh();
+
+                if (!(await this.shouldIgnoreWatcherUri(uri))) {
+                    this.triggerDebouncedRefresh();
+                }
             })
         );
 
         this.initGitWatcher();
     }
 
-    /**
-     * Безопасная инициализация слушателей Git с защитой от гонок при перезапуске (Generation Lock)
-     */
     private async initGitWatcher(): Promise<void> {
         const currentGeneration = ++this.gitWatcherGeneration;
 
@@ -142,7 +181,6 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
             localResourceRoots: [this._extensionUri]
         };
 
-        // Передаем webview для генерации CSP и nonce
         webviewView.webview.html = getHtmlTemplate(webviewView.webview);
 
         webviewView.onDidDispose(() => {
@@ -163,6 +201,21 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
                 case 'toggleFolder':
                     if (typeof message.folderPath === 'string') {
                         await this.handleFolderToggle(message.folderPath, Boolean(message.checked));
+                    }
+                    break;
+                case 'toggleFilesBatch':
+                    if (Array.isArray(message.filePaths)) {
+                        for (const filePath of message.filePaths) {
+                            if (typeof filePath === 'string') {
+                                const norm = path.normalize(filePath);
+                                if (message.checked) {
+                                    this.selectedFiles.add(norm);
+                                } else {
+                                    this.selectedFiles.delete(norm);
+                                }
+                            }
+                        }
+                        await this.updateStatsOnly();
                     }
                     break;
                 case 'selectAll':
@@ -209,6 +262,7 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
                         enabled: Boolean(message.enabled),
                         text: typeof message.text === 'string' ? message.text : ''
                     };
+                    await this.updateStatsOnly();
                     break;
                 case 'refresh':
                     await this.refresh();
@@ -260,14 +314,15 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
     }
 
     /**
-     * Обновление дерева файлов с механизмом предотвращения Race Condition
+     * Обновление дерева файлов
+     * @param smartGitExpand Умное раскрытие папок с измененными файлами Git
+     * @param isInitialLoad Флаг первой инициализации
      */
     public async refresh(smartGitExpand: boolean = false, isInitialLoad: boolean = false): Promise<void> {
         if (!this._view || this._isDisposed) {
             return;
         }
 
-        // Фиксируем ID текущего запуска
         const currentGeneration = ++this.refreshGeneration;
         const isCanceled = () => this._isDisposed || this.refreshGeneration !== currentGeneration;
 
@@ -300,7 +355,14 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
 
             const rootPath = path.normalize(folder.uri.fsPath);
             if (fs.existsSync(rootPath)) {
-                const folderTree = await WorkspaceScanner.scanDirectory(rootPath, gitStatusMap, this.filters, isCanceled);
+                const folderTree = await WorkspaceScanner.scanDirectory(
+                    rootPath,
+                    gitStatusMap,
+                    this.filters,
+                    20,
+                    0,
+                    isCanceled
+                );
                 treeNodes.push(folderTree);
             }
         }
@@ -315,7 +377,7 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
             }
         }
 
-        const stats = await StatsCalculator.calculateStats(this.selectedFiles);
+        const stats = await StatsCalculator.calculateStats(this.selectedFiles, this.promptSettings);
         if (isCanceled()) {
             return;
         }
@@ -356,7 +418,7 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         if (!this._view || this._isDisposed) {
             return;
         }
-        const stats = await StatsCalculator.calculateStats(this.selectedFiles);
+        const stats = await StatsCalculator.calculateStats(this.selectedFiles, this.promptSettings);
         this._view.webview.postMessage({
             type: 'updateStats',
             stats,

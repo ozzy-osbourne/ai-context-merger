@@ -6,9 +6,9 @@ import { GitService } from './gitService';
 
 export class WorkspaceScanner {
     /**
-     * Безопасная проверка вхождения пути (с учетом нечувствительности к регистру на Windows)
-     * @param targetPath Полный путь к проверяемому файлу/папке
-     * @param parentDirPath Полный путь к родительской папке
+     * Безопасная проверка вхождения пути с учетом регистра Windows
+     * @param targetPath Проверяемый путь к файлу или директории
+     * @param parentDirPath Путь к родительской директории
      */
     public static isPathInside(targetPath: string, parentDirPath: string): boolean {
         const normalizedTarget = path.normalize(targetPath);
@@ -26,9 +26,9 @@ export class WorkspaceScanner {
     }
 
     /**
-     * Проверка, находится ли файл или любой из его родительских каталогов в списке ALWAYS_IGNORED
-     * @param fullPath Абсолютный путь к файлу
-     * @param workspaceRootPath Корневой путь воркспейса
+     * Проверка, находится ли путь внутри всегда игнорируемых системных директорий
+     * @param fullPath Абсолютный путь
+     * @param workspaceRootPath Корень рабочей области
      */
     public static isIgnoredByPathSegments(fullPath: string, workspaceRootPath?: string): boolean {
         const normalized = path.normalize(fullPath);
@@ -46,10 +46,7 @@ export class WorkspaceScanner {
     }
 
     /**
-     * Проверка фильтров Lock-файлов и бинарников
-     * @param name Имя файла
-     * @param isDirectory Флаг директории
-     * @param filters Настройки фильтрации
+     * Проверка фильтров lock-файлов и бинарников
      */
     public static isFilteredByType(name: string, isDirectory: boolean, filters: FilterSettings): boolean {
         if (isDirectory) {
@@ -68,10 +65,6 @@ export class WorkspaceScanner {
 
     /**
      * Комплексная проверка элемента на исключение
-     * @param fullPath Полный путь к файлу или папке
-     * @param isDirectory Флаг директории
-     * @param filters Настройки фильтрации
-     * @param workspaceRootPath Корневая папка рабочей области
      */
     public static shouldFilterItem(
         fullPath: string,
@@ -89,16 +82,20 @@ export class WorkspaceScanner {
     }
 
     /**
-     * Сканирование директории с поддержкой досрочного прерывания (Cancel Check)
-     * @param dirPath Абсолютный путь к сканируемой папке
+     * Сканирование директории с защитой от циклических путей и глубокой вложенности
+     * @param dirPath Путь к директории
      * @param gitStatusMap Карта статусов Git
-     * @param filters Активные настройки фильтрации
-     * @param isCanceled Функция проверки отмены операции
+     * @param filters Настройки фильтрации
+     * @param maxDepth Максимальная безопасная глубина сканирования
+     * @param currentDepth Текущий уровень вложенности
+     * @param isCanceled Функция отмены операции
      */
     public static async scanDirectory(
         dirPath: string,
         gitStatusMap: Map<string, GitFileStatus>,
         filters: FilterSettings,
+        maxDepth: number = 20,
+        currentDepth: number = 0,
         isCanceled?: () => boolean
     ): Promise<FileNode> {
         const normalizedDirPath = path.normalize(dirPath);
@@ -116,6 +113,10 @@ export class WorkspaceScanner {
             return node;
         }
 
+        if (currentDepth >= maxDepth) {
+            return node;
+        }
+
         try {
             const stat = await fs.promises.stat(normalizedDirPath);
             if (!stat.isDirectory()) {
@@ -123,15 +124,14 @@ export class WorkspaceScanner {
             }
 
             const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
-
             if (isCanceled && isCanceled()) {
                 return node;
             }
 
-            // 1. Первый приоритет: системные папки
+            // 1. Фильтрация системных папок
             const primaryFilteredEntries = entries.filter(entry => !ALWAYS_IGNORED.has(entry.name));
 
-            // 2. Второй приоритет: правила .gitignore
+            // 2. Проверка правил .gitignore
             let gitIgnoredPaths = new Set<string>();
             if (filters.hideGitIgnored) {
                 const candidatePaths = primaryFilteredEntries.map(e => path.normalize(path.join(normalizedDirPath, e.name)));
@@ -142,18 +142,15 @@ export class WorkspaceScanner {
                 return node;
             }
 
-            // 3. Третий приоритет: lock-файлы и бинарники
+            // 3. Фильтрация бинарников и lock-файлов
             const validEntries = primaryFilteredEntries.filter(entry => {
                 const fullPath = path.normalize(path.join(normalizedDirPath, entry.name));
-
                 if (filters.hideGitIgnored && gitIgnoredPaths.has(fullPath)) {
                     return false;
                 }
-
                 if (this.isFilteredByType(entry.name, entry.isDirectory(), filters)) {
                     return false;
                 }
-
                 return true;
             });
 
@@ -175,7 +172,14 @@ export class WorkspaceScanner {
                 const fullPath = path.normalize(path.join(normalizedDirPath, entry.name));
 
                 if (entry.isDirectory()) {
-                    const childFolder = await this.scanDirectory(fullPath, gitStatusMap, filters, isCanceled);
+                    const childFolder = await this.scanDirectory(
+                        fullPath,
+                        gitStatusMap,
+                        filters,
+                        maxDepth,
+                        currentDepth + 1,
+                        isCanceled
+                    );
 
                     if (childFolder.gitFolderStatus === 'untracked') {
                         hasUntracked = true;
@@ -214,11 +218,7 @@ export class WorkspaceScanner {
     }
 
     /**
-     * Рекурсивный выбор / снятие выбора файлов
-     * @param dirPath Путь к целевой директории
-     * @param checked Флаг выбора
-     * @param filters Настройки фильтрации
-     * @param selectedFiles Множество выбранных файлов
+     * Рекурсивный выбор / снятие выбора файлов на диске
      */
     public static async toggleFolderRecursive(
         dirPath: string,

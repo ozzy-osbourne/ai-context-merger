@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { GitFileStatus } from '../types';
+import * as fs from 'fs';
+import { GitFileStatus, VscodeGitStatus } from '../types';
 
 export class GitService {
     private static cachedGitApi: any = null;
@@ -36,7 +37,6 @@ export class GitService {
 
     /**
      * Высокопроизводительная проверка путей через .gitignore
-     * Репозитории сопоставляются синхронно в памяти без лишних IPC-запросов к API
      * @param paths Массив абсолютных путей для проверки
      * @returns Множество путей, которые проигнорированы Git
      */
@@ -52,7 +52,6 @@ export class GitService {
                 return ignoredPaths;
             }
 
-            // Создаем быструю карту корней репозиториев для сопоставления путей в O(1)
             const repos = gitApi.repositories as any[];
             const repoMap = repos.map(repo => {
                 const rootFsPath = path.normalize(repo.rootUri.fsPath);
@@ -69,7 +68,6 @@ export class GitService {
                 const normalizedPath = path.normalize(itemPath);
                 const comparePath = process.platform === 'win32' ? normalizedPath.toLowerCase() : normalizedPath;
 
-                // Быстрый поиск соответствующего репозитория по префиксу пути в памяти
                 const matched = repoMap.find(r => 
                     comparePath === r.rootLower || 
                     comparePath.startsWith(r.rootLower.endsWith(path.sep) ? r.rootLower : r.rootLower + path.sep)
@@ -82,7 +80,6 @@ export class GitService {
                 }
             }
 
-            // Параллельный запуск пакетной проверки для каждого задействованного репозитория
             const checkPromises = Array.from(repoPathsMap.entries()).map(async ([repo, repoPaths]) => {
                 try {
                     const result: Set<string> = await repo.checkIgnore(repoPaths);
@@ -101,7 +98,7 @@ export class GitService {
     }
 
     /**
-     * Получение карты статусов файлов во всех открытых репозиториях Git рабочей области
+     * Получение карты статусов файлов Git с игнорированием удаленных файлов
      */
     public static async getGitStatusMap(): Promise<Map<string, GitFileStatus>> {
         const statusMap = new Map<string, GitFileStatus>();
@@ -114,20 +111,39 @@ export class GitService {
             for (const repo of gitApi.repositories) {
                 // 1. Неотслеживаемые новые файлы (Untracked)
                 for (const change of repo.state.untrackedChanges) {
-                    statusMap.set(path.normalize(change.uri.fsPath), 'untracked');
+                    const normPath = path.normalize(change.uri.fsPath);
+                    if (fs.existsSync(normPath)) {
+                        statusMap.set(normPath, 'untracked');
+                    }
                 }
 
                 // 2. Изменения в рабочей директории (Working Tree)
                 for (const change of repo.state.workingTreeChanges) {
                     const normPath = path.normalize(change.uri.fsPath);
-                    const isUntracked = change.status === 7;
+                    
+                    // Игнорируем удаленные файлы любого типа (локальные, конфликты удаления)
+                    const isDeleted = change.status === VscodeGitStatus.DELETED ||
+                                      change.status === VscodeGitStatus.DELETED_BY_US ||
+                                      change.status === VscodeGitStatus.DELETED_BY_THEM ||
+                                      change.status === VscodeGitStatus.BOTH_DELETED;
+
+                    if (isDeleted || !fs.existsSync(normPath)) {
+                        continue;
+                    }
+
+                    const isUntracked = change.status === VscodeGitStatus.UNTRACKED;
                     statusMap.set(normPath, isUntracked ? 'untracked' : 'modified');
                 }
 
                 // 3. Изменения в индексе (Staged Changes)
                 for (const change of repo.state.indexChanges) {
                     const normPath = path.normalize(change.uri.fsPath);
-                    const isAdded = change.status === 1;
+
+                    if (change.status === VscodeGitStatus.INDEX_DELETED || !fs.existsSync(normPath)) {
+                        continue;
+                    }
+
+                    const isAdded = change.status === VscodeGitStatus.INDEX_ADDED;
                     if (!statusMap.has(normPath)) {
                         statusMap.set(normPath, isAdded ? 'untracked' : 'modified');
                     }

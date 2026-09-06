@@ -10,6 +10,8 @@ export interface FileNode {
     gitStatus: GitFileStatus;
     gitFolderStatus?: GitFileStatus;
     children?: FileNode[];
+    /** Флаг, указывающий, загружены ли дочерние элементы с диска (для Lazy Loading) */
+    isLoaded?: boolean;
 }
 
 /**

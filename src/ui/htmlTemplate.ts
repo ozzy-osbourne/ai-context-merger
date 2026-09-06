@@ -239,6 +239,11 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
             cursor: pointer;
             margin: 0;
         }
+        .filter-item input:disabled,
+        .tree-row input[type="checkbox"]:disabled {
+            cursor: not-allowed;
+            opacity: 0.35;
+        }
 
         .search-container {
             margin-top: 8px;
@@ -574,7 +579,7 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
         document.getElementById('btnSelectAll').addEventListener('click', () => {
             const searchQuery = document.getElementById('searchInput').value.trim();
             if (searchQuery) {
-                const visibleFileElements = document.querySelectorAll('#treeView .tree-item:not([data-is-dir="true"]):not(.hidden)');
+                const visibleFileElements = document.querySelectorAll('#treeView .tree-item[data-is-dir="false"]:not(.hidden)');
                 const paths = Array.from(visibleFileElements).map(el => el.getAttribute('data-path')).filter(Boolean);
                 paths.forEach(p => selectedFilesSet.add(p));
                 syncTreeCheckboxesWithSet(document.getElementById('treeView'), selectedFilesSet);
@@ -707,8 +712,9 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
             topItems.forEach(item => checkNodeVisibility(item));
             saveState();
 
-            const visibleFiles = rootContainer.querySelectorAll('.tree-item:not([data-is-dir="true"]):not(.hidden)');
+            const visibleFiles = rootContainer.querySelectorAll('.tree-item[data-is-dir="false"]:not(.hidden)');
             selectAllBtn.innerText = '✅ Выбрать найденное (' + visibleFiles.length + ')';
+            syncFolderCheckboxes(rootContainer);
         }
 
         function restoreTreeVisibility(container) {
@@ -818,7 +824,7 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
                 const childrenContainer = document.createElement('div');
                 childrenContainer.className = 'nested' + (isExpanded ? '' : ' hidden');
                 
-                if (node.children) {
+                if (node.children && node.children.length > 0) {
                     node.children.forEach(child => {
                         childrenContainer.appendChild(createNodeElement(child));
                     });
@@ -842,34 +848,62 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
                 });
 
                 checkbox.addEventListener('change', (e) => {
+                    if (checkbox.disabled) return;
                     const isChecked = e.target.checked;
+                    const searchQuery = document.getElementById('searchInput').value.trim();
 
-                    const childCheckboxes = childrenContainer.querySelectorAll('input[type="checkbox"]');
-                    childCheckboxes.forEach(cb => {
-                        cb.checked = isChecked;
-                        cb.indeterminate = false;
+                    if (searchQuery) {
+                        const visibleFileItems = childrenContainer.querySelectorAll('.tree-item[data-is-dir="false"]:not(.hidden)');
+                        const affectedPaths = [];
 
-                        const fileItem = cb.closest('.tree-item');
-                        if (fileItem && fileItem.getAttribute('data-is-dir') === 'false') {
+                        visibleFileItems.forEach(item => {
+                            const p = item.getAttribute('data-path');
+                            const cb = item.querySelector(':scope > .tree-row input[type="checkbox"]');
+                            if (p && cb) {
+                                cb.checked = isChecked;
+                                cb.indeterminate = false;
+                                if (isChecked) {
+                                    selectedFilesSet.add(p);
+                                } else {
+                                    selectedFilesSet.delete(p);
+                                }
+                                affectedPaths.push(p);
+                            }
+                        });
+
+                        checkbox.indeterminate = false;
+                        syncFolderCheckboxes(document.getElementById('treeView'));
+
+                        vscode.postMessage({
+                            type: 'toggleFilesBatch',
+                            filePaths: affectedPaths,
+                            checked: isChecked
+                        });
+                    } else {
+                        const childFileItems = childrenContainer.querySelectorAll('.tree-item[data-is-dir="false"]');
+                        childFileItems.forEach(fileItem => {
                             const p = fileItem.getAttribute('data-path');
-                            if (p) {
+                            const cb = fileItem.querySelector(':scope > .tree-row input[type="checkbox"]');
+                            if (p && cb) {
+                                cb.checked = isChecked;
+                                cb.indeterminate = false;
                                 if (isChecked) {
                                     selectedFilesSet.add(p);
                                 } else {
                                     selectedFilesSet.delete(p);
                                 }
                             }
-                        }
-                    });
+                        });
 
-                    checkbox.indeterminate = false;
-                    syncFolderCheckboxes(document.getElementById('treeView'));
+                        checkbox.indeterminate = false;
+                        syncFolderCheckboxes(document.getElementById('treeView'));
 
-                    vscode.postMessage({
-                        type: 'toggleFolder',
-                        folderPath: node.path,
-                        checked: isChecked
-                    });
+                        vscode.postMessage({
+                            type: 'toggleFolder',
+                            folderPath: node.path,
+                            checked: isChecked
+                        });
+                    }
                 });
             } else {
                 checkbox.checked = selectedFilesSet.has(node.path);
@@ -931,50 +965,59 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
             return wrapper;
         }
 
+        /**
+         * Вычисление состояния чекбокса папки на основе реальных конечных файлов внутри её поддерева
+         */
         function updateFolderCheckboxState(folderCheckbox, childrenContainer) {
-            const directChildItems = childrenContainer.querySelectorAll(':scope > .tree-item');
-            if (directChildItems.length === 0) {
+            const searchQuery = document.getElementById('searchInput').value.trim();
+            const folderRow = folderCheckbox.closest('.tree-row');
+            
+            const fileSelector = searchQuery
+                ? '.tree-item[data-is-dir="false"]:not(.hidden) > .tree-row input[type="checkbox"]'
+                : '.tree-item[data-is-dir="false"] > .tree-row input[type="checkbox"]';
+
+            const fileCheckboxes = childrenContainer.querySelectorAll(fileSelector);
+            const totalFiles = fileCheckboxes.length;
+
+            if (totalFiles === 0) {
                 folderCheckbox.checked = false;
                 folderCheckbox.indeterminate = false;
+                folderCheckbox.disabled = true;
+                if (folderRow) {
+                    folderRow.title = 'Папка пуста или её содержимое скрыто фильтрами';
+                }
                 return;
             }
 
-            let checkedCount = 0;
-            let indeterminateCount = 0;
-            let totalCount = 0;
+            folderCheckbox.disabled = false;
+            if (folderRow) {
+                folderRow.removeAttribute('title');
+            }
 
-            directChildItems.forEach(item => {
-                const cb = item.querySelector(':scope > .tree-row input[type="checkbox"]');
-                if (cb) {
-                    totalCount++;
-                    if (cb.indeterminate) {
-                        indeterminateCount++;
-                    } else if (cb.checked) {
-                        checkedCount++;
-                    }
+            let checkedCount = 0;
+            fileCheckboxes.forEach(cb => {
+                if (cb.checked) {
+                    checkedCount++;
                 }
             });
 
-            if (totalCount === 0) {
+            if (checkedCount === 0) {
                 folderCheckbox.checked = false;
                 folderCheckbox.indeterminate = false;
-            } else if (checkedCount === totalCount) {
+            } else if (checkedCount === totalFiles) {
                 folderCheckbox.checked = true;
                 folderCheckbox.indeterminate = false;
-            } else if (checkedCount > 0 || indeterminateCount > 0) {
-                folderCheckbox.checked = false;
-                folderCheckbox.indeterminate = true;
             } else {
                 folderCheckbox.checked = false;
-                folderCheckbox.indeterminate = false;
+                folderCheckbox.indeterminate = true;
             }
         }
 
         function syncTreeCheckboxesWithSet(container, set) {
-            const fileItems = container.querySelectorAll('.tree-item:not([data-is-dir="true"])');
+            const fileItems = container.querySelectorAll('.tree-item[data-is-dir="false"]');
             fileItems.forEach(item => {
                 const p = item.getAttribute('data-path');
-                const cb = item.querySelector('input[type="checkbox"]');
+                const cb = item.querySelector(':scope > .tree-row input[type="checkbox"]');
                 if (p && cb) {
                     cb.checked = set.has(p);
                 }

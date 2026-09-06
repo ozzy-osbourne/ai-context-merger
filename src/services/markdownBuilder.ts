@@ -13,7 +13,6 @@ interface AsciiTreeNode {
 export class MarkdownBuilder {
     /**
      * Определение тега подсветки Markdown по расширению файла
-     * @param filePath Путь к файлу
      */
     public static getLanguageTag(filePath: string): string {
         const ext = path.extname(filePath).toLowerCase();
@@ -21,8 +20,7 @@ export class MarkdownBuilder {
     }
 
     /**
-     * Динамический расчет закрывающего блока бэктиков (защита от коллизий c кодом Markdown)
-     * @param content Содержимое файла
+     * Динамический расчет закрывающего блока бэктиков для исключения коллизий
      */
     private static getFenceSequence(content: string): string {
         const matches = content.match(/`{3,}/g);
@@ -35,14 +33,122 @@ export class MarkdownBuilder {
                 maxLen = match.length;
             }
         }
-        // Оборачивающий блок должен быть минимум на один символ длиннее внутреннего
         return '`'.repeat(maxLen + 1);
     }
 
     /**
-     * Построение промежуточного дерева для генерации ASCII-структуры
-     * @param relativePaths Список относительных путей выбранных файлов
+     * Кроссплатформенная нормализация путей и регистра буквы диска для Windows / macOS / Linux
+     * @param p Путь к файлу или папке
      */
+    public static normalizePathForComparison(p: string): string {
+        const normalized = path.normalize(p);
+        if (process.platform === 'win32') {
+            // На Windows приводим букву диска к верхнему регистру (C:\ вместо c:\)
+            return normalized.replace(/^[a-zA-Z]:/, match => match.toUpperCase());
+        }
+        return normalized;
+    }
+
+    /**
+     * Вычисление относительного пути с корректной поддержкой Multi-Root воркспейсов и регистра ОС
+     * @param filePath Абсолютный путь к файлу
+     * @param workspaceFolders Список открытых папок рабочей области
+     */
+    public static getRelativePath(filePath: string, workspaceFolders?: readonly vscode.WorkspaceFolder[]): string {
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return path.basename(filePath);
+        }
+
+        const normFilePath = this.normalizePathForComparison(filePath);
+        const compareFilePath = process.platform === 'win32' ? normFilePath.toLowerCase() : normFilePath;
+
+        for (const folder of workspaceFolders) {
+            const folderPath = this.normalizePathForComparison(folder.uri.fsPath);
+            const compareFolderPath = process.platform === 'win32' ? folderPath.toLowerCase() : folderPath;
+            const folderPrefix = compareFolderPath.endsWith(path.sep) ? compareFolderPath : compareFolderPath + path.sep;
+
+            const isMatching = compareFilePath.startsWith(folderPrefix) || compareFilePath === compareFolderPath;
+
+            if (isMatching) {
+                const rel = path.relative(folderPath, normFilePath).replace(/\\/g, '/');
+                return workspaceFolders.length > 1 ? `${folder.name}/${rel}` : rel;
+            }
+        }
+
+        return path.basename(filePath);
+    }
+
+    /**
+     * Быстрая проверка буфера на наличие бинарных данных (нулевых байтов)
+     */
+    private static isBinaryBuffer(buffer: Buffer): boolean {
+        const checkLength = Math.min(buffer.length, 8000);
+        for (let i = 0; i < checkLength; i++) {
+            if (buffer[i] === 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Безопасное чтение и декодирование файла с защитой от бинарников и повреждённых кодировок
+     * @param filePath Абсолютный путь к файлу
+     */
+    public static async safeReadFile(filePath: string): Promise<{ text?: string; placeholder?: string }> {
+        const ext = path.extname(filePath).toLowerCase();
+
+        let stat: fs.Stats | undefined;
+        try {
+            stat = await fs.promises.stat(filePath);
+        } catch {
+            return { placeholder: `\`\`\`text\n<Ошибка чтения: файл не найден или заблокирован>\n\`\`\`` };
+        }
+
+        const sizeKb = (stat.size / 1024).toFixed(1);
+
+        // 1. Проверка по известным расширениям бинарников
+        if (BINARY_EXTENSIONS.has(ext)) {
+            return {
+                placeholder: `[Бинарный файл: ${ext.replace('.', '').toUpperCase()} (${sizeKb} KB) — содержимое пропущено для сохранения контекста]`
+            };
+        }
+
+        let buffer: Buffer;
+        try {
+            buffer = await fs.promises.readFile(filePath);
+        } catch (err) {
+            return { placeholder: `\`\`\`text\n<Ошибка чтения файла: ${err}>\n\`\`\`` };
+        }
+
+        // 2. Эвристическая проверка на скрытые бинарные данные
+        if (this.isBinaryBuffer(buffer)) {
+            return {
+                placeholder: `[Бинарный или скомпилированный файл: ${ext ? ext.replace('.', '').toUpperCase() : 'BINARY'} (${sizeKb} KB) — содержимое пропущено для сохранения контекста]`
+            };
+        }
+
+        // 3. Строгая валидация UTF-8
+        try {
+            const strictDecoder = new TextDecoder('utf-8', { fatal: true });
+            const text = strictDecoder.decode(buffer).trimEnd();
+            return { text };
+        } catch {
+            // Если строгий UTF-8 упал, анализируем процент битых символов замены
+            const lenientDecoder = new TextDecoder('utf-8', { fatal: false });
+            const text = lenientDecoder.decode(buffer).trimEnd();
+            const replacementCount = (text.match(/\uFFFD/g) || []).length;
+
+            if (replacementCount > 0 && replacementCount / Math.max(text.length, 1) > 0.05) {
+                return {
+                    placeholder: `[Файл с нераспознанной или повреждённой кодировкой (не UTF-8, ${sizeKb} KB) — пропущен для предотвращения искажения контекста ИИ]`
+                };
+            }
+
+            return { text };
+        }
+    }
+
     private static buildAsciiTreeHierarchy(relativePaths: string[]): AsciiTreeNode {
         const root: AsciiTreeNode = {
             name: '',
@@ -72,11 +178,6 @@ export class MarkdownBuilder {
         return root;
     }
 
-    /**
-     * Рекурсивный рендеринг ASCII-дерева с псевдографикой ветвления
-     * @param node Текущий узел дерева
-     * @param prefix Префикс текущей строки отступа
-     */
     private static renderAsciiTreeLines(node: AsciiTreeNode, prefix: string = ''): string[] {
         const lines: string[] = [];
         const entries = Array.from(node.children.values()).sort((a, b) => {
@@ -105,41 +206,11 @@ export class MarkdownBuilder {
 
     /**
      * Генерация текстовой ASCII-структуры проекта
-     * @param relativePaths Отсортированные относительные пути выбранных файлов
      */
     public static generateAsciiTree(relativePaths: string[]): string {
         const rootNode = this.buildAsciiTreeHierarchy(relativePaths);
         const lines = this.renderAsciiTreeLines(rootNode);
         return `Project Structure:\n${lines.join('\n')}`;
-    }
-
-    /**
-     * Вычисление относительного пути с корректной поддержкой Multi-Root воркспейсов
-     * @param filePath Абсолютный путь к файлу
-     * @param workspaceFolders Список открытых папок рабочей области
-     */
-    private static getRelativePath(filePath: string, workspaceFolders?: readonly vscode.WorkspaceFolder[]): string {
-        if (!workspaceFolders || workspaceFolders.length === 0) {
-            return path.basename(filePath);
-        }
-
-        // Если открыто несколько корневых папок, находим соответствующую
-        for (const folder of workspaceFolders) {
-            const folderPath = path.normalize(folder.uri.fsPath);
-            const normFilePath = path.normalize(filePath);
-
-            const isMatching = process.platform === 'win32'
-                ? normFilePath.toLowerCase().startsWith(folderPath.toLowerCase())
-                : normFilePath.startsWith(folderPath);
-
-            if (isMatching) {
-                const rel = path.relative(folderPath, normFilePath).replace(/\\/g, '/');
-                // Для Multi-Root добавляем имя корневой папки в начало пути
-                return workspaceFolders.length > 1 ? `${folder.name}/${rel}` : rel;
-            }
-        }
-
-        return path.basename(filePath);
     }
 
     /**
@@ -157,9 +228,7 @@ export class MarkdownBuilder {
 
         const outputBlocks: string[] = [];
 
-        // ---------------------------------------------------------------------
         // 1. Формирование пользовательской инструкции для ИИ
-        // ---------------------------------------------------------------------
         if (promptSettings && promptSettings.enabled) {
             const trimmedPrompt = promptSettings.text.trim();
             if (trimmedPrompt.length > 0) {
@@ -167,42 +236,25 @@ export class MarkdownBuilder {
             }
         }
 
-        // ---------------------------------------------------------------------
         // 2. ASCII-дерево структуры выбранных файлов
-        // ---------------------------------------------------------------------
         const asciiTree = this.generateAsciiTree(relativePaths);
         outputBlocks.push(asciiTree);
 
-        // ---------------------------------------------------------------------
         // 3. Формирование секции для каждого выбранного файла
-        // ---------------------------------------------------------------------
         for (let i = 0; i < sortedFiles.length; i++) {
             const filePath = sortedFiles[i];
             const relativePath = relativePaths[i];
             const fileName = path.basename(filePath);
-            const ext = path.extname(filePath).toLowerCase();
-            const isBinary = BINARY_EXTENSIONS.has(ext);
 
+            const readResult = await this.safeReadFile(filePath);
             let contentBlock = '';
 
-            if (isBinary) {
-                try {
-                    const stat = await fs.promises.stat(filePath);
-                    const sizeKb = (stat.size / 1024).toFixed(1);
-                    contentBlock = `[Бинарный файл: ${ext.replace('.', '').toUpperCase()} (${sizeKb} KB) — содержимое пропущено для сохранения контекста]`;
-                } catch {
-                    contentBlock = `[Бинарный файл: ${ext} — пропущен]`;
-                }
-            } else {
-                try {
-                    const text = (await fs.promises.readFile(filePath, 'utf-8')).trimEnd();
-                    const langTag = this.getLanguageTag(filePath);
-                    const fence = this.getFenceSequence(text);
-                    // Оборачиваем вычисленной последовательностью бэктиков
-                    contentBlock = `${fence}${langTag}\n${text}\n${fence}`;
-                } catch (err) {
-                    contentBlock = `\`\`\`text\n<Ошибка чтения файла: ${err}>\n\`\`\``;
-                }
+            if (readResult.placeholder) {
+                contentBlock = readResult.placeholder;
+            } else if (readResult.text !== undefined) {
+                const langTag = this.getLanguageTag(filePath);
+                const fence = this.getFenceSequence(readResult.text);
+                contentBlock = `${fence}${langTag}\n${readResult.text}\n${fence}`;
             }
 
             const fileSection = `## File path: ${relativePath}\n## File name: ${fileName}\n## File content:\n${contentBlock}`;
