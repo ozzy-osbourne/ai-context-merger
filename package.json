@@ -31,7 +31,8 @@
         {
           "type": "webview",
           "id": "aiContextMergerView",
-          "name": "AI Context Merger"
+          "name": "AI Context Merger",
+          "icon": "resources/icon.svg"
         }
       ]
     }

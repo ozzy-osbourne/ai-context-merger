@@ -3,6 +3,12 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { BINARY_EXTENSIONS, LANGUAGE_MAP } from '../constants';
 
+interface AsciiTreeNode {
+    name: string;
+    isDirectory: boolean;
+    children: Map<string, AsciiTreeNode>;
+}
+
 export class MarkdownBuilder {
     /**
      * Определение тега подсветки Markdown по расширению файла
@@ -13,25 +19,100 @@ export class MarkdownBuilder {
     }
 
     /**
-     * Сборка итогового Markdown документа по заданному формату:
-     * ## File path: <path>
-     * 
-     * ## File content:
-     * ```<lang>
-     * <code>
-     * ```
-     * 
-     * 
-     * ---
+     * Построение промежуточного дерева для генерации ASCII-структуры
+     * @param relativePaths Список относительных путей файлов
+     */
+    private static buildAsciiTreeHierarchy(relativePaths: string[]): AsciiTreeNode {
+        const root: AsciiTreeNode = {
+            name: '',
+            isDirectory: true,
+            children: new Map()
+        };
+
+        for (const relPath of relativePaths) {
+            const segments = relPath.split('/').filter(Boolean);
+            let currentNode = root;
+
+            for (let i = 0; i < segments.length; i++) {
+                const segment = segments[i];
+                const isDirectory = i < segments.length - 1;
+
+                if (!currentNode.children.has(segment)) {
+                    currentNode.children.set(segment, {
+                        name: segment,
+                        isDirectory,
+                        children: new Map()
+                    });
+                }
+                currentNode = currentNode.children.get(segment)!;
+            }
+        }
+
+        return root;
+    }
+
+    /**
+     * Рекурсивный рендеринг ASCII-дерева с псевдографикой ветвления
+     * @param node Текущий узел дерева
+     * @param prefix Префикс текущей строки отступа
+     */
+    private static renderAsciiTreeLines(node: AsciiTreeNode, prefix: string = ''): string[] {
+        const lines: string[] = [];
+        const entries = Array.from(node.children.values()).sort((a, b) => {
+            // Исправлено: b.isDirectory вместо b.isDirectory()
+            if (a.isDirectory === b.isDirectory) {
+                return a.name.localeCompare(b.name);
+            }
+            return a.isDirectory ? -1 : 1;
+        });
+
+        for (let i = 0; i < entries.length; i++) {
+            const child = entries[i];
+            const isLast = i === entries.length - 1;
+            const branchSymbol = isLast ? '└── ' : '├── ';
+            const nextPrefix = prefix + (isLast ? '    ' : '│   ');
+
+            const displayName = child.isDirectory ? `${child.name}/` : child.name;
+            lines.push(`${prefix}${branchSymbol}${displayName}`);
+
+            if (child.isDirectory && child.children.size > 0) {
+                lines.push(...this.renderAsciiTreeLines(child, nextPrefix));
+            }
+        }
+
+        return lines;
+    }
+
+    /**
+     * Генерация текстовой ASCII-структуры проекта
+     * @param relativePaths Отсортированные относительные пути выбранных файлов
+     */
+    public static generateAsciiTree(relativePaths: string[]): string {
+        const rootNode = this.buildAsciiTreeHierarchy(relativePaths);
+        const lines = this.renderAsciiTreeLines(rootNode);
+        return `Project Structure:\n${lines.join('\n')}`;
+    }
+
+    /**
+     * Сборка итогового Markdown документа
+     * @param selectedFiles Множество путей выбранных файлов
      */
     public static async buildBundleMarkdown(selectedFiles: Set<string>): Promise<string> {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         const rootPath = workspaceFolders ? path.normalize(workspaceFolders[0].uri.fsPath) : '';
 
-        const outputBlocks: string[] = [];
+        const sortedFiles = Array.from(selectedFiles).sort();
+        const relativePaths = sortedFiles.map(file => path.relative(rootPath, file).replace(/\\/g, '/'));
 
-        for (const filePath of Array.from(selectedFiles).sort()) {
-            const relativePath = path.relative(rootPath, filePath).replace(/\\/g, '/');
+        // 1. Формируем заголовочное ASCII-дерево выбранной структуры файлов
+        const asciiTree = this.generateAsciiTree(relativePaths);
+        const outputBlocks: string[] = [asciiTree];
+
+        // 2. Формируем секцию для каждого файла
+        for (let i = 0; i < sortedFiles.length; i++) {
+            const filePath = sortedFiles[i];
+            const relativePath = relativePaths[i];
+            const fileName = path.basename(filePath);
             const ext = path.extname(filePath).toLowerCase();
             const isBinary = BINARY_EXTENSIONS.has(ext);
 
@@ -55,12 +136,11 @@ export class MarkdownBuilder {
                 }
             }
 
-            // Формируем блок файла строго по заданному шаблону
-            const fileSection = `## File path: ${relativePath}\n\n## File content:\n${contentBlock}`;
+            // Форматирование с полями File path, File name и File content
+            const fileSection = `## File path: ${relativePath}\n## File name: ${fileName}\n## File content:\n${contentBlock}`;
             outputBlocks.push(fileSection);
         }
 
-        // Соединяем блоки разделителем с двойными пропусками строк
         return outputBlocks.join('\n\n---\n\n');
     }
 }

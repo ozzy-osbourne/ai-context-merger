@@ -16,17 +16,14 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
     public static readonly viewType = 'aiContextMergerView';
     private _view?: vscode.WebviewView;
 
-    // Хранилище путей выбранных файлов
     public selectedFiles: Set<string> = new Set<string>();
 
-    // Текущие параметры фильтрации
     private filters: FilterSettings = {
         hideGitIgnored: true,
         hideLockFiles: true,
         hideBinaryFiles: true
     };
 
-    // Таймер дебаунса для автообновления дерева
     private debounceTimer?: NodeJS.Timeout;
     private readonly disposables: vscode.Disposable[] = [];
 
@@ -34,11 +31,7 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         this.initAutoWatchers();
     }
 
-    /**
-     * Инициализация наблюдателей за файловой системой и состоянием Git
-     */
     private initAutoWatchers(): void {
-        // Наблюдатель за файлами на диске (создание, удаление, изменение)
         const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*');
         
         fileWatcher.onDidCreate(() => this.triggerDebouncedRefresh(), this, this.disposables);
@@ -46,28 +39,26 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         fileWatcher.onDidChange(() => this.triggerDebouncedRefresh(), this, this.disposables);
         this.disposables.push(fileWatcher);
 
-        // Подписка на события Git API
         this.initGitWatcher();
     }
 
-    /**
-     * Подключение слушателей изменений статусов Git (коммиты, стейджинг, смена веток)
-     */
     private async initGitWatcher(): Promise<void> {
         try {
             const gitExtension = vscode.extensions.getExtension('vscode.git');
-            if (!gitExtension) return;
+            if (!gitExtension) {
+                return;
+            }
 
             const gitExports = gitExtension.isActive ? gitExtension.exports : await gitExtension.activate();
             const gitApi = gitExports?.getAPI(1);
-            if (!gitApi) return;
+            if (!gitApi) {
+                return;
+            }
 
-            // Слушаем появление новых репозиториев
             gitApi.onDidOpenRepository((repo: any) => {
                 repo.state.onDidChange(() => this.triggerDebouncedRefresh(), this, this.disposables);
             }, this, this.disposables);
 
-            // Подписываемся на уже открытые репозитории
             gitApi.repositories.forEach((repo: any) => {
                 repo.state.onDidChange(() => this.triggerDebouncedRefresh(), this, this.disposables);
             });
@@ -76,9 +67,6 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         }
     }
 
-    /**
-     * Запуск обновления дерева с подавлением дребезга (Debounce 300ms)
-     */
     public triggerDebouncedRefresh(): void {
         if (this.debounceTimer) {
             clearTimeout(this.debounceTimer);
@@ -113,6 +101,16 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
                 case 'selectAll':
                     await this.selectAllFiles();
                     break;
+                case 'selectMultipleFiles':
+                    // Полный сброс старого выбора и применение только текущих найденных файлов
+                    if (Array.isArray(message.filePaths)) {
+                        this.selectedFiles.clear();
+                        for (const filePath of message.filePaths) {
+                            this.selectedFiles.add(path.normalize(filePath));
+                        }
+                        await this.refresh();
+                    }
+                    break;
                 case 'clearSelection':
                     this.clearSelection();
                     break;
@@ -142,12 +140,11 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         });
     }
 
-    /**
-     * Выбор всех доступных файлов в рабочей области с учетом активных фильтров
-     */
     public async selectAllFiles(): Promise<void> {
         const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders || workspaceFolders.length === 0) return;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
 
         const rootPath = path.normalize(workspaceFolders[0].uri.fsPath);
         this.selectedFiles.clear();
@@ -155,9 +152,6 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         await this.refresh();
     }
 
-    /**
-     * Выбор только измененных в Git файлов с обязательным учетом активных фильтров (бинарники, lock-файлы)
-     */
     public async selectModifiedGitFiles(): Promise<void> {
         const gitStatuses = await GitService.getGitStatusMap();
 
@@ -165,8 +159,6 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         for (const [filePath, status] of gitStatuses.entries()) {
             if (status === 'modified' || status === 'untracked') {
                 const fileName = path.basename(filePath);
-                
-                // Пропускаем файл, если он попадает под активные фильтры скрытия
                 const isFiltered = WorkspaceScanner.shouldFilterItem(fileName, false, this.filters);
                 if (!isFiltered) {
                     this.selectedFiles.add(filePath);
@@ -178,13 +170,10 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         await this.refresh(true, false);
     }
 
-    /**
-     * Полное обновление дерева и статистики
-     * @param smartGitExpand флаг умного разворачивания веток с git-изменениями
-     * @param isInitialLoad флаг первой загрузки для открытия только 1-го уровня
-     */
     public async refresh(smartGitExpand: boolean = false, isInitialLoad: boolean = false): Promise<void> {
-        if (!this._view) return;
+        if (!this._view) {
+            return;
+        }
 
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -204,7 +193,6 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         const gitStatusMap = await GitService.getGitStatusMap();
         const tree = await WorkspaceScanner.scanDirectory(rootPath, gitStatusMap, this.filters);
 
-        // Очищаем выбранные файлы, если они были удалены с диска
         for (const file of Array.from(this.selectedFiles)) {
             if (!fs.existsSync(file)) {
                 this.selectedFiles.delete(file);
@@ -246,7 +234,9 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
     }
 
     private async updateStatsOnly(): Promise<void> {
-        if (!this._view) return;
+        if (!this._view) {
+            return;
+        }
         const stats = await StatsCalculator.calculateStats(this.selectedFiles);
         this._view.webview.postMessage({
             type: 'updateStats',
@@ -276,7 +266,9 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
             filters: { 'Markdown': ['md'], 'All Files': ['*'] }
         });
 
-        if (!uri) return;
+        if (!uri) {
+            return;
+        }
 
         const markdown = await MarkdownBuilder.buildBundleMarkdown(this.selectedFiles);
         await fs.promises.writeFile(uri.fsPath, markdown, 'utf-8');

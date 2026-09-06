@@ -6,9 +6,14 @@ import { ALWAYS_IGNORED, LOCK_FILE_NAMES, BINARY_EXTENSIONS } from '../constants
 export class WorkspaceScanner {
     /**
      * Проверка, должен ли файл быть пропущен согласно активным фильтрам
+     * @param name Имя файла или папки
+     * @param isDirectory Флаг директории
+     * @param filters Настройки фильтрации
      */
     public static shouldFilterItem(name: string, isDirectory: boolean, filters: FilterSettings): boolean {
-        if (ALWAYS_IGNORED.has(name)) return true;
+        if (ALWAYS_IGNORED.has(name)) {
+            return true;
+        }
 
         if (!isDirectory) {
             const ext = path.extname(name).toLowerCase();
@@ -23,10 +28,10 @@ export class WorkspaceScanner {
     }
 
     /**
-     * Сканирование директории и построение файлового дерева с определением статусов Git для папок
-     */
-    /**
-     * Сканирование директории и построение файлового дерева с рекурсивным поднятием Git-статусов к корню
+     * Сканирование директории и построение файлового дерева с определением статусов Git
+     * @param dirPath Абсолютный путь к сканируемой папке
+     * @param gitStatusMap Карта статусов Git
+     * @param filters Активные настройки фильтрации
      */
     public static async scanDirectory(
         dirPath: string,
@@ -65,15 +70,22 @@ export class WorkspaceScanner {
                 if (entry.isDirectory()) {
                     const childFolder = await this.scanDirectory(fullPath, gitStatusMap, filters);
                     
-                    // Если сама директория или что-то внутри неё изменено/не отслеживается
-                    if (childFolder.gitFolderStatus === 'untracked') hasUntracked = true;
-                    if (childFolder.gitFolderStatus === 'modified') hasModified = true;
+                    if (childFolder.gitFolderStatus === 'untracked') {
+                        hasUntracked = true;
+                    }
+                    if (childFolder.gitFolderStatus === 'modified') {
+                        hasModified = true;
+                    }
 
                     node.children?.push(childFolder);
                 } else {
                     const fileStatus = gitStatusMap.get(fullPath) || 'none';
-                    if (fileStatus === 'untracked') hasUntracked = true;
-                    if (fileStatus === 'modified') hasModified = true;
+                    if (fileStatus === 'untracked') {
+                        hasUntracked = true;
+                    }
+                    if (fileStatus === 'modified') {
+                        hasModified = true;
+                    }
 
                     node.children?.push({
                         name: entry.name,
@@ -84,12 +96,11 @@ export class WorkspaceScanner {
                 }
             }
 
-            // Определение итогового статуса папки:
-            // Если есть и modified, и untracked — приоритет у modified (как в проводнике VS Code)
-            if (hasModified) {
-                node.gitFolderStatus = 'modified';
-            } else if (hasUntracked) {
+            // Приоритет Untracked: новые добавленные файлы красят цепочку папок в зеленый
+            if (hasUntracked) {
                 node.gitFolderStatus = 'untracked';
+            } else if (hasModified) {
+                node.gitFolderStatus = 'modified';
             }
         } catch {}
 
@@ -97,7 +108,7 @@ export class WorkspaceScanner {
     }
 
     /**
-     * Рекурсивное переключение состояния папки
+     * Рекурсивное переключение состояния выбора файлов в папке
      */
     public static async toggleFolderRecursive(
         dirPath: string,
@@ -108,7 +119,9 @@ export class WorkspaceScanner {
         try {
             const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
             for (const entry of entries) {
-                if (this.shouldFilterItem(entry.name, entry.isDirectory(), filters)) continue;
+                if (this.shouldFilterItem(entry.name, entry.isDirectory(), filters)) {
+                    continue;
+                }
 
                 const fullPath = path.normalize(path.join(dirPath, entry.name));
                 if (entry.isDirectory()) {

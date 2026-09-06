@@ -10,7 +10,6 @@ export function getHtmlTemplate(): string {
             --color-green: #2ea043;
             --color-yellow: #d29922;
             --color-red: #f85149;
-            /* Используем нативные переменные темы оформления VS Code для Git */
             --git-modified: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);
             --git-untracked: var(--vscode-gitDecoration-untrackedResourceForeground, #73c991);
         }
@@ -114,7 +113,6 @@ export function getHtmlTemplate(): string {
             text-align: right;
         }
 
-        /* Панель фильтров */
         .filter-section {
             margin-top: 10px;
             background-color: var(--vscode-editor-background);
@@ -238,7 +236,6 @@ export function getHtmlTemplate(): string {
             color: var(--git-untracked);
         }
 
-        /* Индикатор-точка для папок */
         .git-folder-dot {
             width: 6px;
             height: 6px;
@@ -268,25 +265,21 @@ export function getHtmlTemplate(): string {
         <button class="btn-secondary" id="btnExport">💾 Экспорт в .md</button>
     </div>
 
-    <!-- Ряд выбора файлов -->
     <div class="btn-grid-2">
         <button class="btn-secondary" id="btnSelectAll">✅ Выбрать всё</button>
         <button class="btn-secondary" id="btnClear">🧹 Снять всё</button>
     </div>
 
-    <!-- Ряд управления раскрытием дерева -->
     <div class="btn-grid-2">
         <button class="btn-secondary" id="btnExpandAll">📂 Развернуть всё</button>
         <button class="btn-secondary" id="btnCollapse">📁 Свернуть всё</button>
     </div>
 
-    <!-- Ряд обновления и Git Diff -->
     <div class="btn-grid-2">
         <button class="btn-secondary" id="btnRefresh">🔄 Обновить</button>
         <button class="btn-secondary" id="btnGit">🌿 Измененные (Git)</button>
     </div>
 
-    <!-- Панель фильтров -->
     <div class="filter-section">
         <div class="filter-title"><span>⚙️</span> Фильтры скрытия:</div>
         <div class="filter-row">
@@ -323,11 +316,18 @@ export function getHtmlTemplate(): string {
     <script>
         const vscode = acquireVsCodeApi();
 
+        const previousState = vscode.getState() || {};
         let rawTreeData = [];
         let selectedFilesSet = new Set();
-        // Состояние раскрытых папок, сохраняемое между обновлениями
-        let expandedFoldersSet = new Set();
-        let isInitialLoadState = true;
+        let expandedFoldersSet = new Set(previousState.expandedFolders || []);
+        let hasInitializedTree = previousState.hasInitializedTree || false;
+
+        function saveState() {
+            vscode.setState({
+                expandedFolders: Array.from(expandedFoldersSet),
+                hasInitializedTree: true
+            });
+        }
 
         window.addEventListener('message', event => {
             const message = event.data;
@@ -342,19 +342,19 @@ export function getHtmlTemplate(): string {
                     document.getElementById('filterBinary').checked = message.filters.hideBinaryFiles;
                 }
 
-                // Логика умного открытия или первичной инициализации 1-го уровня
                 if (message.smartGitExpand) {
                     expandedFoldersSet.clear();
                     applySmartGitExpansion(rawTreeData);
-                } else if (message.isInitialLoad || isInitialLoadState) {
+                    saveState();
+                } else if (!hasInitializedTree) {
                     expandedFoldersSet.clear();
                     applyFirstLevelExpansion(rawTreeData);
-                    isInitialLoadState = false;
+                    hasInitializedTree = true;
+                    saveState();
                 }
                 
                 renderTree(rawTreeData, document.getElementById('treeView'));
                 
-                // Восстанавливаем фильтрацию, если в строке поиска есть текст
                 const searchQuery = document.getElementById('searchInput').value.trim();
                 if (searchQuery) {
                     applySearchFilter(searchQuery);
@@ -366,30 +366,37 @@ export function getHtmlTemplate(): string {
             }
         });
 
-        // Слушатели кнопок действий
         document.getElementById('btnCopy').addEventListener('click', () => vscode.postMessage({ type: 'copyContext' }));
         document.getElementById('btnPreview').addEventListener('click', () => vscode.postMessage({ type: 'previewContext' }));
         document.getElementById('btnExport').addEventListener('click', () => vscode.postMessage({ type: 'exportFile' }));
-        document.getElementById('btnSelectAll').addEventListener('click', () => vscode.postMessage({ type: 'selectAll' }));
         document.getElementById('btnClear').addEventListener('click', () => vscode.postMessage({ type: 'clearSelection' }));
         document.getElementById('btnRefresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
         document.getElementById('btnGit').addEventListener('click', () => vscode.postMessage({ type: 'selectModified' }));
         
-        // Развернуть все папки
+        // Умный выбор: все файлы проекта либо только видимые результаты поиска
+        document.getElementById('btnSelectAll').addEventListener('click', () => {
+            const searchQuery = document.getElementById('searchInput').value.trim();
+            if (searchQuery) {
+                const visibleFileElements = document.querySelectorAll('#treeView .tree-item:not([data-is-dir="true"]):not(.hidden)');
+                const paths = Array.from(visibleFileElements).map(el => el.getAttribute('data-path')).filter(Boolean);
+                vscode.postMessage({ type: 'selectMultipleFiles', filePaths: paths });
+            } else {
+                vscode.postMessage({ type: 'selectAll' });
+            }
+        });
+
         document.getElementById('btnExpandAll').addEventListener('click', () => {
             collectAllFolderPaths(rawTreeData);
+            saveState();
             renderTree(rawTreeData, document.getElementById('treeView'));
         });
 
-        // Свернуть все папки
         document.getElementById('btnCollapse').addEventListener('click', () => {
             expandedFoldersSet.clear();
+            saveState();
             renderTree(rawTreeData, document.getElementById('treeView'));
         });
 
-        /**
-         * Рекурсивное добавление всех директорий в множество раскрытых
-         */
         function collectAllFolderPaths(nodes) {
             if (!nodes) return;
             nodes.forEach(node => {
@@ -400,9 +407,6 @@ export function getHtmlTemplate(): string {
             });
         }
 
-        /**
-         * Раскрытие только 1-го уровня (корень и его прямые папки)
-         */
         function applyFirstLevelExpansion(nodes) {
             if (!nodes) return;
             nodes.forEach(rootNode => {
@@ -419,9 +423,6 @@ export function getHtmlTemplate(): string {
             });
         }
 
-        /**
-         * Умное раскрытие: открывает только директории, содержащие измененные файлы Git
-         */
         function applySmartGitExpansion(nodes) {
             if (!nodes) return;
             nodes.forEach(node => {
@@ -434,7 +435,6 @@ export function getHtmlTemplate(): string {
             });
         }
 
-        // Слушатели фильтров
         function notifyFilterChange() {
             vscode.postMessage({
                 type: 'updateFilters',
@@ -449,19 +449,16 @@ export function getHtmlTemplate(): string {
         document.getElementById('filterLock').addEventListener('change', notifyFilterChange);
         document.getElementById('filterBinary').addEventListener('change', notifyFilterChange);
 
-        // Поиск с поддержкой вложенности
         document.getElementById('searchInput').addEventListener('input', (e) => {
             applySearchFilter(e.target.value.trim());
         });
 
-        /**
-         * Корректный поиск: элемент виден, если совпадает имя или если есть совпадения внутри
-         * @param query строка поиска
-         */
         function applySearchFilter(query) {
             const rootContainer = document.getElementById('treeView');
+            const selectAllBtn = document.getElementById('btnSelectAll');
+
             if (!query) {
-                // Если запрос пуст — восстанавливаем отображение по expandedFoldersSet
+                selectAllBtn.innerText = '✅ Выбрать всё';
                 renderTree(rawTreeData, rootContainer);
                 return;
             }
@@ -500,6 +497,10 @@ export function getHtmlTemplate(): string {
 
             const topItems = rootContainer.querySelectorAll(':scope > .tree-item');
             topItems.forEach(item => checkNodeVisibility(item));
+
+            // Пересчёт видимых файлов и адаптация текста кнопки
+            const visibleFiles = rootContainer.querySelectorAll('.tree-item:not([data-is-dir="true"]):not(.hidden)');
+            selectAllBtn.innerText = '✅ Выбрать найденное (' + visibleFiles.length + ')';
         }
 
         function updateStatsUI(stats) {
@@ -532,9 +533,6 @@ export function getHtmlTemplate(): string {
             syncFolderCheckboxes(container);
         }
 
-        /**
-         * Генерация DOM-структуры для отдельного узла файлового дерева
-         */
         function createNodeElement(node) {
             const wrapper = document.createElement('div');
             wrapper.className = 'tree-item';
@@ -564,11 +562,10 @@ export function getHtmlTemplate(): string {
                 title.className = 'node-title';
                 title.innerText = node.name;
 
-                // Подкрашиваем текст названия папки, как в проводнике VS Code
-                if (node.gitFolderStatus === 'modified') {
-                    title.classList.add('git-modified');
-                } else if (node.gitFolderStatus === 'untracked') {
+                if (node.gitFolderStatus === 'untracked') {
                     title.classList.add('git-untracked');
+                } else if (node.gitFolderStatus === 'modified') {
+                    title.classList.add('git-modified');
                 }
 
                 row.appendChild(toggle);
@@ -576,7 +573,6 @@ export function getHtmlTemplate(): string {
                 row.appendChild(icon);
                 row.appendChild(title);
 
-                // Отрисовка цветного индикатора-точки
                 if (node.gitFolderStatus && node.gitFolderStatus !== 'none') {
                     const dot = document.createElement('span');
                     dot.className = 'git-folder-dot ' + (node.gitFolderStatus === 'untracked' ? 'git-folder-dot-u' : 'git-folder-dot-m');
@@ -596,7 +592,6 @@ export function getHtmlTemplate(): string {
                 }
                 wrapper.appendChild(childrenContainer);
 
-                // Переключение состояния папки по клику на всю строку (кроме самого чекбокса)
                 row.addEventListener('click', () => {
                     const currentlyOpen = expandedFoldersSet.has(node.path);
                     if (currentlyOpen) {
@@ -610,6 +605,7 @@ export function getHtmlTemplate(): string {
                         toggle.innerText = '▼';
                         icon.innerText = '📂';
                     }
+                    saveState();
                 });
 
                 checkbox.addEventListener('change', (e) => {
@@ -634,21 +630,20 @@ export function getHtmlTemplate(): string {
                 row.appendChild(icon);
                 row.appendChild(title);
 
-                if (node.gitStatus === 'modified') {
-                    title.classList.add('git-modified');
-                    const badge = document.createElement('span');
-                    badge.className = 'git-badge git-badge-m';
-                    badge.innerText = 'M';
-                    row.appendChild(badge);
-                } else if (node.gitStatus === 'untracked') {
+                if (node.gitStatus === 'untracked') {
                     title.classList.add('git-untracked');
                     const badge = document.createElement('span');
                     badge.className = 'git-badge git-badge-u';
                     badge.innerText = 'U';
                     row.appendChild(badge);
+                } else if (node.gitStatus === 'modified') {
+                    title.classList.add('git-modified');
+                    const badge = document.createElement('span');
+                    badge.className = 'git-badge git-badge-m';
+                    badge.innerText = 'M';
+                    row.appendChild(badge);
                 }
 
-                // Клик по строке файла переключает его чекбокс
                 row.addEventListener('click', () => {
                     checkbox.checked = !checkbox.checked;
                     vscode.postMessage({
@@ -672,12 +667,7 @@ export function getHtmlTemplate(): string {
             return wrapper;
         }
 
-        /**
-         * Пересчет состояния чекбокса папки (checked / indeterminate / unchecked)
-         * Анализируются только прямые и вложенные чекбоксы файлов, игнорируя промежуточные папки.
-         */
         function updateFolderCheckboxState(folderCheckbox, childrenContainer) {
-            // Находим чекбоксы только конкретных файлов
             const fileItems = childrenContainer.querySelectorAll('.tree-item:not([data-is-dir="true"]) input[type="checkbox"]');
             if (fileItems.length === 0) return;
 
@@ -699,7 +689,6 @@ export function getHtmlTemplate(): string {
         }
 
         function syncFolderCheckboxes(container) {
-            // Обходим дерево снизу вверх, чтобы вложенные структуры корректно обновляли родителей
             const nestedContainers = Array.from(container.querySelectorAll('.nested')).reverse();
             nestedContainers.forEach(nc => {
                 const parentRow = nc.previousElementSibling;
@@ -712,7 +701,6 @@ export function getHtmlTemplate(): string {
             });
         }
 
-        // Запрос начальных данных
         vscode.postMessage({ type: 'requestInitialData' });
     </script>
 </body>

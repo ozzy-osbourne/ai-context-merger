@@ -7,7 +7,13 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
             ContextMergerSidebarProvider.viewType,
-            sidebarProvider
+            sidebarProvider,
+            {
+                // Сохраняем состояние webview при переключении на другие вкладки сайдбара
+                webviewOptions: {
+                    retainContextWhenHidden: true
+                }
+            }
         ),
         {
             dispose: () => sidebarProvider.dispose()
