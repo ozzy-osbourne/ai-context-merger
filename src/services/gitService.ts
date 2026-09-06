@@ -4,26 +4,68 @@ import { GitFileStatus } from '../types';
 
 export class GitService {
     /**
-     * Получение карты статусов файлов в системе контроля версий Git
+     * Получение экземпляра API встроенного расширения Git
      */
-    public static async getGitStatusMap(): Promise<Map<string, GitFileStatus>> {
-        const statusMap = new Map<string, GitFileStatus>();
+    private static async getGitApi(): Promise<any | null> {
         try {
             const gitExtension = vscode.extensions.getExtension('vscode.git');
             if (!gitExtension) {
-                return statusMap;
+                return null;
             }
 
-            // Если расширение Git еще не активировано, активируем его перед чтением exports
             const gitExports = gitExtension.isActive
                 ? gitExtension.exports
                 : await gitExtension.activate();
 
             if (!gitExports) {
-                return statusMap;
+                return null;
             }
 
-            const gitApi = gitExports.getAPI(1);
+            return gitExports.getAPI(1);
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Проверка списка путей на соответствие правилам .gitignore через VS Code Git API
+     * @param paths Массив абсолютных путей для проверки
+     * @returns Множество путей, которые проигнорированы Git
+     */
+    public static async checkIgnoredPaths(paths: string[]): Promise<Set<string>> {
+        const ignoredPaths = new Set<string>();
+        if (paths.length === 0) {
+            return ignoredPaths;
+        }
+
+        try {
+            const gitApi = await this.getGitApi();
+            if (!gitApi || gitApi.repositories.length === 0) {
+                return ignoredPaths;
+            }
+
+            const repo = gitApi.repositories[0];
+            // Используем нативный метод checkIgnore API репозитория VS Code Git
+            if (typeof repo.checkIgnore === 'function') {
+                const result: Set<string> = await repo.checkIgnore(paths);
+                for (const item of result) {
+                    ignoredPaths.add(path.normalize(item));
+                }
+            }
+        } catch (error) {
+            console.warn('[AI Context Merger] Ошибка проверки правил .gitignore:', error);
+        }
+
+        return ignoredPaths;
+    }
+
+    /**
+     * Получение карты статусов файлов в системе контроля версий Git
+     */
+    public static async getGitStatusMap(): Promise<Map<string, GitFileStatus>> {
+        const statusMap = new Map<string, GitFileStatus>();
+        try {
+            const gitApi = await this.getGitApi();
             if (!gitApi || gitApi.repositories.length === 0) {
                 return statusMap;
             }

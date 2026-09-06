@@ -76,7 +76,7 @@ export function getHtmlTemplate(): string {
             background-color: var(--vscode-button-secondaryHoverBackground);
         }
 
-        /* Блок инструкции / промпта */
+        /* Блок пользовательской инструкции */
         .prompt-card {
             background-color: var(--vscode-editor-background);
             border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
@@ -156,6 +156,7 @@ export function getHtmlTemplate(): string {
             background-color: var(--vscode-button-secondaryHoverBackground);
         }
 
+        /* Блок статистики */
         .stats-card {
             background-color: var(--vscode-editor-background);
             border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
@@ -193,6 +194,7 @@ export function getHtmlTemplate(): string {
             text-align: right;
         }
 
+        /* Фильтры и поиск */
         .filter-section {
             margin-top: 8px;
             background-color: var(--vscode-editor-background);
@@ -250,6 +252,7 @@ export function getHtmlTemplate(): string {
             opacity: 0.6;
         }
 
+        /* Дерево файлов */
         .tree-container {
             margin-top: 8px;
             max-height: calc(100vh - 460px);
@@ -349,7 +352,7 @@ export function getHtmlTemplate(): string {
             <textarea
                 id="promptInput"
                 class="prompt-textarea"
-                placeholder="Например: Проведи рефакторинг кода и добавь тесты..."
+                placeholder="Опишите вашу задачу здесь"
             ></textarea>
             <div class="preset-chips">
                 <button type="button" class="preset-chip" data-preset="🔍 Баги">🔍 Баги</button>
@@ -402,7 +405,7 @@ export function getHtmlTemplate(): string {
     <div class="stats-card">
         <div class="stats-header">
             <span>📊 Статистика:</span>
-            <span><strong id="statCount" class="stats-metric">0</strong> файлов | <strong id="statTokens" class="stats-metric">0</strong> токенов</span>
+            <span><strong id="statCount" class="stats-metric">0</strong> файлов | <strong id="statTokens" class="stats-metric">~0</strong> токенов</span>
         </div>
         <div class="progress-bar-container">
             <div class="progress-bar-fill" id="progressBar"></div>
@@ -679,7 +682,8 @@ export function getHtmlTemplate(): string {
 
         function updateStatsUI(stats) {
             document.getElementById('statCount').innerText = stats.count;
-            document.getElementById('statTokens').innerText = stats.tokens.toLocaleString();
+            // Отображаем приблизительное значение токенов со знаком ~
+            document.getElementById('statTokens').innerText = '~' + stats.tokens.toLocaleString();
             
             const bar = document.getElementById('progressBar');
             bar.style.width = stats.percentage + '%';
