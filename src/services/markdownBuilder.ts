@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { BINARY_EXTENSIONS, LANGUAGE_MAP } from '../constants';
+import { PromptSettings } from '../types';
 
 interface AsciiTreeNode {
     name: string;
@@ -59,7 +60,6 @@ export class MarkdownBuilder {
     private static renderAsciiTreeLines(node: AsciiTreeNode, prefix: string = ''): string[] {
         const lines: string[] = [];
         const entries = Array.from(node.children.values()).sort((a, b) => {
-            // Исправлено: b.isDirectory вместо b.isDirectory()
             if (a.isDirectory === b.isDirectory) {
                 return a.name.localeCompare(b.name);
             }
@@ -96,19 +96,35 @@ export class MarkdownBuilder {
     /**
      * Сборка итогового Markdown документа
      * @param selectedFiles Множество путей выбранных файлов
+     * @param promptSettings Настройки пользовательской инструкции
      */
-    public static async buildBundleMarkdown(selectedFiles: Set<string>): Promise<string> {
+    public static async buildBundleMarkdown(
+        selectedFiles: Set<string>,
+        promptSettings?: PromptSettings
+    ): Promise<string> {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         const rootPath = workspaceFolders ? path.normalize(workspaceFolders[0].uri.fsPath) : '';
 
         const sortedFiles = Array.from(selectedFiles).sort();
         const relativePaths = sortedFiles.map(file => path.relative(rootPath, file).replace(/\\/g, '/'));
 
-        // 1. Формируем заголовочное ASCII-дерево выбранной структуры файлов
-        const asciiTree = this.generateAsciiTree(relativePaths);
-        const outputBlocks: string[] = [asciiTree];
+        const outputBlocks: string[] = [];
 
-        // 2. Формируем секцию для каждого файла
+        // 1. Формирование пользовательской инструкции для ИИ (если активна)
+        if (promptSettings && promptSettings.enabled) {
+            const trimmedPrompt = promptSettings.text.trim();
+            const instructionContent = trimmedPrompt.length > 0
+                ? trimmedPrompt
+                : '[Опишите вашу задачу здесь]';
+
+            outputBlocks.push(`## Instruction:\n${instructionContent}`);
+        }
+
+        // 2. Заголовочная ASCII-структура проекта
+        const asciiTree = this.generateAsciiTree(relativePaths);
+        outputBlocks.push(asciiTree);
+
+        // 3. Формирование секции для каждого выбранного файла
         for (let i = 0; i < sortedFiles.length; i++) {
             const filePath = sortedFiles[i];
             const relativePath = relativePaths[i];
@@ -136,7 +152,6 @@ export class MarkdownBuilder {
                 }
             }
 
-            // Форматирование с полями File path, File name и File content
             const fileSection = `## File path: ${relativePath}\n## File name: ${fileName}\n## File content:\n${contentBlock}`;
             outputBlocks.push(fileSection);
         }

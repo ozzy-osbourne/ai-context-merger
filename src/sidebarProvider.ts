@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { FilterSettings } from './types';
+import { FilterSettings, PromptSettings } from './types';
 import { GitService } from './services/gitService';
 import { WorkspaceScanner } from './services/workspaceScanner';
 import { StatsCalculator } from './services/statsCalculator';
@@ -22,6 +22,12 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
         hideGitIgnored: true,
         hideLockFiles: true,
         hideBinaryFiles: true
+    };
+
+    // Настройки инструкции для ИИ
+    private promptSettings: PromptSettings = {
+        enabled: false,
+        text: ''
     };
 
     private debounceTimer?: NodeJS.Timeout;
@@ -102,7 +108,6 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
                     await this.selectAllFiles();
                     break;
                 case 'selectMultipleFiles':
-                    // Полный сброс старого выбора и применение только текущих найденных файлов
                     if (Array.isArray(message.filePaths)) {
                         this.selectedFiles.clear();
                         for (const filePath of message.filePaths) {
@@ -129,6 +134,12 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
                 case 'updateFilters':
                     this.filters = message.filters;
                     await this.refresh();
+                    break;
+                case 'updatePrompt':
+                    this.promptSettings = {
+                        enabled: Boolean(message.enabled),
+                        text: String(message.text || '')
+                    };
                     break;
                 case 'refresh':
                     await this.refresh();
@@ -250,7 +261,7 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
             vscode.window.showWarningMessage('Не выбрано ни одного файла для копирования.');
             return;
         }
-        const markdown = await MarkdownBuilder.buildBundleMarkdown(this.selectedFiles);
+        const markdown = await MarkdownBuilder.buildBundleMarkdown(this.selectedFiles, this.promptSettings);
         await vscode.env.clipboard.writeText(markdown);
         vscode.window.showInformationMessage(`Скопирован контекст: ${this.selectedFiles.size} файлов!`);
     }
@@ -270,7 +281,7 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
             return;
         }
 
-        const markdown = await MarkdownBuilder.buildBundleMarkdown(this.selectedFiles);
+        const markdown = await MarkdownBuilder.buildBundleMarkdown(this.selectedFiles, this.promptSettings);
         await fs.promises.writeFile(uri.fsPath, markdown, 'utf-8');
         vscode.window.showInformationMessage(`Файл сохранен: ${path.basename(uri.fsPath)}`);
     }
@@ -280,7 +291,7 @@ export class ContextMergerSidebarProvider implements vscode.WebviewViewProvider 
             vscode.window.showWarningMessage('Сначала выберите файлы для предпросмотра.');
             return;
         }
-        const markdown = await MarkdownBuilder.buildBundleMarkdown(this.selectedFiles);
+        const markdown = await MarkdownBuilder.buildBundleMarkdown(this.selectedFiles, this.promptSettings);
         const doc = await vscode.workspace.openTextDocument({
             content: markdown,
             language: 'markdown'

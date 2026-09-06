@@ -8,7 +8,7 @@ export interface FileNode {
     path: string;
     isDirectory: boolean;
     gitStatus: GitFileStatus;
-    gitFolderStatus?: GitFileStatus; // 'modified' | 'untracked' | 'none' для папок
+    gitFolderStatus?: GitFileStatus;
     children?: FileNode[];
 }
 
@@ -19,6 +19,14 @@ export interface FilterSettings {
     hideGitIgnored: boolean;
     hideLockFiles: boolean;
     hideBinaryFiles: boolean;
+}
+
+/**
+ * Настройки пользовательской инструкции для ИИ
+ */
+export interface PromptSettings {
+    enabled: boolean;
+    text: string;
 }
 
 /**

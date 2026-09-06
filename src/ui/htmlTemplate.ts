@@ -76,12 +76,92 @@ export function getHtmlTemplate(): string {
             background-color: var(--vscode-button-secondaryHoverBackground);
         }
 
+        /* Блок инструкции / промпта */
+        .prompt-card {
+            background-color: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+            border-radius: 6px;
+            padding: 8px;
+            margin-bottom: 8px;
+        }
+        .prompt-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .prompt-header label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+        }
+        .btn-clear-prompt {
+            background: none;
+            border: none;
+            color: var(--vscode-descriptionForeground);
+            cursor: pointer;
+            font-size: 11px;
+            padding: 1px 5px;
+            border-radius: 3px;
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            opacity: 0.8;
+            transition: opacity 0.2s, background-color 0.2s;
+        }
+        .btn-clear-prompt:hover {
+            color: var(--vscode-foreground);
+            background-color: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+            opacity: 1;
+        }
+        .prompt-body {
+            margin-top: 8px;
+        }
+        .prompt-textarea {
+            width: 100%;
+            height: 64px;
+            resize: vertical;
+            background-color: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-input-border, transparent);
+            border-radius: 4px;
+            padding: 6px 8px;
+            font-family: var(--font-family);
+            font-size: 11px;
+            box-sizing: border-box;
+            outline: none;
+        }
+        .prompt-textarea:focus {
+            border-color: var(--vscode-focusBorder);
+        }
+        .preset-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 6px;
+        }
+        .preset-chip {
+            background-color: var(--vscode-badge-background, rgba(128, 128, 128, 0.15));
+            color: var(--vscode-badge-foreground, var(--vscode-foreground));
+            border: 1px solid var(--vscode-widget-border, transparent);
+            border-radius: 12px;
+            padding: 2px 7px;
+            font-size: 10px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .preset-chip:hover {
+            background-color: var(--vscode-button-secondaryHoverBackground);
+        }
+
         .stats-card {
             background-color: var(--vscode-editor-background);
             border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
             border-radius: 6px;
             padding: 8px 10px;
-            margin-top: 12px;
+            margin-top: 10px;
         }
         .stats-header {
             display: flex;
@@ -114,7 +194,7 @@ export function getHtmlTemplate(): string {
         }
 
         .filter-section {
-            margin-top: 10px;
+            margin-top: 8px;
             background-color: var(--vscode-editor-background);
             border-radius: 4px;
             padding: 6px 8px;
@@ -145,7 +225,7 @@ export function getHtmlTemplate(): string {
         }
 
         .search-container {
-            margin-top: 10px;
+            margin-top: 8px;
             position: relative;
         }
         .search-input {
@@ -172,7 +252,7 @@ export function getHtmlTemplate(): string {
 
         .tree-container {
             margin-top: 8px;
-            max-height: calc(100vh - 410px);
+            max-height: calc(100vh - 460px);
             overflow-y: auto;
         }
         .tree-row {
@@ -256,6 +336,30 @@ export function getHtmlTemplate(): string {
 
     <div class="header-title">AI Context Merger</div>
 
+    <!-- Карточка пользовательской инструкции -->
+    <div class="prompt-card">
+        <div class="prompt-header">
+            <label>
+                <input type="checkbox" id="promptToggle">
+                <span>✍️ Инструкция для ИИ</span>
+            </label>
+            <button type="button" class="btn-clear-prompt hidden" id="btnClearPrompt" title="Очистить текст инструкции">✕ Стереть</button>
+        </div>
+        <div class="prompt-body hidden" id="promptBody">
+            <textarea
+                id="promptInput"
+                class="prompt-textarea"
+                placeholder="Например: Проведи рефакторинг кода и добавь тесты..."
+            ></textarea>
+            <div class="preset-chips">
+                <button type="button" class="preset-chip" data-preset="🔍 Баги">🔍 Баги</button>
+                <button type="button" class="preset-chip" data-preset="⚡ Рефакторинг">⚡ Рефакторинг</button>
+                <button type="button" class="preset-chip" data-preset="📝 Тесты">📝 Тесты</button>
+                <button type="button" class="preset-chip" data-preset="📖 Документация">📖 Документация</button>
+            </div>
+        </div>
+    </div>
+
     <button class="btn-primary" id="btnCopy">
         <span>📋</span> СКОПИРОВАТЬ КОНТЕКСТ
     </button>
@@ -322,12 +426,84 @@ export function getHtmlTemplate(): string {
         let expandedFoldersSet = new Set(previousState.expandedFolders || []);
         let hasInitializedTree = previousState.hasInitializedTree || false;
 
+        const promptToggle = document.getElementById('promptToggle');
+        const promptBody = document.getElementById('promptBody');
+        const promptInput = document.getElementById('promptInput');
+        const btnClearPrompt = document.getElementById('btnClearPrompt');
+
+        promptToggle.checked = Boolean(previousState.promptEnabled);
+        promptInput.value = previousState.promptText || '';
+        if (promptToggle.checked) {
+            promptBody.classList.remove('hidden');
+        }
+        updateClearPromptButtonVisibility();
+
+        const PRESET_TEXTS = {
+            '🔍 Баги': 'Найди возможные ошибки, баги, утечки памяти и крайние случаи (edge cases) в коде.',
+            '⚡ Рефакторинг': 'Проведи рефакторинг кода: улучши читаемость, оптимизируй архитектуру и соблюдай принципы DRY и SOLID.',
+            '📝 Тесты': 'Напиши полный набор модульных тестов, покрывающий как основные, так и ошибочные сценарии.',
+            '📖 Документация': 'Напиши подробную документацию к коду (JSDoc/Docstring) и опиши ключевые функции модуля.'
+        };
+
         function saveState() {
             vscode.setState({
                 expandedFolders: Array.from(expandedFoldersSet),
-                hasInitializedTree: true
+                hasInitializedTree: true,
+                promptEnabled: promptToggle.checked,
+                promptText: promptInput.value
             });
         }
+
+        function updateClearPromptButtonVisibility() {
+            const hasText = promptInput.value.trim().length > 0;
+            if (promptToggle.checked && hasText) {
+                btnClearPrompt.classList.remove('hidden');
+            } else {
+                btnClearPrompt.classList.add('hidden');
+            }
+        }
+
+        function syncPromptWithExtension() {
+            updateClearPromptButtonVisibility();
+            saveState();
+            vscode.postMessage({
+                type: 'updatePrompt',
+                enabled: promptToggle.checked,
+                text: promptInput.value
+            });
+        }
+
+        promptToggle.addEventListener('change', () => {
+            if (promptToggle.checked) {
+                promptBody.classList.remove('hidden');
+            } else {
+                promptBody.classList.add('hidden');
+            }
+            syncPromptWithExtension();
+        });
+
+        promptInput.addEventListener('input', () => {
+            syncPromptWithExtension();
+        });
+
+        // Очистка поля ввода промпта в один клик
+        btnClearPrompt.addEventListener('click', (e) => {
+            e.stopPropagation();
+            promptInput.value = '';
+            promptInput.focus();
+            syncPromptWithExtension();
+        });
+
+        document.querySelectorAll('.preset-chip').forEach(chip => {
+            chip.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const key = chip.getAttribute('data-preset');
+                if (PRESET_TEXTS[key]) {
+                    promptInput.value = PRESET_TEXTS[key];
+                    syncPromptWithExtension();
+                }
+            });
+        });
 
         window.addEventListener('message', event => {
             const message = event.data;
@@ -373,7 +549,6 @@ export function getHtmlTemplate(): string {
         document.getElementById('btnRefresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
         document.getElementById('btnGit').addEventListener('click', () => vscode.postMessage({ type: 'selectModified' }));
         
-        // Умный выбор: все файлы проекта либо только видимые результаты поиска
         document.getElementById('btnSelectAll').addEventListener('click', () => {
             const searchQuery = document.getElementById('searchInput').value.trim();
             if (searchQuery) {
@@ -498,7 +673,6 @@ export function getHtmlTemplate(): string {
             const topItems = rootContainer.querySelectorAll(':scope > .tree-item');
             topItems.forEach(item => checkNodeVisibility(item));
 
-            // Пересчёт видимых файлов и адаптация текста кнопки
             const visibleFiles = rootContainer.querySelectorAll('.tree-item:not([data-is-dir="true"]):not(.hidden)');
             selectAllBtn.innerText = '✅ Выбрать найденное (' + visibleFiles.length + ')';
         }
@@ -701,6 +875,7 @@ export function getHtmlTemplate(): string {
             });
         }
 
+        syncPromptWithExtension();
         vscode.postMessage({ type: 'requestInitialData' });
     </script>
 </body>
