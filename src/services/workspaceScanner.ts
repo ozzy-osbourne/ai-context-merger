@@ -3,276 +3,284 @@ import * as fs from 'fs';
 import { FileNode, FilterSettings, GitFileStatus } from '../types';
 import { ALWAYS_IGNORED, LOCK_FILE_NAMES, BINARY_EXTENSIONS } from '../constants';
 import { GitService } from './gitService';
+import { PathUtils } from '../utils/pathUtils';
 
+/**
+ * Service for scanning workspace directories and managing hierarchical selections.
+ */
 export class WorkspaceScanner {
-    /**
-     * Безопасная проверка вхождения пути с учетом регистра Windows
-     * @param targetPath Проверяемый путь к файлу или директории
-     * @param parentDirPath Путь к родительской директории
-     */
-    public static isPathInside(targetPath: string, parentDirPath: string): boolean {
-        const normalizedTarget = path.normalize(targetPath);
-        const normalizedParent = path.normalize(parentDirPath);
+	/**
+	 * Checks if a path belongs to unconditionally ignored system directories.
+	 *
+	 * @param fullPath - Absolute target path.
+	 * @param workspaceRootPath - Workspace root path for relative segment extraction.
+	 * @returns `true` if path contains an ignored segment.
+	 */
+	public static isIgnoredByPathSegments(fullPath: string, workspaceRootPath?: string): boolean {
+		const normalized = PathUtils.normalizePath(fullPath);
+		const relative = workspaceRootPath
+			? path.relative(PathUtils.normalizePath(workspaceRootPath), normalized)
+			: normalized;
 
-        const target = process.platform === 'win32' ? normalizedTarget.toLowerCase() : normalizedTarget;
-        const parent = process.platform === 'win32' ? normalizedParent.toLowerCase() : normalizedParent;
+		const segments = relative.split(path.sep);
+		for (const segment of segments) {
+			if (ALWAYS_IGNORED.has(segment)) {
+				return true;
+			}
+		}
+		return false;
+	}
 
-        if (target === parent) {
-            return true;
-        }
+	/**
+	 * Checks if a file matches active lockfile or binary exclusion filters.
+	 *
+	 * @param name - File or directory base name.
+	 * @param isDirectory - Directory flag.
+	 * @param filters - Active filter settings.
+	 * @returns `true` if item should be excluded.
+	 */
+	public static isFilteredByType(name: string, isDirectory: boolean, filters: FilterSettings): boolean {
+		if (isDirectory) {
+			return false;
+		}
 
-        const parentPrefix = parent.endsWith(path.sep) ? parent : parent + path.sep;
-        return target.startsWith(parentPrefix);
-    }
+		const ext = path.extname(name).toLowerCase();
+		if (filters.hideLockFiles && LOCK_FILE_NAMES.has(name)) {
+			return true;
+		}
+		if (filters.hideBinaryFiles && BINARY_EXTENSIONS.has(ext)) {
+			return true;
+		}
+		return false;
+	}
 
-    /**
-     * Проверка, находится ли путь внутри всегда игнорируемых системных директорий
-     * @param fullPath Абсолютный путь
-     * @param workspaceRootPath Корень рабочей области
-     */
-    public static isIgnoredByPathSegments(fullPath: string, workspaceRootPath?: string): boolean {
-        const normalized = path.normalize(fullPath);
-        const relative = workspaceRootPath 
-            ? path.relative(workspaceRootPath, normalized) 
-            : normalized;
+	/**
+	 * Evaluates all exclusion rules for a given file item.
+	 *
+	 * @param fullPath - Absolute path to item.
+	 * @param isDirectory - Directory flag.
+	 * @param filters - Active filter settings.
+	 * @param workspaceRootPath - Workspace root directory.
+	 * @returns `true` if item should be filtered out.
+	 */
+	public static shouldFilterItem(
+		fullPath: string,
+		isDirectory: boolean,
+		filters: FilterSettings,
+		workspaceRootPath?: string
+	): boolean {
+		const fileName = path.basename(fullPath);
 
-        const segments = relative.split(path.sep);
-        for (const segment of segments) {
-            if (ALWAYS_IGNORED.has(segment)) {
-                return true;
-            }
-        }
-        return false;
-    }
+		if (this.isIgnoredByPathSegments(fullPath, workspaceRootPath)) {
+			return true;
+		}
 
-    /**
-     * Проверка фильтров lock-файлов и бинарников
-     */
-    public static isFilteredByType(name: string, isDirectory: boolean, filters: FilterSettings): boolean {
-        if (isDirectory) {
-            return false;
-        }
+		return this.isFilteredByType(fileName, isDirectory, filters);
+	}
 
-        const ext = path.extname(name).toLowerCase();
-        if (filters.hideLockFiles && LOCK_FILE_NAMES.has(name)) {
-            return true;
-        }
-        if (filters.hideBinaryFiles && BINARY_EXTENSIONS.has(ext)) {
-            return true;
-        }
-        return false;
-    }
+	/**
+	 * Recursively scans directory and builds hierarchical file nodes.
+	 *
+	 * @param dirPath - Directory path to scan.
+	 * @param gitStatusMap - Map of active Git statuses.
+	 * @param filters - Active filter settings.
+	 * @param maxDepth - Maximum recursion depth limit.
+	 * @param currentDepth - Current recursion depth.
+	 * @param isCanceled - Optional cancellation probe function.
+	 * @returns Root file node of scanned hierarchy.
+	 */
+	public static async scanDirectory(
+		dirPath: string,
+		gitStatusMap: Map<string, GitFileStatus>,
+		filters: FilterSettings,
+		maxDepth: number = 20,
+		currentDepth: number = 0,
+		isCanceled?: () => boolean
+	): Promise<FileNode> {
+		const normalizedDirPath = PathUtils.normalizePath(dirPath);
+		const name = path.basename(normalizedDirPath);
+		const node: FileNode = {
+			name,
+			path: normalizedDirPath,
+			isDirectory: true,
+			gitStatus: 'none',
+			gitFolderStatus: 'none',
+			children: []
+		};
 
-    /**
-     * Комплексная проверка элемента на исключение
-     */
-    public static shouldFilterItem(
-        fullPath: string,
-        isDirectory: boolean,
-        filters: FilterSettings,
-        workspaceRootPath?: string
-    ): boolean {
-        const fileName = path.basename(fullPath);
+		if (isCanceled?.() || currentDepth >= maxDepth) {
+			return node;
+		}
 
-        if (this.isIgnoredByPathSegments(fullPath, workspaceRootPath)) {
-            return true;
-        }
+		try {
+			const stat = await fs.promises.stat(normalizedDirPath);
+			if (!stat.isDirectory()) {
+				return node;
+			}
 
-        return this.isFilteredByType(fileName, isDirectory, filters);
-    }
+			const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
+			if (isCanceled?.()) {
+				return node;
+			}
 
-    /**
-     * Сканирование директории с защитой от циклических путей и глубокой вложенности
-     * @param dirPath Путь к директории
-     * @param gitStatusMap Карта статусов Git
-     * @param filters Настройки фильтрации
-     * @param maxDepth Максимальная безопасная глубина сканирования
-     * @param currentDepth Текущий уровень вложенности
-     * @param isCanceled Функция отмены операции
-     */
-    public static async scanDirectory(
-        dirPath: string,
-        gitStatusMap: Map<string, GitFileStatus>,
-        filters: FilterSettings,
-        maxDepth: number = 20,
-        currentDepth: number = 0,
-        isCanceled?: () => boolean
-    ): Promise<FileNode> {
-        const normalizedDirPath = path.normalize(dirPath);
-        const name = path.basename(normalizedDirPath);
-        const node: FileNode = {
-            name,
-            path: normalizedDirPath,
-            isDirectory: true,
-            gitStatus: 'none',
-            gitFolderStatus: 'none',
-            children: []
-        };
+			// 1. Primary system exclusions
+			const primaryFilteredEntries = entries.filter((entry) => !ALWAYS_IGNORED.has(entry.name));
 
-        if (isCanceled && isCanceled()) {
-            return node;
-        }
+			// 2. .gitignore checks
+			let gitIgnoredPaths = new Set<string>();
+			if (filters.hideGitIgnored) {
+				const candidatePaths = primaryFilteredEntries.map((e) =>
+					PathUtils.normalizePath(path.join(normalizedDirPath, e.name))
+				);
+				gitIgnoredPaths = await GitService.checkIgnoredPaths(candidatePaths);
+			}
 
-        if (currentDepth >= maxDepth) {
-            return node;
-        }
+			if (isCanceled?.()) {
+				return node;
+			}
 
-        try {
-            const stat = await fs.promises.stat(normalizedDirPath);
-            if (!stat.isDirectory()) {
-                return node;
-            }
+			// 3. Lockfile and binary filtering
+			const validEntries = primaryFilteredEntries.filter((entry) => {
+				const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
+				if (filters.hideGitIgnored && gitIgnoredPaths.has(fullPath)) {
+					return false;
+				}
+				if (this.isFilteredByType(entry.name, entry.isDirectory(), filters)) {
+					return false;
+				}
+				return true;
+			});
 
-            const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
-            if (isCanceled && isCanceled()) {
-                return node;
-            }
+			const sortedEntries = validEntries.sort((a, b) => {
+				if (a.isDirectory() === b.isDirectory()) {
+					return a.name.localeCompare(b.name);
+				}
+				return a.isDirectory() ? -1 : 1;
+			});
 
-            // 1. Фильтрация системных папок
-            const primaryFilteredEntries = entries.filter(entry => !ALWAYS_IGNORED.has(entry.name));
+			let hasUntracked = false;
+			let hasModified = false;
 
-            // 2. Проверка правил .gitignore
-            let gitIgnoredPaths = new Set<string>();
-            if (filters.hideGitIgnored) {
-                const candidatePaths = primaryFilteredEntries.map(e => path.normalize(path.join(normalizedDirPath, e.name)));
-                gitIgnoredPaths = await GitService.checkIgnoredPaths(candidatePaths);
-            }
+			for (const entry of sortedEntries) {
+				if (isCanceled?.()) {
+					return node;
+				}
 
-            if (isCanceled && isCanceled()) {
-                return node;
-            }
+				const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
 
-            // 3. Фильтрация бинарников и lock-файлов
-            const validEntries = primaryFilteredEntries.filter(entry => {
-                const fullPath = path.normalize(path.join(normalizedDirPath, entry.name));
-                if (filters.hideGitIgnored && gitIgnoredPaths.has(fullPath)) {
-                    return false;
-                }
-                if (this.isFilteredByType(entry.name, entry.isDirectory(), filters)) {
-                    return false;
-                }
-                return true;
-            });
+				if (entry.isDirectory()) {
+					const childFolder = await this.scanDirectory(
+						fullPath,
+						gitStatusMap,
+						filters,
+						maxDepth,
+						currentDepth + 1,
+						isCanceled
+					);
 
-            const sortedEntries = validEntries.sort((a, b) => {
-                if (a.isDirectory() === b.isDirectory()) {
-                    return a.name.localeCompare(b.name);
-                }
-                return a.isDirectory() ? -1 : 1;
-            });
+					if (childFolder.gitFolderStatus === 'untracked') {
+						hasUntracked = true;
+					}
+					if (childFolder.gitFolderStatus === 'modified') {
+						hasModified = true;
+					}
 
-            let hasUntracked = false;
-            let hasModified = false;
+					node.children?.push(childFolder);
+				} else {
+					const fileStatus = gitStatusMap.get(fullPath) || 'none';
+					if (fileStatus === 'untracked') {
+						hasUntracked = true;
+					}
+					if (fileStatus === 'modified') {
+						hasModified = true;
+					}
 
-            for (const entry of sortedEntries) {
-                if (isCanceled && isCanceled()) {
-                    return node;
-                }
+					node.children?.push({
+						name: entry.name,
+						path: fullPath,
+						isDirectory: false,
+						gitStatus: fileStatus
+					});
+				}
+			}
 
-                const fullPath = path.normalize(path.join(normalizedDirPath, entry.name));
+			if (hasUntracked) {
+				node.gitFolderStatus = 'untracked';
+			} else if (hasModified) {
+				node.gitFolderStatus = 'modified';
+			}
+		} catch {
+			// Return current node on FS read failure
+		}
 
-                if (entry.isDirectory()) {
-                    const childFolder = await this.scanDirectory(
-                        fullPath,
-                        gitStatusMap,
-                        filters,
-                        maxDepth,
-                        currentDepth + 1,
-                        isCanceled
-                    );
+		return node;
+	}
 
-                    if (childFolder.gitFolderStatus === 'untracked') {
-                        hasUntracked = true;
-                    }
-                    if (childFolder.gitFolderStatus === 'modified') {
-                        hasModified = true;
-                    }
+	/**
+	 * Recursively updates selection state for all eligible files in directory.
+	 *
+	 * @param dirPath - Root directory path.
+	 * @param checked - Selected state.
+	 * @param filters - Active filter settings.
+	 * @param selectedFiles - Target selection set to mutate.
+	 */
+	public static async toggleFolderRecursive(
+		dirPath: string,
+		checked: boolean,
+		filters: FilterSettings,
+		selectedFiles: Set<string>
+	): Promise<void> {
+		const normalizedDirPath = PathUtils.normalizePath(dirPath);
 
-                    node.children?.push(childFolder);
-                } else {
-                    const fileStatus = gitStatusMap.get(fullPath) || 'none';
-                    if (fileStatus === 'untracked') {
-                        hasUntracked = true;
-                    }
-                    if (fileStatus === 'modified') {
-                        hasModified = true;
-                    }
+		try {
+			const stat = await fs.promises.stat(normalizedDirPath);
+			if (!stat.isDirectory()) {
+				return;
+			}
+		} catch {
+			for (const file of Array.from(selectedFiles)) {
+				if (PathUtils.isSubpath(file, normalizedDirPath)) {
+					selectedFiles.delete(file);
+				}
+			}
+			return;
+		}
 
-                    node.children?.push({
-                        name: entry.name,
-                        path: fullPath,
-                        isDirectory: false,
-                        gitStatus: fileStatus
-                    });
-                }
-            }
+		try {
+			const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
+			const primaryFilteredEntries = entries.filter((entry) => !ALWAYS_IGNORED.has(entry.name));
 
-            if (hasUntracked) {
-                node.gitFolderStatus = 'untracked';
-            } else if (hasModified) {
-                node.gitFolderStatus = 'modified';
-            }
-        } catch {}
+			let gitIgnoredPaths = new Set<string>();
+			if (filters.hideGitIgnored) {
+				const candidatePaths = primaryFilteredEntries.map((e) =>
+					PathUtils.normalizePath(path.join(normalizedDirPath, e.name))
+				);
+				gitIgnoredPaths = await GitService.checkIgnoredPaths(candidatePaths);
+			}
 
-        return node;
-    }
+			for (const entry of primaryFilteredEntries) {
+				const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
 
-    /**
-     * Рекурсивный выбор / снятие выбора файлов на диске
-     */
-    public static async toggleFolderRecursive(
-        dirPath: string,
-        checked: boolean,
-        filters: FilterSettings,
-        selectedFiles: Set<string>
-    ): Promise<void> {
-        const normalizedDirPath = path.normalize(dirPath);
+				if (filters.hideGitIgnored && gitIgnoredPaths.has(fullPath)) {
+					continue;
+				}
 
-        try {
-            const stat = await fs.promises.stat(normalizedDirPath);
-            if (!stat.isDirectory()) {
-                return;
-            }
-        } catch {
-            for (const file of Array.from(selectedFiles)) {
-                if (this.isPathInside(file, normalizedDirPath)) {
-                    selectedFiles.delete(file);
-                }
-            }
-            return;
-        }
+				if (entry.isDirectory()) {
+					await this.toggleFolderRecursive(fullPath, checked, filters, selectedFiles);
+				} else {
+					if (this.isFilteredByType(entry.name, false, filters)) {
+						continue;
+					}
 
-        try {
-            const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
-            const primaryFilteredEntries = entries.filter(entry => !ALWAYS_IGNORED.has(entry.name));
-
-            let gitIgnoredPaths = new Set<string>();
-            if (filters.hideGitIgnored) {
-                const candidatePaths = primaryFilteredEntries.map(e => path.normalize(path.join(normalizedDirPath, e.name)));
-                gitIgnoredPaths = await GitService.checkIgnoredPaths(candidatePaths);
-            }
-
-            for (const entry of primaryFilteredEntries) {
-                const fullPath = path.normalize(path.join(normalizedDirPath, entry.name));
-
-                if (filters.hideGitIgnored && gitIgnoredPaths.has(fullPath)) {
-                    continue;
-                }
-
-                if (entry.isDirectory()) {
-                    await this.toggleFolderRecursive(fullPath, checked, filters, selectedFiles);
-                } else {
-                    if (this.isFilteredByType(entry.name, false, filters)) {
-                        continue;
-                    }
-
-                    if (checked) {
-                        selectedFiles.add(fullPath);
-                    } else {
-                        selectedFiles.delete(fullPath);
-                    }
-                }
-            }
-        } catch {}
-    }
+					if (checked) {
+						selectedFiles.add(fullPath);
+					} else {
+						selectedFiles.delete(fullPath);
+					}
+				}
+			}
+		} catch {
+			// Ignore subtree recursion error
+		}
+	}
 }

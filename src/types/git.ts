@@ -1,5 +1,7 @@
+import * as vscode from 'vscode';
+
 /**
- * Числовые статусы файлов из внутреннего API встроенного расширения vscode.git
+ * File status codes from the internal vscode.git extension API.
  */
 export enum VscodeGitStatus {
     INDEX_MODIFIED = 0,
@@ -26,6 +28,48 @@ export enum VscodeGitStatus {
 }
 
 /**
- * Внутренний статус файла для UI-рендеринга дерева расширения
+ * Git change resource descriptor in the vscode.git API.
+ */
+export interface GitChange {
+    readonly uri: vscode.Uri;
+    readonly status: VscodeGitStatus;
+}
+
+/**
+ * Repository state descriptor in the vscode.git API.
+ */
+export interface GitRepositoryState {
+    readonly untrackedChanges: readonly GitChange[];
+    readonly workingTreeChanges: readonly GitChange[];
+    readonly indexChanges: readonly GitChange[];
+    readonly onDidChange: vscode.Event<void>;
+}
+
+/**
+ * Git repository instance interface.
+ */
+export interface GitRepository {
+    readonly rootUri: vscode.Uri;
+    readonly state: GitRepositoryState;
+    checkIgnore(paths: string[]): Promise<Set<string>>;
+}
+
+/**
+ * Vscode Git Extension API (version 1).
+ */
+export interface GitAPI {
+    readonly repositories: readonly GitRepository[];
+    readonly onDidOpenRepository: vscode.Event<GitRepository>;
+}
+
+/**
+ * Exports of the official vscode.git extension.
+ */
+export interface GitExtensionExports {
+    getAPI(version: 1): GitAPI;
+}
+
+/**
+ * Internal Git status used for UI tree rendering.
  */
 export type GitFileStatus = 'modified' | 'untracked' | 'none';

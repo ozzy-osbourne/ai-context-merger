@@ -1,24 +1,32 @@
 import * as vscode from 'vscode';
 import { ContextMergerSidebarProvider } from './sidebarProvider';
 
-export function activate(context: vscode.ExtensionContext) {
-    const sidebarProvider = new ContextMergerSidebarProvider(context.extensionUri);
+/**
+ * Activates the AI Context Merger extension.
+ * Registers the sidebar Webview View Provider with context retention support.
+ *
+ * @param context - Extension context provided by VS Code.
+ */
+export function activate(context: vscode.ExtensionContext): void {
+  const sidebarProvider = new ContextMergerSidebarProvider(context.extensionUri);
 
-    context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(
-            ContextMergerSidebarProvider.viewType,
-            sidebarProvider,
-            {
-                // Сохраняем состояние webview при переключении на другие вкладки сайдбара
-                webviewOptions: {
-                    retainContextWhenHidden: true
-                }
-            }
-        ),
-        {
-            dispose: () => sidebarProvider.dispose()
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      ContextMergerSidebarProvider.viewType,
+      sidebarProvider,
+      {
+        webviewOptions: {
+          retainContextWhenHidden: true
         }
-    );
+      }
+    ),
+    {
+      dispose: () => sidebarProvider.dispose()
+    }
+  );
 }
 
-export function deactivate() {}
+/**
+ * Deactivates the extension and disposes active subscriptions.
+ */
+export function deactivate(): void { }
