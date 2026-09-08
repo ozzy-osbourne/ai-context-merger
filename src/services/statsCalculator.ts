@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ContextStats, PromptSettings } from '../types';
-import { MAX_CONTEXT_TOKENS, BINARY_EXTENSIONS } from '../constants';
+import { MAX_CONTEXT_TOKENS, BINARY_EXTENSIONS, MAX_FILE_SIZE_BYTES } from '../constants';
 import { MarkdownBuilder } from './markdownBuilder';
 
 /**
@@ -68,8 +68,14 @@ export class StatsCalculator {
       } else {
         try {
           const stat = await fs.promises.stat(filePath);
-          const langTag = MarkdownBuilder.getLanguageTag(filePath);
-          bodyLength = stat.size + langTag.length + 8;
+          if (stat.size > MAX_FILE_SIZE_BYTES) {
+            const sizeMb = (stat.size / (1024 * 1024)).toFixed(2);
+            const placeholder = `[Файл превышает лимит размера 5 MB (${sizeMb} MB) — содержимое пропущено во избежание переполнения контекста ИИ]`;
+            bodyLength = placeholder.length;
+          } else {
+            const langTag = MarkdownBuilder.getLanguageTag(filePath);
+            bodyLength = stat.size + langTag.length + 8;
+          }
         } catch {
           bodyLength = 50;
         }

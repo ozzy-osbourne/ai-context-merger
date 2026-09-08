@@ -1,18 +1,3 @@
-import { GitFileStatus } from './git';
-
-/**
- * Tree node representation for Webview hierarchy rendering.
- */
-export interface FileNode {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-  gitStatus: GitFileStatus;
-  gitFolderStatus?: GitFileStatus;
-  children?: FileNode[];
-  isLoaded?: boolean;
-}
-
 /**
  * Active exclusion filter settings.
  */

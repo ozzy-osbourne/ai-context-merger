@@ -1,21 +1,21 @@
-import { ContextStats, FileNode, FilterSettings } from './tree';
+import { ContextStats, FilterSettings, PromptSettings } from './tree';
 
 /**
  * Message payloads sent from the Webview frontend to the Extension backend.
  */
 export type WebviewToExtensionMessage =
-  | { type: 'toggleFile'; filePath: string; checked: boolean }
-  | { type: 'toggleFolder'; folderPath: string; checked: boolean }
-  | { type: 'toggleFilesBatch'; filePaths: string[]; checked: boolean }
   | { type: 'selectAll' }
-  | { type: 'selectMultipleFiles'; filePaths: string[] }
+  | { type: 'selectFound'; query: string }
   | { type: 'clearSelection' }
+  | { type: 'expandAll' }
+  | { type: 'collapseAll' }
   | { type: 'copyContext' }
   | { type: 'exportFile' }
   | { type: 'previewContext' }
   | { type: 'selectModified' }
   | { type: 'updateFilters'; filters: FilterSettings }
   | { type: 'updatePrompt'; enabled: boolean; text: string }
+  | { type: 'updateSearch'; query: string }
   | { type: 'refresh' }
   | { type: 'requestInitialData' };
 
@@ -25,15 +25,16 @@ export type WebviewToExtensionMessage =
 export type ExtensionToWebviewMessage =
   | {
     type: 'setData';
-    tree: FileNode[];
     stats: ContextStats;
-    selectedFiles: string[];
     filters: FilterSettings;
-    smartGitExpand?: boolean;
-    isInitialLoad?: boolean;
+    promptSettings: PromptSettings;
   }
   | {
     type: 'updateStats';
     stats: ContextStats;
-    selectedFiles: string[];
+  }
+  | {
+    type: 'searchResults';
+    count: number;
+    query: string;
   };

@@ -87,3 +87,8 @@ export const BINARY_EXTENSIONS: ReadonlySet<string> = new Set([
  * Maximum token budget threshold for context estimation.
  */
 export const MAX_CONTEXT_TOKENS = 200000;
+
+/**
+ * Maximum allowable file size in bytes (5 MB). Files exceeding this limit are skipped to preserve context and memory.
+ */
+export const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;

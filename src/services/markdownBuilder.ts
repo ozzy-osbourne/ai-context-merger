@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { BINARY_EXTENSIONS, LANGUAGE_MAP } from '../constants';
+import { BINARY_EXTENSIONS, LANGUAGE_MAP, MAX_FILE_SIZE_BYTES } from '../constants';
 import { PromptSettings } from '../types';
 import { PathUtils } from '../utils/pathUtils';
 
@@ -112,8 +112,15 @@ export class MarkdownBuilder {
     }
 
     const sizeKb = (stat.size / 1024).toFixed(1);
+    const sizeMb = (stat.size / (1024 * 1024)).toFixed(2);
 
-    // 1. Filter known binary extensions
+    // Filter files exceeding the maximum size threshold
+    if (stat.size > MAX_FILE_SIZE_BYTES) {
+      return {
+        placeholder: `[Файл превышает лимит размера 5 MB (${sizeMb} MB) — содержимое пропущено во избежание переполнения контекста ИИ]`
+      };
+    }
+
     if (BINARY_EXTENSIONS.has(ext)) {
       return {
         placeholder: `[Бинарный файл: ${ext.replace('.', '').toUpperCase()} (${sizeKb} KB) — содержимое пропущено для сохранения контекста]`
@@ -127,14 +134,12 @@ export class MarkdownBuilder {
       return { placeholder: `\`\`\`text\n<Ошибка чтения файла: ${err}>\n\`\`\`` };
     }
 
-    // 2. Binary buffer heuristic
     if (this.isBinaryBuffer(buffer)) {
       return {
         placeholder: `[Бинарный или скомпилированный файл: ${ext ? ext.replace('.', '').toUpperCase() : 'BINARY'} (${sizeKb} KB) — содержимое пропущено для сохранения контекста]`
       };
     }
 
-    // 3. Strict UTF-8 validation with corrupt encoding fallback
     try {
       const strictDecoder = new TextDecoder('utf-8', { fatal: true });
       const text = strictDecoder.decode(buffer).trimEnd();
@@ -154,6 +159,12 @@ export class MarkdownBuilder {
     }
   }
 
+  /**
+   * Constructs a hierarchical tree model from POSIX-compliant relative paths.
+   *
+   * @param relativePaths - Array of workspace relative paths.
+   * @returns Root node of the ASCII tree hierarchy.
+   */
   private static buildAsciiTreeHierarchy(relativePaths: string[]): AsciiTreeNode {
     const root: AsciiTreeNode = {
       name: '',
@@ -183,6 +194,13 @@ export class MarkdownBuilder {
     return root;
   }
 
+  /**
+   * Recursively renders ASCII branch lines for a hierarchy node.
+   *
+   * @param node - Current tree node.
+   * @param prefix - Current line prefix indentation.
+   * @returns Array of formatted ASCII lines.
+   */
   private static renderAsciiTreeLines(node: AsciiTreeNode, prefix: string = ''): string[] {
     const lines: string[] = [];
     const entries = Array.from(node.children.values()).sort((a, b) => {
@@ -238,7 +256,6 @@ export class MarkdownBuilder {
 
     const outputBlocks: string[] = [];
 
-    // 1. AI instruction section
     if (promptSettings && promptSettings.enabled) {
       const trimmedPrompt = promptSettings.text.trim();
       if (trimmedPrompt.length > 0) {
@@ -246,11 +263,9 @@ export class MarkdownBuilder {
       }
     }
 
-    // 2. ASCII Project Structure
     const asciiTree = this.generateAsciiTree(relativePaths);
     outputBlocks.push(asciiTree);
 
-    // 3. File content sections
     for (let i = 0; i < sortedFiles.length; i++) {
       const filePath = sortedFiles[i];
       const relativePath = relativePaths[i];

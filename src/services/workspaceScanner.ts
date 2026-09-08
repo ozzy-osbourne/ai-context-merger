@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
-import { FileNode, FilterSettings, GitFileStatus } from '../types';
+import { FilterSettings } from '../types';
 import { ALWAYS_IGNORED, LOCK_FILE_NAMES, BINARY_EXTENSIONS } from '../constants';
 import { GitService } from './gitService';
 import { PathUtils } from '../utils/pathUtils';
@@ -13,7 +13,7 @@ export class WorkspaceScanner {
 	 * Checks if a path belongs to unconditionally ignored system directories.
 	 *
 	 * @param fullPath - Absolute target path.
-	 * @param workspaceRootPath - Workspace root path for relative segment extraction.
+	 * @param workspaceRootPath - Optional workspace root path for relative segment extraction.
 	 * @returns `true` if path contains an ignored segment.
 	 */
 	public static isIgnoredByPathSegments(fullPath: string, workspaceRootPath?: string): boolean {
@@ -60,7 +60,7 @@ export class WorkspaceScanner {
 	 * @param fullPath - Absolute path to item.
 	 * @param isDirectory - Directory flag.
 	 * @param filters - Active filter settings.
-	 * @param workspaceRootPath - Workspace root directory.
+	 * @param workspaceRootPath - Optional workspace root directory.
 	 * @returns `true` if item should be filtered out.
 	 */
 	public static shouldFilterItem(
@@ -79,174 +79,90 @@ export class WorkspaceScanner {
 	}
 
 	/**
-	 * Recursively scans directory and builds hierarchical file nodes.
+	 * Counts the total number of selectable files in a directory subtree and caches counts for folders.
 	 *
-	 * @param dirPath - Directory path to scan.
-	 * @param gitStatusMap - Map of active Git statuses.
+	 * @param dirPath - Root directory path.
 	 * @param filters - Active filter settings.
-	 * @param maxDepth - Maximum recursion depth limit.
-	 * @param currentDepth - Current recursion depth.
-	 * @param isCanceled - Optional cancellation probe function.
-	 * @returns Root file node of scanned hierarchy.
+	 * @param countMap - Map cache to store counts for intermediate folders.
+	 * @returns Total number of selectable files.
 	 */
-	public static async scanDirectory(
+	public static async countSelectableFiles(
 		dirPath: string,
-		gitStatusMap: Map<string, GitFileStatus>,
 		filters: FilterSettings,
-		maxDepth: number = 20,
-		currentDepth: number = 0,
-		isCanceled?: () => boolean
-	): Promise<FileNode> {
+		countMap?: Map<string, number>
+	): Promise<number> {
 		const normalizedDirPath = PathUtils.normalizePath(dirPath);
-		const name = path.basename(normalizedDirPath);
-		const node: FileNode = {
-			name,
-			path: normalizedDirPath,
-			isDirectory: true,
-			gitStatus: 'none',
-			gitFolderStatus: 'none',
-			children: []
-		};
-
-		if (isCanceled?.() || currentDepth >= maxDepth) {
-			return node;
-		}
+		let count = 0;
 
 		try {
 			const stat = await fs.promises.stat(normalizedDirPath);
 			if (!stat.isDirectory()) {
-				return node;
+				return 0;
 			}
 
 			const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
-			if (isCanceled?.()) {
-				return node;
-			}
+			const primaryFiltered = entries.filter((e) => !ALWAYS_IGNORED.has(e.name));
 
-			// 1. Primary system exclusions
-			const primaryFilteredEntries = entries.filter((entry) => !ALWAYS_IGNORED.has(entry.name));
-
-			// 2. .gitignore checks
 			let gitIgnoredPaths = new Set<string>();
 			if (filters.hideGitIgnored) {
-				const candidatePaths = primaryFilteredEntries.map((e) =>
+				const candidatePaths = primaryFiltered.map((e) =>
 					PathUtils.normalizePath(path.join(normalizedDirPath, e.name))
 				);
 				gitIgnoredPaths = await GitService.checkIgnoredPaths(candidatePaths);
 			}
 
-			if (isCanceled?.()) {
-				return node;
-			}
-
-			// 3. Lockfile and binary filtering
-			const validEntries = primaryFilteredEntries.filter((entry) => {
+			for (const entry of primaryFiltered) {
 				const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
+
 				if (filters.hideGitIgnored && gitIgnoredPaths.has(fullPath)) {
-					return false;
+					continue;
 				}
-				if (this.isFilteredByType(entry.name, entry.isDirectory(), filters)) {
-					return false;
-				}
-				return true;
-			});
-
-			const sortedEntries = validEntries.sort((a, b) => {
-				if (a.isDirectory() === b.isDirectory()) {
-					return a.name.localeCompare(b.name);
-				}
-				return a.isDirectory() ? -1 : 1;
-			});
-
-			let hasUntracked = false;
-			let hasModified = false;
-
-			for (const entry of sortedEntries) {
-				if (isCanceled?.()) {
-					return node;
-				}
-
-				const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
 
 				if (entry.isDirectory()) {
-					const childFolder = await this.scanDirectory(
-						fullPath,
-						gitStatusMap,
-						filters,
-						maxDepth,
-						currentDepth + 1,
-						isCanceled
-					);
-
-					if (childFolder.gitFolderStatus === 'untracked') {
-						hasUntracked = true;
-					}
-					if (childFolder.gitFolderStatus === 'modified') {
-						hasModified = true;
-					}
-
-					node.children?.push(childFolder);
+					const childCount = await this.countSelectableFiles(fullPath, filters, countMap);
+					count += childCount;
 				} else {
-					const fileStatus = gitStatusMap.get(fullPath) || 'none';
-					if (fileStatus === 'untracked') {
-						hasUntracked = true;
+					if (this.isFilteredByType(entry.name, false, filters)) {
+						continue;
 					}
-					if (fileStatus === 'modified') {
-						hasModified = true;
-					}
-
-					node.children?.push({
-						name: entry.name,
-						path: fullPath,
-						isDirectory: false,
-						gitStatus: fileStatus
-					});
+					count++;
 				}
 			}
 
-			if (hasUntracked) {
-				node.gitFolderStatus = 'untracked';
-			} else if (hasModified) {
-				node.gitFolderStatus = 'modified';
+			if (countMap) {
+				countMap.set(normalizedDirPath, count);
 			}
 		} catch {
-			// Return current node on FS read failure
+			return 0;
 		}
 
-		return node;
+		return count;
 	}
 
 	/**
-	 * Recursively updates selection state for all eligible files in directory.
+	 * Recursively selects all eligible files in directory and populates folder counts.
 	 *
 	 * @param dirPath - Root directory path.
-	 * @param checked - Selected state.
 	 * @param filters - Active filter settings.
-	 * @param selectedFiles - Target selection set to mutate.
+	 * @param selectedFiles - Selection set to mutate.
+	 * @param countMap - Optional map to store total file counts per folder.
+	 * @returns Total count of selectable files processed within directory.
 	 */
-	public static async toggleFolderRecursive(
+	public static async selectFolderRecursive(
 		dirPath: string,
-		checked: boolean,
 		filters: FilterSettings,
-		selectedFiles: Set<string>
-	): Promise<void> {
+		selectedFiles: Set<string>,
+		countMap?: Map<string, number>
+	): Promise<number> {
 		const normalizedDirPath = PathUtils.normalizePath(dirPath);
+		let affectedCount = 0;
 
 		try {
 			const stat = await fs.promises.stat(normalizedDirPath);
 			if (!stat.isDirectory()) {
-				return;
+				return 0;
 			}
-		} catch {
-			for (const file of Array.from(selectedFiles)) {
-				if (PathUtils.isSubpath(file, normalizedDirPath)) {
-					selectedFiles.delete(file);
-				}
-			}
-			return;
-		}
 
-		try {
 			const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
 			const primaryFilteredEntries = entries.filter((entry) => !ALWAYS_IGNORED.has(entry.name));
 
@@ -266,21 +182,85 @@ export class WorkspaceScanner {
 				}
 
 				if (entry.isDirectory()) {
-					await this.toggleFolderRecursive(fullPath, checked, filters, selectedFiles);
+					const childCount = await this.selectFolderRecursive(
+						fullPath,
+						filters,
+						selectedFiles,
+						countMap
+					);
+					affectedCount += childCount;
 				} else {
 					if (this.isFilteredByType(entry.name, false, filters)) {
 						continue;
 					}
 
-					if (checked) {
-						selectedFiles.add(fullPath);
-					} else {
-						selectedFiles.delete(fullPath);
+					affectedCount++;
+					selectedFiles.add(fullPath);
+				}
+			}
+
+			if (countMap) {
+				countMap.set(normalizedDirPath, affectedCount);
+			}
+		} catch {
+			return 0;
+		}
+
+		return affectedCount;
+	}
+
+	/**
+	 * Recursively searches for files matching a query substring while applying exclusion filters.
+	 *
+	 * @param dirPath - Root directory path to search.
+	 * @param query - Substring to match against file name.
+	 * @param filters - Active filter settings.
+	 * @returns Array of matching file paths.
+	 */
+	public static async findMatchingFiles(
+		dirPath: string,
+		query: string,
+		filters: FilterSettings
+	): Promise<string[]> {
+		const results: string[] = [];
+		const normalizedDirPath = PathUtils.normalizePath(dirPath);
+		const lowerQuery = query.toLowerCase();
+
+		try {
+			const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
+			const primaryFiltered = entries.filter((e) => !ALWAYS_IGNORED.has(e.name));
+
+			let gitIgnoredPaths = new Set<string>();
+			if (filters.hideGitIgnored) {
+				const candidatePaths = primaryFiltered.map((e) =>
+					PathUtils.normalizePath(path.join(normalizedDirPath, e.name))
+				);
+				gitIgnoredPaths = await GitService.checkIgnoredPaths(candidatePaths);
+			}
+
+			for (const entry of primaryFiltered) {
+				const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
+
+				if (filters.hideGitIgnored && gitIgnoredPaths.has(fullPath)) {
+					continue;
+				}
+
+				if (entry.isDirectory()) {
+					const subResults = await this.findMatchingFiles(fullPath, query, filters);
+					results.push(...subResults);
+				} else {
+					if (this.isFilteredByType(entry.name, false, filters)) {
+						continue;
+					}
+					if (entry.name.toLowerCase().includes(lowerQuery)) {
+						results.push(fullPath);
 					}
 				}
 			}
 		} catch {
-			// Ignore subtree recursion error
+			return [];
 		}
+
+		return results;
 	}
 }
