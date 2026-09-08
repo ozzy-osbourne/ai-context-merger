@@ -3,6 +3,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import {
   FilterSettings,
+  GitDiffSettings,
+  GitFileStatus,
   PromptSettings,
   WebviewToExtensionMessage,
   GitExtensionExports,
@@ -35,6 +37,14 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     enabled: false,
     text: ''
   };
+
+  public gitDiffSettings: GitDiffSettings = {
+    includeGitDiff: false,
+    diffOnly: false,
+    unlimitedDiff: false
+  };
+
+  private cachedGitStatuses: Map<string, GitFileStatus> = new Map<string, GitFileStatus>();
 
   private debounceTimer?: NodeJS.Timeout;
   private readonly watcherDisposables: vscode.Disposable[] = [];
@@ -153,7 +163,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
   }
 
   /**
-   * Schedules a debounced tree and statistics refresh.
+   * Schedules a debounced tree, Git decoration, and statistics refresh.
    */
   public triggerDebouncedRefresh(): void {
     if (this.isDisposed) {
@@ -165,6 +175,8 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     }
 
     this.debounceTimer = setTimeout(async () => {
+      this.cachedGitStatuses = await GitService.getFileStatuses();
+      this.treeDataProvider.setGitStatuses(this.cachedGitStatuses);
       this.treeDataProvider.refresh();
       await this.updateStats();
     }, 300);
@@ -256,12 +268,21 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
           };
           await this.updateStats();
           break;
+        case 'updateGitDiff':
+          if (message.settings && typeof message.settings === 'object') {
+            this.gitDiffSettings = {
+              includeGitDiff: Boolean(message.settings.includeGitDiff),
+              diffOnly: Boolean(message.settings.diffOnly),
+              unlimitedDiff: Boolean(message.settings.unlimitedDiff)
+            };
+            await this.updateStats();
+          }
+          break;
         case 'updateSearch':
           await this.handleSearchInput(message.query);
           break;
         case 'refresh':
-          this.treeDataProvider.refresh();
-          await this.updateStats();
+          this.triggerDebouncedRefresh();
           break;
         case 'requestInitialData':
           await this.sendInitialData();
@@ -271,13 +292,31 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
   }
 
   /**
-   * Recalculates context statistics and posts updated payload to Webview.
+   * Recalculates context statistics with Git diff length and posts updated payload to Webview.
    */
   public async updateStats(): Promise<void> {
     if (!this._view) {
       return;
     }
-    const stats = await StatsCalculator.calculateStats(this.selectedFiles, this.promptSettings);
+
+    let diffLength = 0;
+    if (this.gitDiffSettings.includeGitDiff && this.selectedFiles.size > 0) {
+      const diffContent = await GitService.getFilesDiff(
+        Array.from(this.selectedFiles),
+        this.gitDiffSettings.unlimitedDiff,
+        this.filters
+      );
+      diffLength = diffContent.length;
+    }
+
+    const stats = await StatsCalculator.calculateStats(
+      this.selectedFiles,
+      this.promptSettings,
+      this.gitDiffSettings,
+      diffLength,
+      this.cachedGitStatuses
+    );
+
     this._view.webview.postMessage({
       type: 'updateStats',
       stats
@@ -291,12 +330,34 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     if (!this._view) {
       return;
     }
-    const stats = await StatsCalculator.calculateStats(this.selectedFiles, this.promptSettings);
+
+    this.cachedGitStatuses = await GitService.getFileStatuses();
+    this.treeDataProvider.setGitStatuses(this.cachedGitStatuses);
+
+    let diffLength = 0;
+    if (this.gitDiffSettings.includeGitDiff && this.selectedFiles.size > 0) {
+      const diffContent = await GitService.getFilesDiff(
+        Array.from(this.selectedFiles),
+        this.gitDiffSettings.unlimitedDiff,
+        this.filters
+      );
+      diffLength = diffContent.length;
+    }
+
+    const stats = await StatsCalculator.calculateStats(
+      this.selectedFiles,
+      this.promptSettings,
+      this.gitDiffSettings,
+      diffLength,
+      this.cachedGitStatuses
+    );
+
     this._view.webview.postMessage({
       type: 'setData',
       stats,
       filters: this.filters,
-      promptSettings: this.promptSettings
+      promptSettings: this.promptSettings,
+      gitDiffSettings: this.gitDiffSettings
     });
   }
 
@@ -343,7 +404,6 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     const count = this.treeDataProvider.getMatchingFilesCount();
 
     if (this.treeView) {
-      // Clear header message when zero items found to avoid duplicate messages with empty state tree item
       this.treeView.message = count > 0 ? `Найдено файлов: ${count}` : undefined;
     }
 
@@ -377,7 +437,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
   }
 
   /**
-   * Selects all modified and untracked files identified by Git and expands parent folders.
+   * Selects all modified, untracked, and deleted files identified by Git and expands parent folders.
    */
   public async selectModifiedGitFiles(): Promise<void> {
     const modifiedPaths = await GitService.getModifiedFilePaths();
@@ -401,7 +461,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
 
     this.treeDataProvider.setGitExpandedFolders(matchedModifiedPaths);
 
-    vscode.window.showInformationMessage(`Выбрано файлов Git Diff: ${this.selectedFiles.size}`);
+    vscode.window.showInformationMessage(`Выбрано файлов Git: ${this.selectedFiles.size}`);
     await this.updateStats();
   }
 
@@ -422,7 +482,24 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       vscode.window.showWarningMessage('Не выбрано ни одного файла для копирования.');
       return;
     }
-    const markdown = await MarkdownBuilder.buildBundleMarkdown(this.selectedFiles, this.promptSettings);
+
+    let diffContent = '';
+    if (this.gitDiffSettings.includeGitDiff) {
+      diffContent = await GitService.getFilesDiff(
+        Array.from(this.selectedFiles),
+        this.gitDiffSettings.unlimitedDiff,
+        this.filters
+      );
+    }
+
+    const markdown = await MarkdownBuilder.buildBundleMarkdown(
+      this.selectedFiles,
+      this.promptSettings,
+      this.gitDiffSettings,
+      diffContent,
+      this.cachedGitStatuses
+    );
+
     await vscode.env.clipboard.writeText(markdown);
     vscode.window.showInformationMessage(`Скопирован контекст: ${this.selectedFiles.size} файлов!`);
   }
@@ -445,7 +522,23 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       return;
     }
 
-    const markdown = await MarkdownBuilder.buildBundleMarkdown(this.selectedFiles, this.promptSettings);
+    let diffContent = '';
+    if (this.gitDiffSettings.includeGitDiff) {
+      diffContent = await GitService.getFilesDiff(
+        Array.from(this.selectedFiles),
+        this.gitDiffSettings.unlimitedDiff,
+        this.filters
+      );
+    }
+
+    const markdown = await MarkdownBuilder.buildBundleMarkdown(
+      this.selectedFiles,
+      this.promptSettings,
+      this.gitDiffSettings,
+      diffContent,
+      this.cachedGitStatuses
+    );
+
     await fs.promises.writeFile(uri.fsPath, markdown, 'utf-8');
     vscode.window.showInformationMessage(`Файл сохранен: ${path.basename(uri.fsPath)}`);
   }
@@ -458,7 +551,24 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       vscode.window.showWarningMessage('Сначала выберите файлы для предпросмотра.');
       return;
     }
-    const markdown = await MarkdownBuilder.buildBundleMarkdown(this.selectedFiles, this.promptSettings);
+
+    let diffContent = '';
+    if (this.gitDiffSettings.includeGitDiff) {
+      diffContent = await GitService.getFilesDiff(
+        Array.from(this.selectedFiles),
+        this.gitDiffSettings.unlimitedDiff,
+        this.filters
+      );
+    }
+
+    const markdown = await MarkdownBuilder.buildBundleMarkdown(
+      this.selectedFiles,
+      this.promptSettings,
+      this.gitDiffSettings,
+      diffContent,
+      this.cachedGitStatuses
+    );
+
     const doc = await vscode.workspace.openTextDocument({
       content: markdown,
       language: 'markdown'

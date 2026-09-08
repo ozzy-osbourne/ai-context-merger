@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { FilterSettings } from '../types';
+import { FilterSettings, GitFileStatus } from '../types';
 import { WorkspaceScanner } from './workspaceScanner';
 import { PathUtils } from '../utils/pathUtils';
 
@@ -77,6 +77,8 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
   public readonly folderTotalCountMap: Map<string, number> = new Map<string, number>();
   private readonly pendingCountPromises: Map<string, Promise<number>> = new Map<string, Promise<number>>();
 
+  private gitStatuses: Map<string, GitFileStatus> = new Map<string, GitFileStatus>();
+
   /**
    * Creates an instance of ContextTreeDataProvider.
    *
@@ -87,6 +89,16 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     private readonly selectedFiles: Set<string>,
     private filters: FilterSettings
   ) { }
+
+  /**
+   * Assigns updated Git file change statuses and refreshes visual decorations.
+   *
+   * @param statuses - Map of file paths to Git statuses.
+   */
+  public setGitStatuses(statuses: Map<string, GitFileStatus>): void {
+    this.gitStatuses = statuses;
+    this.refresh();
+  }
 
   /**
    * Formats file quantity with Russian pluralization rules.
@@ -372,7 +384,6 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     }
 
     if (!element) {
-      // Empty state handler when search yields zero results
       if (this.searchQuery && this.matchingFilePaths.size === 0) {
         const emptyItem = new ContextTreeItem(
           vscode.Uri.parse('ai-context-merger:empty-results'),
@@ -417,7 +428,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
   }
 
   /**
-   * Reads directory entries from filesystem without deep scan, applying level-based expansion.
+   * Reads directory entries from filesystem, merging deleted Git changes and appending status badges.
    *
    * @param dirPath - Directory path to read.
    * @returns List of child tree items.
@@ -474,11 +485,23 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
       }
 
       const isChecked = this.selectedFiles.has(fullPath);
+      const gitStatus = this.gitStatuses.get(fullPath);
+
+      let statusBadge: string | undefined;
+      if (gitStatus === 'modified') {
+        statusBadge = '[M]';
+      } else if (gitStatus === 'untracked') {
+        statusBadge = '[U]';
+      } else if (gitStatus === 'renamed') {
+        statusBadge = '[R]';
+      }
+
       const fileItem = new ContextTreeItem(
         vscode.Uri.file(fullPath),
         false,
         isChecked,
-        vscode.TreeItemCollapsibleState.None
+        vscode.TreeItemCollapsibleState.None,
+        statusBadge
       );
 
       fileItem.command = {
@@ -490,7 +513,40 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
       return fileItem;
     });
 
-    return await Promise.all(itemPromises);
+    const treeItems = await Promise.all(itemPromises);
+
+    // Merge deleted Git items located directly inside this directory
+    for (const [gitPath, status] of this.gitStatuses.entries()) {
+      const isDirectChild = PathUtils.arePathsEqual(
+        path.dirname(gitPath),
+        normalizedDirPath
+      );
+
+      if (status === 'deleted' && isDirectChild) {
+        const fileName = path.basename(gitPath);
+        if (this.searchQuery && !fileName.toLowerCase().includes(this.searchQuery)) {
+          continue;
+        }
+
+        const isChecked = this.selectedFiles.has(gitPath);
+        const deletedItem = new ContextTreeItem(
+          vscode.Uri.file(gitPath),
+          false,
+          isChecked,
+          vscode.TreeItemCollapsibleState.None,
+          '[D]'
+        );
+        deletedItem.iconPath = new vscode.ThemeIcon('diff-removed');
+        deletedItem.command = {
+          command: 'aiContextMerger.toggleFileByClick',
+          title: 'Выбрать файл',
+          arguments: [gitPath]
+        };
+        treeItems.push(deletedItem);
+      }
+    }
+
+    return treeItems;
   }
 
   /**

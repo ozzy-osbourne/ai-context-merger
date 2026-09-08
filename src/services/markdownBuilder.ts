@@ -2,12 +2,13 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { BINARY_EXTENSIONS, LANGUAGE_MAP, MAX_FILE_SIZE_BYTES } from '../constants';
-import { PromptSettings } from '../types';
+import { GitDiffSettings, GitFileStatus, PromptSettings } from '../types';
 import { PathUtils } from '../utils/pathUtils';
 
 interface AsciiTreeNode {
   name: string;
   isDirectory: boolean;
+  status?: string;
   children: Map<string, AsciiTreeNode>;
 }
 
@@ -46,6 +47,43 @@ export class MarkdownBuilder {
     // SQLite 3 format
     [0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20, 0x33, 0x00]
   ];
+
+  /**
+   * Generates a placeholder string for files exceeding the maximum allowable size limit.
+   *
+   * @param sizeInBytes - File size in bytes.
+   * @returns Formatted placeholder message.
+   */
+  public static getSizeExceededPlaceholder(sizeInBytes: number): string {
+    const sizeMb = (sizeInBytes / (1024 * 1024)).toFixed(2);
+    return `[Файл превышает лимит размера 5 MB (${sizeMb} MB) - содержимое пропущено во избежание переполнения контекста ИИ]`;
+  }
+
+  /**
+   * Generates a placeholder string for binary and compiled media files.
+   *
+   * @param ext - File extension.
+   * @param sizeInBytes - File size in bytes.
+   * @param isCompiled - Flag indicating if detected via buffer inspection.
+   * @returns Formatted placeholder message.
+   */
+  public static getBinaryPlaceholder(ext: string, sizeInBytes: number, isCompiled: boolean = false): string {
+    const sizeKb = (sizeInBytes / 1024).toFixed(1);
+    const label = ext ? ext.replace('.', '').toUpperCase() : 'BINARY';
+    const prefix = isCompiled ? 'Бинарный или скомпилированный файл' : 'Бинарный файл';
+    return `[${prefix}: ${label} (${sizeKb} KB) - содержимое пропущено для сохранения контекста]`;
+  }
+
+  /**
+   * Generates a placeholder string for files with unrecognized or corrupted encoding.
+   *
+   * @param sizeInBytes - File size in bytes.
+   * @returns Formatted placeholder message.
+   */
+  public static getInvalidEncodingPlaceholder(sizeInBytes: number): string {
+    const sizeKb = (sizeInBytes / 1024).toFixed(1);
+    return `[Файл с нераспознанной или повреждённой кодировкой (не UTF-8, ${sizeKb} KB) - пропущен для предотвращения искажения контекста ИИ]`;
+  }
 
   /**
    * Resolves the Markdown syntax highlighting tag based on the file extension.
@@ -172,22 +210,19 @@ export class MarkdownBuilder {
       stat = await fs.promises.stat(filePath);
     } catch {
       return {
-        placeholder: '```text\n<Ошибка чтения: файл не найден или заблокирован>\n```'
+        placeholder: '[Ошибка чтения: файл не найден или недоступен]'
       };
     }
 
-    const sizeKb = (stat.size / 1024).toFixed(1);
-    const sizeMb = (stat.size / (1024 * 1024)).toFixed(2);
-
     if (stat.size > MAX_FILE_SIZE_BYTES) {
       return {
-        placeholder: `[Файл превышает лимит размера 5 MB (${sizeMb} MB) — содержимое пропущено во избежание переполнения контекста ИИ]`
+        placeholder: this.getSizeExceededPlaceholder(stat.size)
       };
     }
 
     if (BINARY_EXTENSIONS.has(ext)) {
       return {
-        placeholder: `[Бинарный файл: ${ext.replace('.', '').toUpperCase()} (${sizeKb} KB) — содержимое пропущено для сохранения контекста]`
+        placeholder: this.getBinaryPlaceholder(ext, stat.size)
       };
     }
 
@@ -200,7 +235,7 @@ export class MarkdownBuilder {
 
     if (this.isBinaryBuffer(buffer)) {
       return {
-        placeholder: `[Бинарный или скомпилированный файл: ${ext ? ext.replace('.', '').toUpperCase() : 'BINARY'} (${sizeKb} KB) — содержимое пропущено для сохранения контекста]`
+        placeholder: this.getBinaryPlaceholder(ext, stat.size, true)
       };
     }
 
@@ -215,7 +250,7 @@ export class MarkdownBuilder {
 
       if (replacementCount > 0 && replacementCount / Math.max(text.length, 1) > 0.05) {
         return {
-          placeholder: `[Файл с нераспознанной или повреждённой кодировкой (не UTF-8, ${sizeKb} KB) — пропущен для предотвращения искажения контекста ИИ]`
+          placeholder: this.getInvalidEncodingPlaceholder(stat.size)
         };
       }
 
@@ -224,20 +259,22 @@ export class MarkdownBuilder {
   }
 
   /**
-   * Constructs a hierarchical tree model from POSIX-compliant relative paths.
+   * Constructs a hierarchical tree model from POSIX-compliant relative paths and status labels.
    *
-   * @param relativePaths - Array of workspace relative paths.
+   * @param items - Array of path entries with optional Git status indicators.
    * @returns Root node of the ASCII tree hierarchy.
    */
-  private static buildAsciiTreeHierarchy(relativePaths: string[]): AsciiTreeNode {
+  private static buildAsciiTreeHierarchy(
+    items: Array<{ relativePath: string; status?: string }>
+  ): AsciiTreeNode {
     const root: AsciiTreeNode = {
       name: '',
       isDirectory: true,
       children: new Map()
     };
 
-    for (const relPath of relativePaths) {
-      const segments = relPath.split('/').filter(Boolean);
+    for (const item of items) {
+      const segments = item.relativePath.split('/').filter(Boolean);
       let currentNode = root;
 
       for (let i = 0; i < segments.length; i++) {
@@ -248,6 +285,7 @@ export class MarkdownBuilder {
           currentNode.children.set(segment, {
             name: segment,
             isDirectory,
+            status: !isDirectory ? item.status : undefined,
             children: new Map()
           });
         }
@@ -259,7 +297,7 @@ export class MarkdownBuilder {
   }
 
   /**
-   * Recursively renders ASCII branch lines for a hierarchy node.
+   * Recursively renders ASCII branch lines for a hierarchy node including Git markers.
    *
    * @param node - Current tree node.
    * @param prefix - Current line prefix indentation.
@@ -280,7 +318,8 @@ export class MarkdownBuilder {
       const branchSymbol = isLast ? '└── ' : '├── ';
       const nextPrefix = prefix + (isLast ? '    ' : '│   ');
 
-      const displayName = child.isDirectory ? `${child.name}/` : child.name;
+      const badge = child.status ? ` [${child.status}]` : '';
+      const displayName = child.isDirectory ? `${child.name}/` : `${child.name}${badge}`;
       lines.push(`${prefix}${branchSymbol}${displayName}`);
 
       if (child.isDirectory && child.children.size > 0) {
@@ -292,27 +331,59 @@ export class MarkdownBuilder {
   }
 
   /**
-   * Generates a plain-text ASCII representation of the project hierarchy.
+   * Generates a plain-text ASCII representation of the project hierarchy with optional Git decorations.
    *
    * @param relativePaths - Array of POSIX-formatted relative file paths.
+   * @param statusMap - Optional map of file paths to Git statuses.
+   * @param absolutePaths - Optional array of corresponding absolute paths for status resolution.
    * @returns Formatted ASCII tree string.
    */
-  public static generateAsciiTree(relativePaths: string[]): string {
-    const rootNode = this.buildAsciiTreeHierarchy(relativePaths);
+  public static generateAsciiTree(
+    relativePaths: string[],
+    statusMap?: Map<string, GitFileStatus>,
+    absolutePaths?: string[]
+  ): string {
+    const items = relativePaths.map((relPath, index) => {
+      const absPath = absolutePaths ? absolutePaths[index] : undefined;
+      let statusBadge: string | undefined;
+
+      if (absPath && statusMap) {
+        const status = statusMap.get(absPath);
+        if (status === 'modified') {
+          statusBadge = 'M';
+        } else if (status === 'untracked') {
+          statusBadge = 'U';
+        } else if (status === 'deleted') {
+          statusBadge = 'D';
+        } else if (status === 'renamed') {
+          statusBadge = 'R';
+        }
+      }
+
+      return { relativePath: relPath, status: statusBadge };
+    });
+
+    const rootNode = this.buildAsciiTreeHierarchy(items);
     const lines = this.renderAsciiTreeLines(rootNode);
     return `Project Structure:\n${lines.join('\n')}`;
   }
 
   /**
-   * Builds the complete Markdown bundle containing instruction, ASCII tree, and file sections.
+   * Builds the complete Markdown bundle containing instruction, ASCII tree with Git tags, diffs, and file sections.
    *
    * @param selectedFiles - Set of absolute file paths to include.
    * @param promptSettings - Optional AI instruction configuration.
+   * @param gitDiffSettings - Optional Git diff inclusion settings.
+   * @param gitDiffContent - Raw Git diff payload string.
+   * @param gitStatuses - Optional map containing current Git file statuses.
    * @returns Formatted Markdown string.
    */
   public static async buildBundleMarkdown(
     selectedFiles: Set<string>,
-    promptSettings?: PromptSettings
+    promptSettings?: PromptSettings,
+    gitDiffSettings?: GitDiffSettings,
+    gitDiffContent?: string,
+    gitStatuses?: Map<string, GitFileStatus>
   ): Promise<string> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     const sortedFiles = Array.from(selectedFiles).sort();
@@ -327,27 +398,36 @@ export class MarkdownBuilder {
       }
     }
 
-    const asciiTree = this.generateAsciiTree(relativePaths);
+    const asciiTree = this.generateAsciiTree(relativePaths, gitStatuses, sortedFiles);
     outputBlocks.push(asciiTree);
 
-    for (let i = 0; i < sortedFiles.length; i++) {
-      const filePath = sortedFiles[i];
-      const relativePath = relativePaths[i];
-      const fileName = path.basename(filePath);
+    // Append Git Diff section if enabled
+    if (gitDiffSettings?.includeGitDiff && gitDiffContent && gitDiffContent.trim().length > 0) {
+      const fence = this.getFenceSequence(gitDiffContent);
+      outputBlocks.push(`## Git Diff:\n${fence}diff\n${gitDiffContent.trim()}\n${fence}`);
+    }
 
-      const readResult = await this.safeReadFile(filePath);
-      let contentBlock = '';
+    // Skip outputting full file bodies in Diff Only mode
+    if (!gitDiffSettings?.diffOnly) {
+      for (let i = 0; i < sortedFiles.length; i++) {
+        const filePath = sortedFiles[i];
+        const relativePath = relativePaths[i];
+        const fileName = path.basename(filePath);
 
-      if (readResult.placeholder) {
-        contentBlock = readResult.placeholder;
-      } else if (readResult.text !== undefined) {
-        const langTag = this.getLanguageTag(filePath);
-        const fence = this.getFenceSequence(readResult.text);
-        contentBlock = `${fence}${langTag}\n${readResult.text}\n${fence}`;
+        const readResult = await this.safeReadFile(filePath);
+        let contentBlock = '';
+
+        if (readResult.placeholder) {
+          contentBlock = readResult.placeholder;
+        } else if (readResult.text !== undefined) {
+          const langTag = this.getLanguageTag(filePath);
+          const fence = this.getFenceSequence(readResult.text);
+          contentBlock = `${fence}${langTag}\n${readResult.text}\n${fence}`;
+        }
+
+        const fileSection = `## File path: ${relativePath}\n## File name: ${fileName}\n## File content:\n${contentBlock}`;
+        outputBlocks.push(fileSection);
       }
-
-      const fileSection = `## File path: ${relativePath}\n## File name: ${fileName}\n## File content:\n${contentBlock}`;
-      outputBlocks.push(fileSection);
     }
 
     return outputBlocks.join('\n\n---\n\n');

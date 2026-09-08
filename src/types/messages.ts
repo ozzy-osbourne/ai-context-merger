@@ -1,4 +1,4 @@
-import { ContextStats, FilterSettings, PromptSettings } from './tree';
+import { ContextStats, FilterSettings, GitDiffSettings, PromptSettings } from './tree';
 
 /**
  * Message payloads sent from the Webview frontend to the Extension backend.
@@ -15,6 +15,7 @@ export type WebviewToExtensionMessage =
   | { type: 'selectModified' }
   | { type: 'updateFilters'; filters: FilterSettings }
   | { type: 'updatePrompt'; enabled: boolean; text: string }
+  | { type: 'updateGitDiff'; settings: GitDiffSettings }
   | { type: 'updateSearch'; query: string }
   | { type: 'refresh' }
   | { type: 'requestInitialData' };
@@ -28,6 +29,7 @@ export type ExtensionToWebviewMessage =
     stats: ContextStats;
     filters: FilterSettings;
     promptSettings: PromptSettings;
+    gitDiffSettings: GitDiffSettings;
   }
   | {
     type: 'updateStats';

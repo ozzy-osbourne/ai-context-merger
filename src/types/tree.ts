@@ -16,6 +16,15 @@ export interface PromptSettings {
 }
 
 /**
+ * Git diff generation configuration settings.
+ */
+export interface GitDiffSettings {
+  includeGitDiff: boolean;
+  diffOnly: boolean;
+  unlimitedDiff: boolean;
+}
+
+/**
  * Context payload statistics and token estimates.
  */
 export interface ContextStats {

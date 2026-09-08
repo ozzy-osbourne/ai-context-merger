@@ -34,7 +34,7 @@ export function getScripts(): string {
 
     /**
      * Session cache restored across Webview re-renders.
-     * @type {{ promptEnabled?: boolean, promptText?: string, tokenLimit?: string }}
+     * @type {{ promptEnabled?: boolean, promptText?: string, tokenLimit?: string, gitDiffEnabled?: boolean, diffOnly?: boolean, unlimitedDiff?: boolean }}
      */
     const previousState = vscode.getState() || {};
 
@@ -48,11 +48,24 @@ export function getScripts(): string {
     const tokenLimitSelect = document.getElementById('tokenLimitSelect');
     const tokenOverflowWarning = document.getElementById('tokenOverflowWarning');
 
+    const gitDiffToggle = document.getElementById('gitDiffToggle');
+    const gitDiffSuboptions = document.getElementById('gitDiffSuboptions');
+    const diffOnlyToggle = document.getElementById('diffOnlyToggle');
+    const unlimitedDiffToggle = document.getElementById('unlimitedDiffToggle');
+
     // Restore prompt toggle and text from state
     promptToggle.checked = Boolean(previousState.promptEnabled);
     promptInput.value = previousState.promptText || '';
     if (promptToggle.checked) {
       promptBody.classList.remove('hidden');
+    }
+
+    // Restore Git Diff toggles from state
+    gitDiffToggle.checked = Boolean(previousState.gitDiffEnabled);
+    diffOnlyToggle.checked = Boolean(previousState.diffOnly);
+    unlimitedDiffToggle.checked = Boolean(previousState.unlimitedDiff);
+    if (gitDiffToggle.checked) {
+      gitDiffSuboptions.classList.remove('hidden');
     }
 
     // Safely restore token limit with fallback validation
@@ -95,7 +108,10 @@ export function getScripts(): string {
       vscode.setState({
         promptEnabled: promptToggle.checked,
         promptText: promptInput.value,
-        tokenLimit: activeLimit
+        tokenLimit: activeLimit,
+        gitDiffEnabled: gitDiffToggle.checked,
+        diffOnly: diffOnlyToggle.checked,
+        unlimitedDiff: unlimitedDiffToggle.checked
       });
     }
 
@@ -135,6 +151,22 @@ export function getScripts(): string {
         type: 'updatePrompt',
         enabled: promptToggle.checked,
         text: promptInput.value
+      });
+    }
+
+    /**
+     * Synchronizes current Git Diff settings with the VS Code extension host.
+     * @returns {void}
+     */
+    function syncGitDiffWithExtension() {
+      saveState();
+      vscode.postMessage({
+        type: 'updateGitDiff',
+        settings: {
+          includeGitDiff: gitDiffToggle.checked,
+          diffOnly: diffOnlyToggle.checked,
+          unlimitedDiff: unlimitedDiffToggle.checked
+        }
       });
     }
 
@@ -185,6 +217,23 @@ export function getScripts(): string {
 
     promptInput.addEventListener('input', () => {
       syncPromptWithExtension();
+    });
+
+    gitDiffToggle.addEventListener('change', () => {
+      if (gitDiffToggle.checked) {
+        gitDiffSuboptions.classList.remove('hidden');
+      } else {
+        gitDiffSuboptions.classList.add('hidden');
+      }
+      syncGitDiffWithExtension();
+    });
+
+    diffOnlyToggle.addEventListener('change', () => {
+      syncGitDiffWithExtension();
+    });
+
+    unlimitedDiffToggle.addEventListener('change', () => {
+      syncGitDiffWithExtension();
     });
 
     btnClearPrompt.addEventListener('click', (e) => {
@@ -250,8 +299,18 @@ export function getScripts(): string {
             promptBody.classList.add('hidden');
           }
           updateClearPromptButtonVisibility();
-          saveState();
         }
+        if (message.gitDiffSettings) {
+          gitDiffToggle.checked = Boolean(message.gitDiffSettings.includeGitDiff);
+          diffOnlyToggle.checked = Boolean(message.gitDiffSettings.diffOnly);
+          unlimitedDiffToggle.checked = Boolean(message.gitDiffSettings.unlimitedDiff);
+          if (gitDiffToggle.checked) {
+            gitDiffSuboptions.classList.remove('hidden');
+          } else {
+            gitDiffSuboptions.classList.add('hidden');
+          }
+        }
+        saveState();
       } else if (message.type === 'updateStats') {
         if (message.stats) updateStatsUI(message.stats);
       } else if (message.type === 'searchResults') {

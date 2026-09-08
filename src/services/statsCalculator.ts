@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ContextStats, PromptSettings } from '../types';
+import { ContextStats, GitDiffSettings, GitFileStatus, PromptSettings } from '../types';
 import { MAX_CONTEXT_TOKENS, BINARY_EXTENSIONS, MAX_FILE_SIZE_BYTES } from '../constants';
 import { MarkdownBuilder } from './markdownBuilder';
 
@@ -14,11 +14,17 @@ export class StatsCalculator {
    *
    * @param selectedFiles - Set of selected absolute file paths.
    * @param promptSettings - Optional AI instruction settings.
+   * @param gitDiffSettings - Optional Git diff configuration settings.
+   * @param gitDiffLength - Character length of the active Git diff payload.
+   * @param gitStatuses - Optional map containing current Git file statuses.
    * @returns Aggregated statistics for the selection.
    */
   public static async calculateStats(
     selectedFiles: Set<string>,
-    promptSettings?: PromptSettings
+    promptSettings?: PromptSettings,
+    gitDiffSettings?: GitDiffSettings,
+    gitDiffLength: number = 0,
+    gitStatuses?: Map<string, GitFileStatus>
   ): Promise<ContextStats> {
     if (selectedFiles.size === 0) {
       return { count: 0, tokens: 0, percentage: 0 };
@@ -37,56 +43,51 @@ export class StatsCalculator {
       }
     }
 
-    // 2. ASCII structure characters
+    // 2. ASCII structure characters with Git status decorations
     const relativePaths = sortedFiles.map((filePath) =>
       MarkdownBuilder.getRelativePath(filePath, workspaceFolders)
     );
 
-    const asciiTree = MarkdownBuilder.generateAsciiTree(relativePaths);
+    const asciiTree = MarkdownBuilder.generateAsciiTree(relativePaths, gitStatuses, sortedFiles);
     totalChars += asciiTree.length;
     totalChars += 6;
 
-    // 3. File content lengths
-    const fileStatPromises = sortedFiles.map(async (filePath, index) => {
-      const relPath = relativePaths[index];
-      const fileName = path.basename(filePath);
-      const ext = path.extname(filePath).toLowerCase();
-      const isBinary = BINARY_EXTENSIONS.has(ext);
+    // 3. Git Diff section characters
+    if (gitDiffSettings?.includeGitDiff && gitDiffLength > 0) {
+      totalChars += `## Git Diff:\n\`\`\`diff\n\n\`\`\``.length + gitDiffLength + 6;
+    }
 
-      const headerLength = `## File path: ${relPath}\n## File name: ${fileName}\n## File content:\n`.length;
-      let bodyLength = 0;
+    // 4. File content lengths (omitted if Diff Only mode is active)
+    if (!gitDiffSettings?.diffOnly) {
+      const fileStatPromises = sortedFiles.map(async (filePath, index) => {
+        const relPath = relativePaths[index];
+        const fileName = path.basename(filePath);
+        const ext = path.extname(filePath).toLowerCase();
 
-      if (isBinary) {
-        try {
-          const stat = await fs.promises.stat(filePath);
-          const sizeKb = (stat.size / 1024).toFixed(1);
-          const placeholder = `[Бинарный файл: ${ext.replace('.', '').toUpperCase()} (${sizeKb} KB) — содержимое пропущено для сохранения контекста]`;
-          bodyLength = placeholder.length;
-        } catch {
-          bodyLength = `[Бинарный файл: ${ext} — пропущен]`.length;
-        }
-      } else {
+        const headerLength = `## File path: ${relPath}\n## File name: ${fileName}\n## File content:\n`.length;
+        let bodyLength = 0;
+
         try {
           const stat = await fs.promises.stat(filePath);
           if (stat.size > MAX_FILE_SIZE_BYTES) {
-            const sizeMb = (stat.size / (1024 * 1024)).toFixed(2);
-            const placeholder = `[Файл превышает лимит размера 5 MB (${sizeMb} MB) — содержимое пропущено во избежание переполнения контекста ИИ]`;
-            bodyLength = placeholder.length;
+            bodyLength = MarkdownBuilder.getSizeExceededPlaceholder(stat.size).length;
+          } else if (BINARY_EXTENSIONS.has(ext)) {
+            bodyLength = MarkdownBuilder.getBinaryPlaceholder(ext, stat.size).length;
           } else {
             const langTag = MarkdownBuilder.getLanguageTag(filePath);
             bodyLength = stat.size + langTag.length + 8;
           }
         } catch {
-          bodyLength = 50;
+          bodyLength = 40; // Deleted or inaccessible file placeholder length
         }
+
+        return headerLength + bodyLength + 6;
+      });
+
+      const fileLengths = await Promise.all(fileStatPromises);
+      for (const len of fileLengths) {
+        totalChars += len;
       }
-
-      return headerLength + bodyLength + 6;
-    });
-
-    const fileLengths = await Promise.all(fileStatPromises);
-    for (const len of fileLengths) {
-      totalChars += len;
     }
 
     const estimatedTokens = Math.ceil(totalChars / 4);

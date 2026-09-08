@@ -179,7 +179,61 @@ export function getStyles(): string {
     }
 
     /* ==========================================================================
-       5. Context Statistics & Budget Progress Bar
+       5. Git Diff Controls Card
+       ========================================================================== */
+    .git-diff-card {
+      background-color: var(--vscode-editor-background);
+      border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-top: 8px;
+    }
+
+    .git-diff-header-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .git-diff-header-label input {
+      cursor: pointer;
+      margin: 0;
+    }
+
+    .git-diff-suboptions {
+      margin-top: 6px;
+      padding-left: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      border-left: 2px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+      margin-left: 6px;
+    }
+
+    .git-diff-suboption {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      cursor: pointer;
+      color: var(--vscode-descriptionForeground);
+      transition: color 0.2s ease;
+    }
+
+    .git-diff-suboption:hover {
+      color: var(--vscode-foreground);
+    }
+
+    .git-diff-suboption input {
+      cursor: pointer;
+      margin: 0;
+    }
+
+    /* ==========================================================================
+       6. Context Statistics & Budget Progress Bar
        ========================================================================== */
     .stats-card {
       background-color: var(--vscode-editor-background);
@@ -303,7 +357,7 @@ export function getStyles(): string {
     }
 
     /* ==========================================================================
-       6. Exclusion Filters
+       7. Exclusion Filters
        ========================================================================== */
     .filter-section {
       margin-top: 8px;
@@ -341,7 +395,7 @@ export function getStyles(): string {
     }
 
     /* ==========================================================================
-       7. Search Input & Utilities
+       8. Search Input & Utilities
        ========================================================================== */
     .search-container {
       margin-top: 8px;

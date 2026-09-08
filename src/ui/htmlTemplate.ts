@@ -79,7 +79,24 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
 
       <div class="btn-grid-2">
         <button class="btn-secondary" id="btnRefresh" title="Пересканировать рабочую область и пересчитать статистику">🔄 Обновить</button>
-        <button class="btn-secondary" id="btnGit" title="Выбрать только измененные (Modified) и новые (Untracked) файлы Git">🌿 Измененные (Git)</button>
+        <button class="btn-secondary" id="btnGit" title="Выбрать только измененные (Modified), новые (Untracked) и удаленные (Deleted) файлы Git">🌿 Измененные (Git)</button>
+      </div>
+
+      <div class="git-diff-card">
+        <label class="git-diff-header-label" title="Прикрепить блок git diff изменений выбранных файлов в итоговый Markdown-контекст">
+          <input type="checkbox" id="gitDiffToggle">
+          <span>🌿 Прикрепить Git Diff</span>
+        </label>
+        <div class="git-diff-suboptions hidden" id="gitDiffSuboptions">
+          <label class="git-diff-suboption" title="Исключить полный код файлов, оставив только дерево проекта и git diff (идеально для экономии токенов при Code Review)">
+            <input type="checkbox" id="diffOnlyToggle">
+            <span>Только Diff (без файлов)</span>
+          </label>
+          <label class="git-diff-suboption" title="Не обрезать большие диффы (по умолчанию лимит 100 KB на один файл для защиты контекста)">
+            <input type="checkbox" id="unlimitedDiffToggle">
+            <span>Безлимитный Diff</span>
+          </label>
+        </div>
       </div>
 
       <div class="filter-section">

@@ -19,6 +19,22 @@ export class PathUtils {
   }
 
   /**
+   * Compares two paths for equality taking platform case-sensitivity into account.
+   *
+   * @param path1 - First path to compare.
+   * @param path2 - Second path to compare.
+   * @returns `true` if both paths point to the same location.
+   */
+  public static arePathsEqual(path1: string, path2: string): boolean {
+    const norm1 = this.normalizePath(path1);
+    const norm2 = this.normalizePath(path2);
+    if (process.platform === 'win32') {
+      return norm1.toLowerCase() === norm2.toLowerCase();
+    }
+    return norm1 === norm2;
+  }
+
+  /**
    * Determines whether a target path is equal to or located inside a parent directory.
    * Handles case-insensitive comparison on Windows.
    *
@@ -45,7 +61,6 @@ export class PathUtils {
    * Converts a path to POSIX-compliant relative format (using `/` as separator).
    *
    * @param from - Source directory path.
-   * @param to - Destination file path.
    * @returns POSIX-formatted relative path.
    */
   public static toPosixRelative(from: string, to: string): string {
@@ -70,11 +85,11 @@ export class PathUtils {
     while (this.isSubpath(parent, normRoot)) {
       const normalizedParent = this.normalizePath(parent);
       ancestors.push(normalizedParent);
-      if (normalizedParent === normRoot) {
+      if (this.arePathsEqual(normalizedParent, normRoot)) {
         break;
       }
       const nextParent = path.dirname(normalizedParent);
-      if (nextParent === normalizedParent) {
+      if (this.arePathsEqual(nextParent, normalizedParent)) {
         break;
       }
       parent = nextParent;

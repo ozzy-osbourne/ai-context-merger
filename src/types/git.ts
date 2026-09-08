@@ -1,6 +1,24 @@
 import * as vscode from 'vscode';
 
 /**
+ * Git change status flags from the built-in VS Code Git extension.
+ */
+export enum GitStatus {
+  INDEX_MODIFIED = 0,
+  INDEX_ADDED = 1,
+  INDEX_DELETED = 2,
+  INDEX_RENAMED = 3,
+  INDEX_COPIED = 4,
+  MODIFIED = 5,
+  DELETED = 6,
+  UNTRACKED = 7,
+  IGNORED = 8,
+  INTENT_TO_ADD = 9,
+  INTENT_TO_RENAME = 10,
+  TYPE_CHANGED = 11
+}
+
+/**
  * Descriptor of a file change in the VS Code Git extension.
  */
 export interface GitChange {
@@ -8,7 +26,22 @@ export interface GitChange {
    * Resource URI of the changed file.
    */
   readonly uri: vscode.Uri;
+
+  /**
+   * Resource URI of original file before change.
+   */
+  readonly originalUri?: vscode.Uri;
+
+  /**
+   * Git change status flag number.
+   */
+  readonly status?: number;
 }
+
+/**
+ * Recognized Git status classification for project files.
+ */
+export type GitFileStatus = 'modified' | 'untracked' | 'deleted' | 'renamed';
 
 /**
  * State representation of a Git repository within VS Code.
@@ -56,6 +89,22 @@ export interface GitRepository {
    * @returns Set of paths that are ignored.
    */
   checkIgnore(paths: string[]): Promise<Set<string>>;
+
+  /**
+   * Obtains the unified diff between working tree and HEAD for the target path.
+   *
+   * @param path - Relative or absolute path of the file.
+   * @returns Formatted unified diff string.
+   */
+  diffWithHEAD(path?: string): Promise<string>;
+
+  /**
+   * Obtains the unified diff between staged index and HEAD for the target path.
+   *
+   * @param path - Relative or absolute path of the file.
+   * @returns Formatted unified diff string.
+   */
+  diffIndexWithHEAD(path?: string): Promise<string>;
 }
 
 /**
