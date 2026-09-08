@@ -16,6 +16,38 @@ interface AsciiTreeNode {
  */
 export class MarkdownBuilder {
   /**
+   * Magic byte headers of popular binary formats.
+   */
+  private static readonly BINARY_MAGIC_HEADERS: readonly number[][] = [
+    // PDF (%PDF)
+    [0x25, 0x50, 0x44, 0x46],
+    // ZIP / JAR / DOCX / APK (PK\x03\x04)
+    [0x50, 0x4b, 0x03, 0x04],
+    // PNG (\x89PNG\r\n\x1a\n)
+    [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+    // JPEG (\xFF\xD8\xFF)
+    [0xff, 0xd8, 0xff],
+    // GIF87a & GIF89a (GIF8)
+    [0x47, 0x49, 0x46, 0x38],
+    // ELF Executable (\x7FELF)
+    [0x7f, 0x45, 0x4c, 0x46],
+    // Windows PE / DOS Executable (MZ)
+    [0x4d, 0x5a],
+    // WebAssembly (\0asm)
+    [0x00, 0x61, 0x73, 0x6d],
+    // Java Class File (CAFEBABE)
+    [0xca, 0xfe, 0xba, 0xbe],
+    // 7-Zip (7z\xBC\xAF\x27\x1C)
+    [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c],
+    // GZIP (\x1F\x8B)
+    [0x1f, 0x8b],
+    // RAR (Rar!\x1A\x07)
+    [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07],
+    // SQLite 3 format
+    [0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20, 0x33, 0x00]
+  ];
+
+  /**
    * Resolves the Markdown syntax highlighting tag based on the file extension.
    *
    * @param filePath - Path to the file.
@@ -76,12 +108,45 @@ export class MarkdownBuilder {
   }
 
   /**
-   * Scans buffer for null bytes to identify binary data.
+   * Checks if buffer begins with known binary magic byte sequences.
    *
    * @param buffer - File content buffer.
-   * @returns `true` if null bytes are present in the sample.
+   * @returns `true` if buffer matches any binary header signature.
+   */
+  private static hasBinaryMagicBytes(buffer: Buffer): boolean {
+    if (buffer.length === 0) {
+      return false;
+    }
+
+    for (const signature of this.BINARY_MAGIC_HEADERS) {
+      if (buffer.length >= signature.length) {
+        let matches = true;
+        for (let i = 0; i < signature.length; i++) {
+          if (buffer[i] !== signature[i]) {
+            matches = false;
+            break;
+          }
+        }
+        if (matches) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Scans buffer for binary signatures and null bytes.
+   *
+   * @param buffer - File content buffer.
+   * @returns `true` if the buffer contains binary data.
    */
   private static isBinaryBuffer(buffer: Buffer): boolean {
+    if (this.hasBinaryMagicBytes(buffer)) {
+      return true;
+    }
+
     const checkLength = Math.min(buffer.length, 8000);
     for (let i = 0; i < checkLength; i++) {
       if (buffer[i] === 0) {
@@ -114,7 +179,6 @@ export class MarkdownBuilder {
     const sizeKb = (stat.size / 1024).toFixed(1);
     const sizeMb = (stat.size / (1024 * 1024)).toFixed(2);
 
-    // Filter files exceeding the maximum size threshold
     if (stat.size > MAX_FILE_SIZE_BYTES) {
       return {
         placeholder: `[Файл превышает лимит размера 5 MB (${sizeMb} MB) — содержимое пропущено во избежание переполнения контекста ИИ]`

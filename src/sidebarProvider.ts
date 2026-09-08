@@ -67,7 +67,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
   }
 
   /**
-   * Re-initializes file system and Git watchers (e.g. upon workspace folder changes).
+   * Re-initializes file system and Git watchers.
    */
   public reinitWatchers(): void {
     this.initWatchers();
@@ -333,11 +333,19 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     await this.treeDataProvider.setSearchQuery(trimmed);
 
     if (!trimmed) {
+      if (this.treeView) {
+        this.treeView.message = undefined;
+      }
       this._view?.webview.postMessage({ type: 'searchResults', count: 0, query: '' });
       return;
     }
 
     const count = this.treeDataProvider.getMatchingFilesCount();
+
+    if (this.treeView) {
+      // Clear header message when zero items found to avoid duplicate messages with empty state tree item
+      this.treeView.message = count > 0 ? `Найдено файлов: ${count}` : undefined;
+    }
 
     this._view?.webview.postMessage({
       type: 'searchResults',
@@ -391,7 +399,6 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       }
     }
 
-    // Instantly expands only the parent folders containing changed files
     this.treeDataProvider.setGitExpandedFolders(matchedModifiedPaths);
 
     vscode.window.showInformationMessage(`Выбрано файлов Git Diff: ${this.selectedFiles.size}`);

@@ -21,8 +21,20 @@ export function getScripts(): string {
     const PRESET_TEXTS = ${presetsJson};
 
     /**
+     * Default token limit fallback value.
+     * @type {string}
+     */
+    const DEFAULT_TOKEN_LIMIT = '200000';
+
+    /**
+     * Whitelist of allowable token context window limits.
+     * @type {readonly string[]}
+     */
+    const VALID_TOKEN_LIMITS = ['32000', '64000', '128000', '200000', '1000000', '2000000'];
+
+    /**
      * Session cache restored across Webview re-renders.
-     * @type {{ promptEnabled?: boolean, promptText?: string }}
+     * @type {{ promptEnabled?: boolean, promptText?: string, tokenLimit?: string }}
      */
     const previousState = vscode.getState() || {};
 
@@ -32,12 +44,25 @@ export function getScripts(): string {
     const btnClearPrompt = document.getElementById('btnClearPrompt');
     const btnSelectAll = document.getElementById('btnSelectAll');
     const searchInput = document.getElementById('searchInput');
+    const btnClearSearch = document.getElementById('btnClearSearch');
+    const tokenLimitSelect = document.getElementById('tokenLimitSelect');
+    const tokenOverflowWarning = document.getElementById('tokenOverflowWarning');
 
-    // Restore cached state immediately to eliminate UI flicker
+    // Restore prompt toggle and text from state
     promptToggle.checked = Boolean(previousState.promptEnabled);
     promptInput.value = previousState.promptText || '';
     if (promptToggle.checked) {
       promptBody.classList.remove('hidden');
+    }
+
+    // Safely restore token limit with fallback validation
+    let restoredLimit = DEFAULT_TOKEN_LIMIT;
+    if (previousState.tokenLimit && VALID_TOKEN_LIMITS.includes(String(previousState.tokenLimit))) {
+      restoredLimit = String(previousState.tokenLimit);
+    }
+    tokenLimitSelect.value = restoredLimit;
+    if (tokenLimitSelect.selectedIndex === -1) {
+      tokenLimitSelect.value = DEFAULT_TOKEN_LIMIT;
     }
 
     /**
@@ -53,13 +78,24 @@ export function getScripts(): string {
     let searchDebounceTimer;
 
     /**
+     * Most recent token estimate received from the extension backend.
+     * @type {number}
+     */
+    let currentEstimatedTokens = 0;
+
+    /**
      * Persists current UI state into the Webview session storage.
      * @returns {void}
      */
     function saveState() {
+      const activeLimit = VALID_TOKEN_LIMITS.includes(tokenLimitSelect.value)
+        ? tokenLimitSelect.value
+        : DEFAULT_TOKEN_LIMIT;
+
       vscode.setState({
         promptEnabled: promptToggle.checked,
-        promptText: promptInput.value
+        promptText: promptInput.value,
+        tokenLimit: activeLimit
       });
     }
 
@@ -77,6 +113,18 @@ export function getScripts(): string {
     }
 
     /**
+     * Toggles visibility of the search clear button based on text input length.
+     * @returns {void}
+     */
+    function updateClearSearchButtonVisibility() {
+      if (searchInput.value.length > 0) {
+        btnClearSearch.classList.remove('hidden');
+      } else {
+        btnClearSearch.classList.add('hidden');
+      }
+    }
+
+    /**
      * Synchronizes current prompt settings with the VS Code extension host.
      * @returns {void}
      */
@@ -90,7 +138,41 @@ export function getScripts(): string {
       });
     }
 
+    /**
+     * Recalculates progress bar width, percentage caption, warning colors, and overflow alerts.
+     * @returns {void}
+     */
+    function renderProgressIndicator() {
+      if (!VALID_TOKEN_LIMITS.includes(tokenLimitSelect.value) || tokenLimitSelect.selectedIndex === -1) {
+        tokenLimitSelect.value = DEFAULT_TOKEN_LIMIT;
+      }
+
+      const maxLimit = parseInt(tokenLimitSelect.value, 10) || 200000;
+      const percentage = Math.min(100, Math.round((currentEstimatedTokens / maxLimit) * 100));
+
+      const bar = document.getElementById('progressBar');
+      bar.style.width = percentage + '%';
+
+      if (percentage < 33) {
+        bar.style.backgroundColor = 'var(--color-green)';
+      } else if (percentage < 66) {
+        bar.style.backgroundColor = 'var(--color-yellow)';
+      } else {
+        bar.style.backgroundColor = 'var(--color-red)';
+      }
+
+      document.getElementById('progressPercent').innerText = percentage + '%';
+
+      if (currentEstimatedTokens > maxLimit) {
+        tokenOverflowWarning.classList.remove('hidden');
+      } else {
+        tokenOverflowWarning.classList.add('hidden');
+      }
+    }
+
     updateClearPromptButtonVisibility();
+    updateClearSearchButtonVisibility();
+    saveState();
 
     promptToggle.addEventListener('change', () => {
       if (promptToggle.checked) {
@@ -110,6 +192,26 @@ export function getScripts(): string {
       promptInput.value = '';
       promptInput.focus();
       syncPromptWithExtension();
+    });
+
+    btnClearSearch.addEventListener('click', (e) => {
+      e.stopPropagation();
+      searchInput.value = '';
+      currentSearchQuery = '';
+      updateClearSearchButtonVisibility();
+      btnSelectAll.innerText = '✅ Выбрать всё';
+      searchInput.focus();
+
+      clearTimeout(searchDebounceTimer);
+      vscode.postMessage({
+        type: 'updateSearch',
+        query: ''
+      });
+    });
+
+    tokenLimitSelect.addEventListener('change', () => {
+      saveState();
+      renderProgressIndicator();
     });
 
     document.querySelectorAll('.preset-chip').forEach(chip => {
@@ -199,6 +301,8 @@ export function getScripts(): string {
 
     searchInput.addEventListener('input', (e) => {
       currentSearchQuery = e.target.value.trim();
+      updateClearSearchButtonVisibility();
+
       if (!currentSearchQuery) {
         btnSelectAll.innerText = '✅ Выбрать всё';
       }
@@ -213,26 +317,15 @@ export function getScripts(): string {
     });
 
     /**
-     * Renders numeric metrics and updates the token budget progress bar fill color.
+     * Renders numeric metrics and triggers dynamic token progress recalculation.
      * @param {{ count: number, tokens: number, percentage: number }} stats - Calculated context statistics.
      * @returns {void}
      */
     function updateStatsUI(stats) {
+      currentEstimatedTokens = stats.tokens || 0;
       document.getElementById('statCount').innerText = stats.count;
-      document.getElementById('statTokens').innerText = '~' + stats.tokens.toLocaleString();
-
-      const bar = document.getElementById('progressBar');
-      bar.style.width = stats.percentage + '%';
-
-      if (stats.percentage < 33) {
-        bar.style.backgroundColor = 'var(--color-green)';
-      } else if (stats.percentage < 66) {
-        bar.style.backgroundColor = 'var(--color-yellow)';
-      } else {
-        bar.style.backgroundColor = 'var(--color-red)';
-      }
-
-      document.getElementById('progressCaption').innerText = stats.percentage + '% от 200k';
+      document.getElementById('statTokens').innerText = '~' + currentEstimatedTokens.toLocaleString();
+      renderProgressIndicator();
     }
 
     vscode.postMessage({ type: 'requestInitialData' });

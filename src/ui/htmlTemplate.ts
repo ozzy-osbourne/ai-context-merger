@@ -106,12 +106,30 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
         <div class="progress-bar-container">
           <div class="progress-bar-fill" id="progressBar"></div>
         </div>
-        <div class="progress-caption" id="progressCaption">0% от 200k</div>
+        <div class="progress-footer">
+          <span class="warning-overflow hidden" id="tokenOverflowWarning">⚠️ Контекст переполнен!</span>
+          <div class="progress-footer-right">
+            <span class="progress-percent" id="progressPercent">0%</span>
+            <span class="progress-of">от</span>
+            <div class="token-select-wrapper">
+              <select id="tokenLimitSelect" class="token-limit-select" title="Выбрать лимит контекстного окна LLM">
+                <option value="32000">32k</option>
+                <option value="64000">64k</option>
+                <option value="128000">128k</option>
+                <option value="200000" selected>200k</option>
+                <option value="1000000">1M</option>
+                <option value="2000000">2M</option>
+              </select>
+              <span class="select-chevron">▾</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="search-container">
         <span class="search-icon">🔍</span>
         <input type="text" id="searchInput" class="search-input" placeholder="Быстрый поиск файлов..." title="Фильтрация файлов в дереве по имени" />
+        <button type="button" class="btn-clear-search hidden" id="btnClearSearch" title="Очистить поисковый запрос">✕</button>
       </div>
 
       <script nonce="${nonce}">${scripts}</script>

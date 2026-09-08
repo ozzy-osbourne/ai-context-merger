@@ -32,6 +32,16 @@ export const ALWAYS_IGNORED: ReadonlySet<string> = new Set([
   'target',
   '.gradle',
 
+  // Unity project caches and builds
+  'Library',
+  'Temp',
+  'Obj',
+  'Build',
+  'Builds',
+  'Logs',
+  'UserSettings',
+  'MemoryCaptures',
+
   // Test coverage & temporary caches
   'coverage',
   '.nyc_output',

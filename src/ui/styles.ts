@@ -207,7 +207,7 @@ export function getStyles(): string {
       background-color: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
       border-radius: 3px;
       overflow: hidden;
-      margin-bottom: 4px;
+      margin-bottom: 6px;
     }
 
     .progress-bar-fill {
@@ -217,10 +217,89 @@ export function getStyles(): string {
       transition: width 0.3s ease, background-color 0.3s ease;
     }
 
-    .progress-caption {
-      font-size: 10px;
+    .progress-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
       color: var(--vscode-descriptionForeground);
-      text-align: right;
+    }
+
+    .warning-overflow {
+      color: var(--color-red);
+      font-weight: 700;
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      white-space: nowrap;
+    }
+
+    .progress-footer-right {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-left: auto;
+    }
+
+    .progress-percent {
+      font-weight: 700;
+      color: var(--vscode-foreground);
+      font-size: 11px;
+    }
+
+    .progress-of {
+      color: var(--vscode-descriptionForeground);
+      font-size: 11px;
+    }
+
+    .token-select-wrapper {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .token-limit-select {
+      background-color: var(--vscode-dropdown-background, var(--vscode-editor-background));
+      color: var(--vscode-descriptionForeground);
+      border: 1px solid var(--vscode-dropdown-border, rgba(128, 128, 128, 0.3));
+      border-radius: 4px;
+      padding: 1px 18px 1px 6px;
+      font-family: var(--font-family);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      outline: none;
+      appearance: none;
+      -webkit-appearance: none;
+      line-height: 18px;
+      height: 22px;
+      min-width: 52px;
+      box-sizing: border-box;
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .token-limit-select option {
+      background-color: var(--vscode-dropdown-background, #252526);
+      color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+    }
+
+    .token-limit-select:hover {
+      color: var(--vscode-foreground);
+      border-color: var(--vscode-focusBorder);
+    }
+
+    .token-limit-select:focus {
+      color: var(--vscode-foreground);
+      border-color: var(--vscode-focusBorder);
+    }
+
+    .select-chevron {
+      position: absolute;
+      right: 6px;
+      font-size: 9px;
+      color: var(--vscode-descriptionForeground);
+      pointer-events: none;
     }
 
     /* ==========================================================================
@@ -267,6 +346,8 @@ export function getStyles(): string {
     .search-container {
       margin-top: 8px;
       position: relative;
+      display: flex;
+      align-items: center;
     }
 
     .search-input {
@@ -274,7 +355,7 @@ export function getStyles(): string {
       background-color: var(--vscode-input-background);
       color: var(--vscode-input-foreground);
       border: 1px solid var(--vscode-input-border, transparent);
-      padding: 6px 8px 6px 24px;
+      padding: 6px 26px 6px 24px;
       font-size: 12px;
       border-radius: 4px;
       box-sizing: border-box;
@@ -288,9 +369,32 @@ export function getStyles(): string {
     .search-icon {
       position: absolute;
       left: 7px;
-      top: 6px;
       font-size: 11px;
       opacity: 0.6;
+      pointer-events: none;
+    }
+
+    .btn-clear-search {
+      position: absolute;
+      right: 6px;
+      background: none;
+      border: none;
+      color: var(--vscode-descriptionForeground);
+      cursor: pointer;
+      font-size: 11px;
+      padding: 2px 4px;
+      border-radius: 3px;
+      opacity: 0.7;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+
+    .btn-clear-search:hover {
+      color: var(--vscode-foreground);
+      background-color: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+      opacity: 1;
     }
 
     .hidden {

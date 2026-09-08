@@ -1,7 +1,7 @@
 import * as path from 'path';
 
 /**
- * Utility class for cross-platform file path operations and comparisons.
+ * Utility class for cross-platform file path operations, comparisons, and hierarchy traversal.
  */
 export class PathUtils {
   /**
@@ -52,5 +52,34 @@ export class PathUtils {
     const normFrom = this.normalizePath(from);
     const normTo = this.normalizePath(to);
     return path.relative(normFrom, normTo).replace(/\\/g, '/');
+  }
+
+  /**
+   * Retrieves all ancestor directory paths starting from the parent of targetPath up to and including rootPath.
+   *
+   * @param targetPath - The child file or directory path.
+   * @param rootPath - The boundary workspace root directory.
+   * @returns Array of normalized ancestor directory paths.
+   */
+  public static getAncestorPaths(targetPath: string, rootPath: string): string[] {
+    const ancestors: string[] = [];
+    const normTarget = this.normalizePath(targetPath);
+    const normRoot = this.normalizePath(rootPath);
+
+    let parent = path.dirname(normTarget);
+    while (this.isSubpath(parent, normRoot)) {
+      const normalizedParent = this.normalizePath(parent);
+      ancestors.push(normalizedParent);
+      if (normalizedParent === normRoot) {
+        break;
+      }
+      const nextParent = path.dirname(normalizedParent);
+      if (nextParent === normalizedParent) {
+        break;
+      }
+      parent = nextParent;
+    }
+
+    return ancestors;
   }
 }

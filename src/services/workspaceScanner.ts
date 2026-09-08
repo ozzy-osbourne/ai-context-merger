@@ -6,6 +6,14 @@ import { GitService } from './gitService';
 import { PathUtils } from '../utils/pathUtils';
 
 /**
+ * Scanned directory entry containing the filesystem descriptor and its normalized path.
+ */
+export interface ScannedDirectoryEntry {
+	readonly entry: fs.Dirent;
+	readonly fullPath: string;
+}
+
+/**
  * Service for scanning workspace directories and managing hierarchical selections.
  */
 export class WorkspaceScanner {
@@ -79,6 +87,57 @@ export class WorkspaceScanner {
 	}
 
 	/**
+	 * Reads a directory and filters out items matching system ignores, Git ignores, and active file filters.
+	 *
+	 * @param dirPath - Absolute directory path to read.
+	 * @param filters - Active exclusion filters.
+	 * @returns Array of eligible directory entries with resolved paths.
+	 */
+	public static async readValidDirectoryEntries(
+		dirPath: string,
+		filters: FilterSettings
+	): Promise<ScannedDirectoryEntry[]> {
+		const normalizedDirPath = PathUtils.normalizePath(dirPath);
+
+		try {
+			const stat = await fs.promises.stat(normalizedDirPath);
+			if (!stat.isDirectory()) {
+				return [];
+			}
+
+			const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
+			const primaryFiltered = entries.filter((entry) => !ALWAYS_IGNORED.has(entry.name));
+
+			let gitIgnoredPaths = new Set<string>();
+			if (filters.hideGitIgnored) {
+				const candidatePaths = primaryFiltered.map((entry) =>
+					PathUtils.normalizePath(path.join(normalizedDirPath, entry.name))
+				);
+				gitIgnoredPaths = await GitService.checkIgnoredPaths(candidatePaths);
+			}
+
+			const validEntries: ScannedDirectoryEntry[] = [];
+			for (const entry of primaryFiltered) {
+				const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
+
+				if (filters.hideGitIgnored && gitIgnoredPaths.has(fullPath)) {
+					continue;
+				}
+
+				if (this.isFilteredByType(entry.name, entry.isDirectory(), filters)) {
+					continue;
+				}
+
+				validEntries.push({ entry, fullPath });
+			}
+
+			return validEntries;
+		} catch {
+			return [];
+		}
+	}
+
+	/**
 	 * Counts the total number of selectable files in a directory subtree and caches counts for folders.
 	 *
 	 * @param dirPath - Root directory path.
@@ -94,46 +153,19 @@ export class WorkspaceScanner {
 		const normalizedDirPath = PathUtils.normalizePath(dirPath);
 		let count = 0;
 
-		try {
-			const stat = await fs.promises.stat(normalizedDirPath);
-			if (!stat.isDirectory()) {
-				return 0;
+		const validEntries = await this.readValidDirectoryEntries(normalizedDirPath, filters);
+
+		for (const { entry, fullPath } of validEntries) {
+			if (entry.isDirectory()) {
+				const childCount = await this.countSelectableFiles(fullPath, filters, countMap);
+				count += childCount;
+			} else {
+				count++;
 			}
+		}
 
-			const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
-			const primaryFiltered = entries.filter((e) => !ALWAYS_IGNORED.has(e.name));
-
-			let gitIgnoredPaths = new Set<string>();
-			if (filters.hideGitIgnored) {
-				const candidatePaths = primaryFiltered.map((e) =>
-					PathUtils.normalizePath(path.join(normalizedDirPath, e.name))
-				);
-				gitIgnoredPaths = await GitService.checkIgnoredPaths(candidatePaths);
-			}
-
-			for (const entry of primaryFiltered) {
-				const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
-
-				if (filters.hideGitIgnored && gitIgnoredPaths.has(fullPath)) {
-					continue;
-				}
-
-				if (entry.isDirectory()) {
-					const childCount = await this.countSelectableFiles(fullPath, filters, countMap);
-					count += childCount;
-				} else {
-					if (this.isFilteredByType(entry.name, false, filters)) {
-						continue;
-					}
-					count++;
-				}
-			}
-
-			if (countMap) {
-				countMap.set(normalizedDirPath, count);
-			}
-		} catch {
-			return 0;
+		if (countMap) {
+			countMap.set(normalizedDirPath, count);
 		}
 
 		return count;
@@ -157,53 +189,25 @@ export class WorkspaceScanner {
 		const normalizedDirPath = PathUtils.normalizePath(dirPath);
 		let affectedCount = 0;
 
-		try {
-			const stat = await fs.promises.stat(normalizedDirPath);
-			if (!stat.isDirectory()) {
-				return 0;
-			}
+		const validEntries = await this.readValidDirectoryEntries(normalizedDirPath, filters);
 
-			const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
-			const primaryFilteredEntries = entries.filter((entry) => !ALWAYS_IGNORED.has(entry.name));
-
-			let gitIgnoredPaths = new Set<string>();
-			if (filters.hideGitIgnored) {
-				const candidatePaths = primaryFilteredEntries.map((e) =>
-					PathUtils.normalizePath(path.join(normalizedDirPath, e.name))
+		for (const { entry, fullPath } of validEntries) {
+			if (entry.isDirectory()) {
+				const childCount = await this.selectFolderRecursive(
+					fullPath,
+					filters,
+					selectedFiles,
+					countMap
 				);
-				gitIgnoredPaths = await GitService.checkIgnoredPaths(candidatePaths);
+				affectedCount += childCount;
+			} else {
+				affectedCount++;
+				selectedFiles.add(fullPath);
 			}
+		}
 
-			for (const entry of primaryFilteredEntries) {
-				const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
-
-				if (filters.hideGitIgnored && gitIgnoredPaths.has(fullPath)) {
-					continue;
-				}
-
-				if (entry.isDirectory()) {
-					const childCount = await this.selectFolderRecursive(
-						fullPath,
-						filters,
-						selectedFiles,
-						countMap
-					);
-					affectedCount += childCount;
-				} else {
-					if (this.isFilteredByType(entry.name, false, filters)) {
-						continue;
-					}
-
-					affectedCount++;
-					selectedFiles.add(fullPath);
-				}
-			}
-
-			if (countMap) {
-				countMap.set(normalizedDirPath, affectedCount);
-			}
-		} catch {
-			return 0;
+		if (countMap) {
+			countMap.set(normalizedDirPath, affectedCount);
 		}
 
 		return affectedCount;
@@ -226,39 +230,17 @@ export class WorkspaceScanner {
 		const normalizedDirPath = PathUtils.normalizePath(dirPath);
 		const lowerQuery = query.toLowerCase();
 
-		try {
-			const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
-			const primaryFiltered = entries.filter((e) => !ALWAYS_IGNORED.has(e.name));
+		const validEntries = await this.readValidDirectoryEntries(normalizedDirPath, filters);
 
-			let gitIgnoredPaths = new Set<string>();
-			if (filters.hideGitIgnored) {
-				const candidatePaths = primaryFiltered.map((e) =>
-					PathUtils.normalizePath(path.join(normalizedDirPath, e.name))
-				);
-				gitIgnoredPaths = await GitService.checkIgnoredPaths(candidatePaths);
-			}
-
-			for (const entry of primaryFiltered) {
-				const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
-
-				if (filters.hideGitIgnored && gitIgnoredPaths.has(fullPath)) {
-					continue;
-				}
-
-				if (entry.isDirectory()) {
-					const subResults = await this.findMatchingFiles(fullPath, query, filters);
-					results.push(...subResults);
-				} else {
-					if (this.isFilteredByType(entry.name, false, filters)) {
-						continue;
-					}
-					if (entry.name.toLowerCase().includes(lowerQuery)) {
-						results.push(fullPath);
-					}
+		for (const { entry, fullPath } of validEntries) {
+			if (entry.isDirectory()) {
+				const subResults = await this.findMatchingFiles(fullPath, query, filters);
+				results.push(...subResults);
+			} else {
+				if (entry.name.toLowerCase().includes(lowerQuery)) {
+					results.push(fullPath);
 				}
 			}
-		} catch {
-			return [];
 		}
 
 		return results;

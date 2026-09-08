@@ -1,10 +1,7 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
 import * as path from 'path';
 import { FilterSettings } from '../types';
-import { ALWAYS_IGNORED } from '../constants';
 import { WorkspaceScanner } from './workspaceScanner';
-import { GitService } from './gitService';
 import { PathUtils } from '../utils/pathUtils';
 
 /**
@@ -36,8 +33,6 @@ export class ContextTreeItem extends vscode.TreeItem {
         : vscode.TreeItemCollapsibleState.None
     );
 
-    // Files have a strictly stable ID so selection and focus never jump.
-    // Directories use a scoped version so VS Code honors collapsibleState changes upon button clicks.
     if (isDirectory && version !== undefined) {
       this.id = `${uri.fsPath}#v${version}`;
     } else {
@@ -65,56 +60,21 @@ export class ContextTreeItem extends vscode.TreeItem {
  * Tree data provider managing hierarchical project file representation for the native VS Code TreeView.
  */
 export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextTreeItem> {
-  /**
-   * Internal event emitter triggering tree hierarchy updates.
-   */
   private readonly _onDidChangeTreeData: vscode.EventEmitter<ContextTreeItem | undefined | void> =
     new vscode.EventEmitter<ContextTreeItem | undefined | void>();
 
-  /**
-   * Event raised when the underlying tree model changes.
-   */
   public readonly onDidChangeTreeData: vscode.Event<ContextTreeItem | undefined | void> =
     this._onDidChangeTreeData.event;
 
-  /**
-   * Current case-insensitive substring search filter.
-   */
   private searchQuery: string = '';
-
-  /**
-   * Current folder nesting depth limit for bulk expansion.
-   */
   private expansionLevel: number = 1;
-
-  /**
-   * Monotonically increasing tree version to trigger folder expansion when user requests it.
-   */
   private treeVersion: number = 0;
 
-  /**
-   * Set of normalized absolute paths of files matching the active search query.
-   */
   private readonly matchingFilePaths: Set<string> = new Set<string>();
-
-  /**
-   * Set of normalized absolute paths of directories containing search matches.
-   */
   private readonly matchingFolderPaths: Set<string> = new Set<string>();
-
-  /**
-   * Set of ancestor folder paths to auto-expand when Git modified files are selected.
-   */
   private readonly gitExpandedFolderPaths: Set<string> = new Set<string>();
 
-  /**
-   * Cache mapping directory paths to their total selectable file counts.
-   */
   public readonly folderTotalCountMap: Map<string, number> = new Map<string, number>();
-
-  /**
-   * Deduplication cache for in-flight directory scan promises to avoid concurrent disk crawl.
-   */
   private readonly pendingCountPromises: Map<string, Promise<number>> = new Map<string, Promise<number>>();
 
   /**
@@ -129,10 +89,10 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
   ) { }
 
   /**
-   * Formats file quantity with correct Russian pluralization rules.
+   * Formats file quantity with Russian pluralization rules.
    *
    * @param count - Total number of selected files.
-   * @returns Formatted string (e.g. "1 файл выбран", "3 файла выбрано", "5 файлов выбрано").
+   * @returns Formatted label string.
    */
   private formatFilePlural(count: number): string {
     const mod10 = count % 10;
@@ -150,10 +110,34 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
   }
 
   /**
+   * Resolves the checkbox state and formatted description label for a directory node.
+   *
+   * @param folderPath - Absolute directory path.
+   * @returns Resolved selection state and optional description.
+   */
+  private async resolveFolderState(
+    folderPath: string
+  ): Promise<{ isChecked: boolean; description?: string }> {
+    const selectedCount = this.getSelectedCountInFolder(folderPath);
+    if (selectedCount === 0) {
+      return { isChecked: false, description: undefined };
+    }
+
+    const totalCount = await this.getFolderTotalCount(folderPath);
+    const isAllSelected = totalCount > 0 && selectedCount >= totalCount;
+    const pluralText = this.formatFilePlural(selectedCount);
+    const description = totalCount > 0
+      ? `${selectedCount}/${totalCount} (${pluralText})`
+      : pluralText;
+
+    return { isChecked: isAllSelected, description };
+  }
+
+  /**
    * Computes the depth of a folder relative to its workspace root.
    *
    * @param folderPath - Absolute folder path.
-   * @returns Relative folder depth (root level = 0, first subfolder = 1, etc.).
+   * @returns Relative folder depth.
    */
   private getFolderDepth(folderPath: string): number {
     const norm = PathUtils.normalizePath(folderPath);
@@ -254,21 +238,11 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     }
 
     for (const filePath of filePaths) {
-      const normFilePath = PathUtils.normalizePath(filePath);
-      let parent = path.dirname(normFilePath);
-
       for (const folder of workspaceFolders) {
         const root = PathUtils.normalizePath(folder.uri.fsPath);
-        while (PathUtils.isSubpath(parent, root)) {
-          this.gitExpandedFolderPaths.add(PathUtils.normalizePath(parent));
-          if (parent === root) {
-            break;
-          }
-          const nextParent = path.dirname(parent);
-          if (nextParent === parent) {
-            break;
-          }
-          parent = nextParent;
+        const ancestors = PathUtils.getAncestorPaths(filePath, root);
+        for (const ancestor of ancestors) {
+          this.gitExpandedFolderPaths.add(ancestor);
         }
       }
     }
@@ -278,7 +252,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
   }
 
   /**
-   * Resolves parent item for an element (required for VS Code TreeView API contract).
+   * Resolves parent item for an element.
    *
    * @param element - Current node.
    * @returns Parent tree item or undefined.
@@ -324,8 +298,9 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (workspaceFolders) {
         for (const folder of workspaceFolders) {
+          const root = PathUtils.normalizePath(folder.uri.fsPath);
           const matches = await WorkspaceScanner.findMatchingFiles(
-            folder.uri.fsPath,
+            root,
             this.searchQuery,
             this.filters
           );
@@ -334,18 +309,9 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
             const normMatch = PathUtils.normalizePath(match);
             this.matchingFilePaths.add(normMatch);
 
-            let parent = path.dirname(normMatch);
-            const root = PathUtils.normalizePath(folder.uri.fsPath);
-            while (PathUtils.isSubpath(parent, root)) {
-              this.matchingFolderPaths.add(PathUtils.normalizePath(parent));
-              if (parent === root) {
-                break;
-              }
-              const nextParent = path.dirname(parent);
-              if (nextParent === parent) {
-                break;
-              }
-              parent = nextParent;
+            const ancestors = PathUtils.getAncestorPaths(normMatch, root);
+            for (const ancestor of ancestors) {
+              this.matchingFolderPaths.add(ancestor);
             }
           }
         }
@@ -406,21 +372,24 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     }
 
     if (!element) {
+      // Empty state handler when search yields zero results
+      if (this.searchQuery && this.matchingFilePaths.size === 0) {
+        const emptyItem = new ContextTreeItem(
+          vscode.Uri.parse('ai-context-merger:empty-results'),
+          false,
+          undefined,
+          vscode.TreeItemCollapsibleState.None,
+          `по запросу "${this.searchQuery}"`
+        );
+        emptyItem.label = 'Ничего не найдено';
+        emptyItem.iconPath = new vscode.ThemeIcon('search-stop');
+        emptyItem.contextValue = 'emptyState';
+        return [emptyItem];
+      }
+
       const folderPromises = workspaceFolders.map(async (folder) => {
         const folderPath = PathUtils.normalizePath(folder.uri.fsPath);
-        const selectedCount = this.getSelectedCountInFolder(folderPath);
-
-        let isChecked: boolean = false;
-        let description: string | undefined = undefined;
-
-        if (selectedCount > 0) {
-          const totalCount = await this.getFolderTotalCount(folderPath);
-          const isAllSelected = totalCount > 0 && selectedCount >= totalCount;
-          isChecked = isAllSelected;
-          description = totalCount > 0
-            ? `${selectedCount}/${totalCount} (${this.formatFilePlural(selectedCount)})`
-            : this.formatFilePlural(selectedCount);
-        }
+        const { isChecked, description } = await this.resolveFolderState(folderPath);
 
         let collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
         if (this.searchQuery && !this.matchingFolderPaths.has(folderPath)) {
@@ -456,104 +425,72 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
   private async readDirectoryItems(dirPath: string): Promise<ContextTreeItem[]> {
     const normalizedDirPath = PathUtils.normalizePath(dirPath);
 
-    try {
-      const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
-      const primaryFiltered = entries.filter((e) => !ALWAYS_IGNORED.has(e.name));
+    const validEntries = await WorkspaceScanner.readValidDirectoryEntries(
+      normalizedDirPath,
+      this.filters
+    );
 
-      let gitIgnored = new Set<string>();
-      if (this.filters.hideGitIgnored) {
-        const candidatePaths = primaryFiltered.map((e) =>
-          PathUtils.normalizePath(path.join(normalizedDirPath, e.name))
+    const filteredBySearch = validEntries.filter(({ entry, fullPath }) => {
+      if (!this.searchQuery) {
+        return true;
+      }
+      if (entry.isDirectory()) {
+        return this.matchingFolderPaths.has(fullPath);
+      }
+      return this.matchingFilePaths.has(fullPath);
+    });
+
+    const sortedEntries = filteredBySearch.sort((a, b) => {
+      const aIsDir = a.entry.isDirectory();
+      const bIsDir = b.entry.isDirectory();
+      if (aIsDir === bIsDir) {
+        return a.entry.name.localeCompare(b.entry.name);
+      }
+      return aIsDir ? -1 : 1;
+    });
+
+    const itemPromises = sortedEntries.map(async ({ entry, fullPath }) => {
+      if (entry.isDirectory()) {
+        const { isChecked, description } = await this.resolveFolderState(fullPath);
+        const depth = this.getFolderDepth(fullPath);
+        let collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
+
+        if (this.searchQuery && this.matchingFolderPaths.has(fullPath)) {
+          collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+        } else if (this.gitExpandedFolderPaths.has(fullPath)) {
+          collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+        } else if (depth <= this.expansionLevel) {
+          collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+        }
+
+        return new ContextTreeItem(
+          vscode.Uri.file(fullPath),
+          true,
+          isChecked,
+          collapsibleState,
+          description,
+          this.treeVersion
         );
-        gitIgnored = await GitService.checkIgnoredPaths(candidatePaths);
       }
 
-      const validEntries = primaryFiltered.filter((entry) => {
-        const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
-        if (this.filters.hideGitIgnored && gitIgnored.has(fullPath)) {
-          return false;
-        }
-        if (WorkspaceScanner.isFilteredByType(entry.name, entry.isDirectory(), this.filters)) {
-          return false;
-        }
+      const isChecked = this.selectedFiles.has(fullPath);
+      const fileItem = new ContextTreeItem(
+        vscode.Uri.file(fullPath),
+        false,
+        isChecked,
+        vscode.TreeItemCollapsibleState.None
+      );
 
-        if (this.searchQuery) {
-          if (entry.isDirectory()) {
-            return this.matchingFolderPaths.has(fullPath);
-          }
-          return this.matchingFilePaths.has(fullPath);
-        }
+      fileItem.command = {
+        command: 'aiContextMerger.toggleFileByClick',
+        title: 'Выбрать файл',
+        arguments: [fullPath]
+      };
 
-        return true;
-      });
+      return fileItem;
+    });
 
-      const sortedEntries = validEntries.sort((a, b) => {
-        if (a.isDirectory() === b.isDirectory()) {
-          return a.name.localeCompare(b.name);
-        }
-        return a.isDirectory() ? -1 : 1;
-      });
-
-      const itemPromises = sortedEntries.map(async (entry) => {
-        const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
-
-        if (entry.isDirectory()) {
-          const selectedCount = this.getSelectedCountInFolder(fullPath);
-
-          let isChecked: boolean = false;
-          let description: string | undefined = undefined;
-
-          if (selectedCount > 0) {
-            const totalCount = await this.getFolderTotalCount(fullPath);
-            const isAllSelected = totalCount > 0 && selectedCount >= totalCount;
-            isChecked = isAllSelected;
-            description = totalCount > 0
-              ? `${selectedCount}/${totalCount} (${this.formatFilePlural(selectedCount)})`
-              : this.formatFilePlural(selectedCount);
-          }
-
-          const depth = this.getFolderDepth(fullPath);
-          let collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
-
-          if (this.searchQuery && this.matchingFolderPaths.has(fullPath)) {
-            collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
-          } else if (this.gitExpandedFolderPaths.has(fullPath)) {
-            collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
-          } else if (depth <= this.expansionLevel) {
-            collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
-          }
-
-          return new ContextTreeItem(
-            vscode.Uri.file(fullPath),
-            true,
-            isChecked,
-            collapsibleState,
-            description,
-            this.treeVersion
-          );
-        }
-
-        const isChecked = this.selectedFiles.has(fullPath);
-        const fileItem = new ContextTreeItem(
-          vscode.Uri.file(fullPath),
-          false,
-          isChecked,
-          vscode.TreeItemCollapsibleState.None
-        );
-
-        fileItem.command = {
-          command: 'aiContextMerger.toggleFileByClick',
-          title: 'Выбрать файл',
-          arguments: [fullPath]
-        };
-
-        return fileItem;
-      });
-
-      return await Promise.all(itemPromises);
-    } catch {
-      return [];
-    }
+    return await Promise.all(itemPromises);
   }
 
   /**
@@ -568,6 +505,10 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     newState: vscode.TreeItemCheckboxState,
     refresh: boolean = true
   ): Promise<void> {
+    if (item.contextValue === 'emptyState') {
+      return;
+    }
+
     const isChecked = newState === vscode.TreeItemCheckboxState.Checked;
     const targetPath = PathUtils.normalizePath(item.uri.fsPath);
 
@@ -600,9 +541,14 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
   }
 
   /**
-   * Inverts the file selection when clicking on the row.
+   * Inverts the selection state of a file when clicking on its tree item row.
+   *
+   * @param filePath - Normalized path of target file.
    */
   public async toggleFileByPath(filePath: string): Promise<void> {
+    if (filePath.startsWith('ai-context-merger:')) {
+      return;
+    }
     const norm = PathUtils.normalizePath(filePath);
     if (this.selectedFiles.has(norm)) {
       this.selectedFiles.delete(norm);

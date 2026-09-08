@@ -33,7 +33,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   controlsProvider.bindTreeView(treeView);
 
-  // Команда клика по самой строке файла
+  // Handle item selection toggle when clicking on a file row
   const toggleClickCommand = vscode.commands.registerCommand(
     'aiContextMerger.toggleFileByClick',
     async (filePath: string) => {
