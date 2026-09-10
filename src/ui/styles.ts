@@ -156,11 +156,24 @@ export function getStyles(): string {
       border-color: var(--vscode-focusBorder);
     }
 
+    .preset-section-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--vscode-descriptionForeground);
+      margin-top: 6px;
+      margin-bottom: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .custom-preset-label {
+      margin-top: 8px;
+    }
+
     .preset-chips {
       display: flex;
       flex-wrap: wrap;
       gap: 4px;
-      margin-top: 6px;
     }
 
     .preset-chip {
@@ -172,9 +185,159 @@ export function getStyles(): string {
       font-size: 10px;
       cursor: pointer;
       user-select: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: background-color 0.15s ease, border-color 0.15s ease;
+    }
+
+    button.preset-chip {
+      font-family: inherit;
     }
 
     .preset-chip:hover {
+      background-color: var(--vscode-button-secondaryHoverBackground);
+    }
+
+    .preset-chip.editing {
+      border-color: var(--vscode-focusBorder);
+      background-color: var(--vscode-toolbar-activeBackground, rgba(128, 128, 128, 0.25));
+    }
+
+    .chip-label-btn {
+      background: none;
+      border: none;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      outline: none;
+    }
+
+    .chip-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      margin-left: 2px;
+    }
+
+    .chip-edit-btn,
+    .chip-delete-btn {
+      background: none;
+      border: none;
+      color: var(--vscode-descriptionForeground);
+      font-size: 10px;
+      padding: 0 2px;
+      border-radius: 3px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.7;
+      outline: none;
+      transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+    }
+
+    .chip-edit-btn:hover {
+      opacity: 1;
+      color: var(--vscode-foreground);
+      background-color: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+    }
+
+    .chip-delete-btn:hover {
+      opacity: 1;
+      color: var(--color-red);
+      background-color: rgba(255, 0, 0, 0.15);
+    }
+
+    .btn-show-add-preset {
+      background: none;
+      border: 1px dashed var(--vscode-widget-border, rgba(128, 128, 128, 0.4));
+      color: var(--vscode-textLink-foreground);
+      font-size: 10px;
+      padding: 4px 6px;
+      border-radius: 4px;
+      margin-top: 7px;
+      cursor: pointer;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      transition: background-color 0.2s, border-color 0.2s;
+    }
+
+    .btn-show-add-preset:hover {
+      background-color: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
+      border-color: var(--vscode-focusBorder);
+    }
+
+    .inline-add-form {
+      margin-top: 8px;
+      background-color: var(--vscode-sideBar-background);
+      border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+      border-radius: 4px;
+      padding: 6px;
+    }
+
+    .inline-add-title {
+      font-size: 10px;
+      color: var(--vscode-descriptionForeground);
+      margin-bottom: 5px;
+      font-weight: 600;
+    }
+
+    .inline-add-row {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .inline-add-input {
+      flex: 1;
+      background-color: var(--vscode-input-background);
+      color: var(--vscode-input-foreground);
+      border: 1px solid var(--vscode-input-border, transparent);
+      border-radius: 3px;
+      padding: 4px 6px;
+      font-size: 11px;
+      outline: none;
+      min-width: 0;
+    }
+
+    .inline-add-input:focus {
+      border-color: var(--vscode-focusBorder);
+    }
+
+    .btn-inline-save {
+      background-color: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+      border: none;
+      border-radius: 3px;
+      padding: 4px 8px;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn-inline-save:hover {
+      background-color: var(--vscode-button-hoverBackground);
+    }
+
+    .btn-inline-cancel {
+      background-color: var(--vscode-button-secondaryBackground);
+      color: var(--vscode-button-secondaryForeground);
+      border: none;
+      border-radius: 3px;
+      padding: 4px 8px;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn-inline-cancel:hover {
       background-color: var(--vscode-button-secondaryHoverBackground);
     }
 

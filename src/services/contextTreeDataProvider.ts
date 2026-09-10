@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
+import { ALWAYS_IGNORED } from '../constants';
 import { FilterSettings, GitFileStatus } from '../types';
 import { WorkspaceScanner } from './workspaceScanner';
 import { PathUtils } from '../utils/pathUtils';
@@ -97,6 +99,8 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
    */
   public setGitStatuses(statuses: Map<string, GitFileStatus>): void {
     this.gitStatuses = statuses;
+    this.folderTotalCountMap.clear();
+    this.pendingCountPromises.clear();
     this.refresh();
   }
 
@@ -122,27 +126,43 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
   }
 
   /**
-   * Resolves the checkbox state and formatted description label for a directory node.
+   * Resolves the checkbox state, disabled status, and formatted description label for a directory node.
    *
    * @param folderPath - Absolute directory path.
-   * @returns Resolved selection state and optional description.
+   * @returns Resolved selection state, disabled flag, and optional description.
    */
   private async resolveFolderState(
     folderPath: string
-  ): Promise<{ isChecked: boolean; description?: string }> {
-    const selectedCount = this.getSelectedCountInFolder(folderPath);
-    if (selectedCount === 0) {
-      return { isChecked: false, description: undefined };
+  ): Promise<{ isChecked: boolean | undefined; description?: string; isDisabled: boolean }> {
+    const totalCount = await this.getFolderTotalCount(folderPath);
+
+    if (totalCount === 0) {
+      let isPhysicallyEmpty = false;
+      try {
+        const rawEntries = await fs.promises.readdir(folderPath);
+        const visibleEntries = rawEntries.filter((name) => !ALWAYS_IGNORED.has(name));
+        isPhysicallyEmpty = visibleEntries.length === 0;
+      } catch {
+        isPhysicallyEmpty = true;
+      }
+
+      return {
+        isChecked: undefined,
+        description: isPhysicallyEmpty ? '(пусто)' : '(скрыто фильтрами)',
+        isDisabled: true
+      };
     }
 
-    const totalCount = await this.getFolderTotalCount(folderPath);
-    const isAllSelected = totalCount > 0 && selectedCount >= totalCount;
-    const pluralText = this.formatFilePlural(selectedCount);
-    const description = totalCount > 0
-      ? `${selectedCount}/${totalCount} (${pluralText})`
-      : pluralText;
+    const selectedCount = this.getSelectedCountInFolder(folderPath);
+    if (selectedCount === 0) {
+      return { isChecked: false, description: undefined, isDisabled: false };
+    }
 
-    return { isChecked: isAllSelected, description };
+    const isAllSelected = selectedCount >= totalCount;
+    const pluralText = this.formatFilePlural(selectedCount);
+    const description = `${selectedCount}/${totalCount} (${pluralText})`;
+
+    return { isChecked: isAllSelected, description, isDisabled: false };
   }
 
   /**
@@ -400,14 +420,16 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
 
       const folderPromises = workspaceFolders.map(async (folder) => {
         const folderPath = PathUtils.normalizePath(folder.uri.fsPath);
-        const { isChecked, description } = await this.resolveFolderState(folderPath);
+        const { isChecked, description, isDisabled } = await this.resolveFolderState(folderPath);
 
         let collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
-        if (this.searchQuery && !this.matchingFolderPaths.has(folderPath)) {
+        if (isDisabled) {
+          collapsibleState = vscode.TreeItemCollapsibleState.None;
+        } else if (this.searchQuery && !this.matchingFolderPaths.has(folderPath)) {
           collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
         }
 
-        return new ContextTreeItem(
+        const rootItem = new ContextTreeItem(
           folder.uri,
           true,
           isChecked,
@@ -415,6 +437,15 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
           description,
           this.treeVersion
         );
+
+        if (isDisabled) {
+          rootItem.iconPath = new vscode.ThemeIcon(
+            'folder',
+            new vscode.ThemeColor('disabledForeground')
+          );
+        }
+
+        return rootItem;
       });
 
       return await Promise.all(folderPromises);
@@ -462,11 +493,13 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
 
     const itemPromises = sortedEntries.map(async ({ entry, fullPath }) => {
       if (entry.isDirectory()) {
-        const { isChecked, description } = await this.resolveFolderState(fullPath);
+        const { isChecked, description, isDisabled } = await this.resolveFolderState(fullPath);
         const depth = this.getFolderDepth(fullPath);
         let collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
 
-        if (this.searchQuery && this.matchingFolderPaths.has(fullPath)) {
+        if (isDisabled) {
+          collapsibleState = vscode.TreeItemCollapsibleState.None;
+        } else if (this.searchQuery && this.matchingFolderPaths.has(fullPath)) {
           collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
         } else if (this.gitExpandedFolderPaths.has(fullPath)) {
           collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
@@ -474,7 +507,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
           collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
         }
 
-        return new ContextTreeItem(
+        const folderItem = new ContextTreeItem(
           vscode.Uri.file(fullPath),
           true,
           isChecked,
@@ -482,6 +515,15 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
           description,
           this.treeVersion
         );
+
+        if (isDisabled) {
+          folderItem.iconPath = new vscode.ThemeIcon(
+            'folder',
+            new vscode.ThemeColor('disabledForeground')
+          );
+        }
+
+        return folderItem;
       }
 
       const isChecked = this.selectedFiles.has(fullPath);
@@ -561,7 +603,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     newState: vscode.TreeItemCheckboxState,
     refresh: boolean = true
   ): Promise<void> {
-    if (item.contextValue === 'emptyState') {
+    if (item.contextValue === 'emptyState' || item.checkboxState === undefined) {
       return;
     }
 
@@ -602,10 +644,11 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
    * @param filePath - Normalized path of target file.
    */
   public async toggleFileByPath(filePath: string): Promise<void> {
-    if (filePath.startsWith('ai-context-merger:')) {
+    if (!filePath || filePath.startsWith('ai-context-merger:')) {
       return;
     }
     const norm = PathUtils.normalizePath(filePath);
+
     if (this.selectedFiles.has(norm)) {
       this.selectedFiles.delete(norm);
     } else {

@@ -49,11 +49,31 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
         </div>
         <div class="prompt-body hidden" id="promptBody">
           <textarea id="promptInput" class="prompt-textarea" placeholder="Опишите вашу задачу здесь"></textarea>
+          
+          <div class="preset-section-label">Базовые:</div>
           <div class="preset-chips">
-            <button type="button" class="preset-chip" data-preset="🔍 Баги" title="Вставить шаблон поиска ошибок и багов">🔍 Баги</button>
-            <button type="button" class="preset-chip" data-preset="⚡ Рефакторинг" title="Вставить шаблон улучшения архитектуры">⚡ Рефакторинг</button>
-            <button type="button" class="preset-chip" data-preset="📝 Тесты" title="Вставить шаблон генерации unit-тестов">📝 Тесты</button>
-            <button type="button" class="preset-chip" data-preset="📖 Документация" title="Вставить шаблон создания документации">📖 Документация</button>
+            <button type="button" class="preset-chip" data-preset="🔍 Баги" title="Вставить универсальный шаблон поиска ошибок и крайних случаев">🔍 Баги</button>
+            <button type="button" class="preset-chip" data-preset="⚡ Рефакторинг" title="Вставить универсальный шаблон рефакторинга и идиоматичности">⚡ Рефакторинг</button>
+            <button type="button" class="preset-chip" data-preset="📝 Тесты" title="Вставить универсальный шаблон модульных тестов">📝 Тесты</button>
+            <button type="button" class="preset-chip" data-preset="📖 Документация" title="Вставить универсальный шаблон документации к коду">📖 Документация</button>
+          </div>
+
+          <div class="preset-section-label custom-preset-label">Пользовательские:</div>
+          <div class="preset-chips" id="customChipsContainer">
+            <!-- Custom chips rendered here -->
+          </div>
+
+          <button type="button" class="btn-show-add-preset" id="btnShowAddPreset" title="Сохранить введённый выше текст инструкции как постоянный пресет">
+            <span>+</span> Сохранить текущий текст как пресет
+          </button>
+
+          <div class="inline-add-form hidden" id="inlineAddForm">
+            <div class="inline-add-title" id="inlineFormTitle">▼ Сохранить текущий текст как пресет:</div>
+            <div class="inline-add-row">
+              <input type="text" id="customPresetNameInput" class="inline-add-input" placeholder="Иконка + Название" maxlength="32" />
+              <button type="button" class="btn-inline-save" id="btnSavePreset">Сохранить</button>
+              <button type="button" class="btn-inline-cancel" id="btnCancelPreset">Отмена</button>
+            </div>
           </div>
         </div>
       </div>

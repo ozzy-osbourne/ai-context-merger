@@ -16,6 +16,15 @@ export interface PromptSettings {
 }
 
 /**
+ * Custom user-defined prompt preset.
+ */
+export interface CustomPreset {
+  id: string;
+  name: string;
+  text: string;
+}
+
+/**
  * Git diff generation configuration settings.
  */
 export interface GitDiffSettings {

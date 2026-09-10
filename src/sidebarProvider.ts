@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import {
+  CustomPreset,
   FilterSettings,
   GitDiffSettings,
   GitFileStatus,
@@ -18,6 +19,11 @@ import { MarkdownBuilder } from './services/markdownBuilder';
 import { ContextTreeDataProvider, ContextTreeItem } from './services/contextTreeDataProvider';
 import { getHtmlTemplate } from './ui/htmlTemplate';
 import { PathUtils } from './utils/pathUtils';
+
+/**
+ * Storage key for custom user prompt presets in globalState.
+ */
+const CUSTOM_PRESETS_STORAGE_KEY = 'aiContextMerger.customPresets';
 
 /**
  * Webview View Provider for AI Context Merger controls panel.
@@ -55,16 +61,31 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
   /**
    * Creates an instance of ContextMergerControlsProvider.
    *
-   * @param _extensionUri - The root URI of the extension.
+   * @param context - Extension context provided by VS Code.
    * @param selectedFiles - Shared set containing normalized paths of selected files.
    * @param treeDataProvider - Reference to the Context TreeDataProvider for refresh sync.
    */
   constructor(
-    private readonly _extensionUri: vscode.Uri,
+    private readonly context: vscode.ExtensionContext,
     public readonly selectedFiles: Set<string>,
     private readonly treeDataProvider: ContextTreeDataProvider
   ) {
+    this.context.globalState.setKeysForSync([CUSTOM_PRESETS_STORAGE_KEY]);
     this.initWatchers();
+  }
+
+  /**
+   * Retrieves stored custom prompt presets from globalState.
+   */
+  private getCustomPresets(): CustomPreset[] {
+    return this.context.globalState.get<CustomPreset[]>(CUSTOM_PRESETS_STORAGE_KEY, []);
+  }
+
+  /**
+   * Persists custom prompt presets into globalState.
+   */
+  private async saveCustomPresets(presets: CustomPreset[]): Promise<void> {
+    await this.context.globalState.update(CUSTOM_PRESETS_STORAGE_KEY, presets);
   }
 
   /**
@@ -212,7 +233,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
 
     webviewView.webview.options = {
       enableScripts: true,
-      localResourceRoots: [this._extensionUri]
+      localResourceRoots: [this.context.extensionUri]
     };
 
     webviewView.webview.html = getHtmlTemplate(webviewView.webview);
@@ -267,6 +288,109 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
             text: typeof message.text === 'string' ? message.text : ''
           };
           await this.updateStats();
+          break;
+        case 'addCustomPreset':
+          if (typeof message.name === 'string' && typeof message.text === 'string') {
+            const name = message.name.trim();
+            const text = message.text.trim();
+
+            if (!name || !text) {
+              vscode.window.showWarningMessage('Название и текст пресета не могут быть пустыми.');
+              break;
+            }
+
+            if (name.length > 32) {
+              vscode.window.showWarningMessage('Название пресета не должно превышать 32 символа.');
+              break;
+            }
+
+            if (text.length > 10000) {
+              vscode.window.showWarningMessage('Текст пресета слишком длинный (максимум 10 000 символов).');
+              break;
+            }
+
+            const currentPresets = this.getCustomPresets();
+            if (currentPresets.length >= 50) {
+              vscode.window.showErrorMessage('Достигнут лимит сохраненных пресетов (максимум 50).');
+              break;
+            }
+
+            const newPreset: CustomPreset = {
+              id: `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+              name,
+              text
+            };
+            currentPresets.push(newPreset);
+            await this.saveCustomPresets(currentPresets);
+
+            this._view?.webview.postMessage({
+              type: 'updateCustomPresets',
+              customPresets: currentPresets
+            });
+            vscode.window.showInformationMessage(`Пресет "${newPreset.name}" сохранен!`);
+          }
+          break;
+        case 'editCustomPreset':
+          if (
+            typeof message.id === 'string' &&
+            typeof message.name === 'string' &&
+            typeof message.text === 'string'
+          ) {
+            const name = message.name.trim();
+            const text = message.text.trim();
+
+            if (!name || !text) {
+              vscode.window.showWarningMessage('Название и текст пресета не могут быть пустыми.');
+              break;
+            }
+
+            if (name.length > 32) {
+              vscode.window.showWarningMessage('Название пресета не должно превышать 32 символа.');
+              break;
+            }
+
+            if (text.length > 10000) {
+              vscode.window.showWarningMessage('Текст пресета слишком длинный (максимум 10 000 символов).');
+              break;
+            }
+
+            const currentPresets = this.getCustomPresets();
+            const targetIndex = currentPresets.findIndex((p) => p.id === message.id);
+            if (targetIndex !== -1) {
+              currentPresets[targetIndex] = {
+                ...currentPresets[targetIndex],
+                name,
+                text
+              };
+              await this.saveCustomPresets(currentPresets);
+
+              this._view?.webview.postMessage({
+                type: 'updateCustomPresets',
+                customPresets: currentPresets
+              });
+              vscode.window.showInformationMessage(`Пресет "${name}" обновлен!`);
+            } else {
+              this._view?.webview.postMessage({
+                type: 'updateCustomPresets',
+                customPresets: currentPresets
+              });
+              vscode.window.showErrorMessage('Пресет не найден или уже был удален.');
+            }
+          }
+          break;
+        case 'deleteCustomPreset':
+          if (typeof message.id === 'string') {
+            const currentPresets = this.getCustomPresets();
+            const filteredPresets = currentPresets.filter((p) => p.id !== message.id);
+            if (filteredPresets.length !== currentPresets.length) {
+              await this.saveCustomPresets(filteredPresets);
+            }
+
+            this._view?.webview.postMessage({
+              type: 'updateCustomPresets',
+              customPresets: filteredPresets
+            });
+          }
           break;
         case 'updateGitDiff':
           if (message.settings && typeof message.settings === 'object') {
@@ -357,7 +481,8 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       stats,
       filters: this.filters,
       promptSettings: this.promptSettings,
-      gitDiffSettings: this.gitDiffSettings
+      gitDiffSettings: this.gitDiffSettings,
+      customPresets: this.getCustomPresets()
     });
   }
 

@@ -151,8 +151,12 @@ export class WorkspaceScanner {
 		countMap?: Map<string, number>
 	): Promise<number> {
 		const normalizedDirPath = PathUtils.normalizePath(dirPath);
-		let count = 0;
 
+		if (countMap && countMap.has(normalizedDirPath)) {
+			return countMap.get(normalizedDirPath)!;
+		}
+
+		let count = 0;
 		const validEntries = await this.readValidDirectoryEntries(normalizedDirPath, filters);
 
 		for (const { entry, fullPath } of validEntries) {

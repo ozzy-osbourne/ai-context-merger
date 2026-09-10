@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { ContextMergerControlsProvider } from './sidebarProvider';
 import { ContextTreeDataProvider, ContextTreeItem } from './services/contextTreeDataProvider';
 
@@ -26,7 +27,7 @@ export function activate(context: vscode.ExtensionContext): void {
   });
 
   const controlsProvider = new ContextMergerControlsProvider(
-    context.extensionUri,
+    context,
     selectedFiles,
     treeDataProvider
   );
@@ -39,6 +40,15 @@ export function activate(context: vscode.ExtensionContext): void {
     async (filePath: string) => {
       await treeDataProvider.toggleFileByPath(filePath);
       await controlsProvider.updateStats();
+
+      try {
+        const stat = await fs.promises.stat(filePath).catch(() => null);
+        if (stat && stat.isFile()) {
+          await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(filePath));
+        }
+      } catch {
+        // Ignore open errors
+      }
     }
   );
 

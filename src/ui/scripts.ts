@@ -53,6 +53,33 @@ export function getScripts(): string {
     const diffOnlyToggle = document.getElementById('diffOnlyToggle');
     const unlimitedDiffToggle = document.getElementById('unlimitedDiffToggle');
 
+    // Preset Controls
+    const customChipsContainer = document.getElementById('customChipsContainer');
+    const btnShowAddPreset = document.getElementById('btnShowAddPreset');
+    const inlineAddForm = document.getElementById('inlineAddForm');
+    const inlineFormTitle = document.getElementById('inlineFormTitle');
+    const customPresetNameInput = document.getElementById('customPresetNameInput');
+    const btnSavePreset = document.getElementById('btnSavePreset');
+    const btnCancelPreset = document.getElementById('btnCancelPreset');
+
+    /**
+     * Current user custom presets array in memory.
+     * @type {Array<{ id: string, name: string, text: string }>}
+     */
+    let customPresets = [];
+
+    /**
+     * ID of the preset currently in edit mode, or null if creating a new one.
+     * @type {string | null}
+     */
+    let editingPresetId = null;
+
+    /**
+     * Stored draft prompt text to restore when cancelling preset editing.
+     * @type {string | null}
+     */
+    let backupPromptText = null;
+
     // Restore prompt toggle and text from state
     promptToggle.checked = Boolean(previousState.promptEnabled);
     promptInput.value = previousState.promptText || '';
@@ -202,6 +229,117 @@ export function getScripts(): string {
       }
     }
 
+    /**
+     * Switches inline form into edit mode for a target preset.
+     * @param {{ id: string, name: string, text: string }} preset
+     */
+    function startEditingPreset(preset) {
+      if (editingPresetId === null) {
+        backupPromptText = promptInput.value;
+      }
+      editingPresetId = preset.id;
+      promptInput.value = preset.text;
+      syncPromptWithExtension();
+
+      inlineFormTitle.innerText = '▼ Редактирование пресета:';
+      customPresetNameInput.value = preset.name;
+      btnShowAddPreset.classList.add('hidden');
+      inlineAddForm.classList.remove('hidden');
+      customPresetNameInput.focus();
+
+      renderCustomChips(customPresets);
+    }
+
+    /**
+     * Cancels edit mode and resets the inline preset form.
+     */
+    function cancelEditingPreset() {
+      if (editingPresetId !== null && backupPromptText !== null) {
+        promptInput.value = backupPromptText;
+        backupPromptText = null;
+        syncPromptWithExtension();
+      }
+      editingPresetId = null;
+      inlineAddForm.classList.add('hidden');
+      btnShowAddPreset.classList.remove('hidden');
+      customPresetNameInput.value = '';
+      inlineFormTitle.innerText = '▼ Сохранить текущий текст как пресет:';
+      renderCustomChips(customPresets);
+    }
+
+    /**
+     * Renders custom presets chips into DOM.
+     * @param {Array<{ id: string, name: string, text: string }>} presets
+     */
+    function renderCustomChips(presets) {
+      customPresets = presets || [];
+      customChipsContainer.innerHTML = '';
+
+      if (customPresets.length === 0) {
+        const emptyHint = document.createElement('span');
+        emptyHint.style.fontSize = '10px';
+        emptyHint.style.color = 'var(--vscode-descriptionForeground)';
+        emptyHint.innerText = 'Нет сохраненных пресетов';
+        customChipsContainer.appendChild(emptyHint);
+        return;
+      }
+
+      customPresets.forEach(preset => {
+        const chip = document.createElement('div');
+        chip.className = 'preset-chip' + (editingPresetId === preset.id ? ' editing' : '');
+
+        // Use preset button
+        const labelBtn = document.createElement('button');
+        labelBtn.type = 'button';
+        labelBtn.className = 'chip-label-btn';
+        labelBtn.innerText = preset.name;
+        labelBtn.title = preset.text;
+        labelBtn.addEventListener('click', () => {
+          promptInput.value = preset.text;
+          syncPromptWithExtension();
+        });
+        chip.appendChild(labelBtn);
+
+        const actions = document.createElement('span');
+        actions.className = 'chip-actions';
+
+        // Edit button
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'chip-edit-btn';
+        editBtn.innerText = '✏️';
+        editBtn.title = 'Редактировать этот пресет';
+        editBtn.setAttribute('aria-label', 'Редактировать пресет ' + preset.name);
+        editBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          startEditingPreset(preset);
+        });
+        actions.appendChild(editBtn);
+
+        // Delete button
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'chip-delete-btn';
+        deleteBtn.innerText = '✕';
+        deleteBtn.title = 'Удалить этот пресет';
+        deleteBtn.setAttribute('aria-label', 'Удалить пресет ' + preset.name);
+        deleteBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (editingPresetId === preset.id) {
+            cancelEditingPreset();
+          }
+          vscode.postMessage({
+            type: 'deleteCustomPreset',
+            id: preset.id
+          });
+        });
+        actions.appendChild(deleteBtn);
+
+        chip.appendChild(actions);
+        customChipsContainer.appendChild(chip);
+      });
+    }
+
     updateClearPromptButtonVisibility();
     updateClearSearchButtonVisibility();
     saveState();
@@ -263,7 +401,7 @@ export function getScripts(): string {
       renderProgressIndicator();
     });
 
-    document.querySelectorAll('.preset-chip').forEach(chip => {
+    document.querySelectorAll('.preset-chip[data-preset]').forEach(chip => {
       chip.addEventListener('click', (e) => {
         e.stopPropagation();
         const key = chip.getAttribute('data-preset');
@@ -272,6 +410,53 @@ export function getScripts(): string {
           syncPromptWithExtension();
         }
       });
+    });
+
+    // Custom Preset Inline Form Listeners
+    btnShowAddPreset.addEventListener('click', () => {
+      editingPresetId = null;
+      inlineFormTitle.innerText = '▼ Сохранить текущий текст как пресет:';
+      btnShowAddPreset.classList.add('hidden');
+      inlineAddForm.classList.remove('hidden');
+      customPresetNameInput.value = '';
+      customPresetNameInput.focus();
+      renderCustomChips(customPresets);
+    });
+
+    btnCancelPreset.addEventListener('click', () => {
+      cancelEditingPreset();
+    });
+
+    btnSavePreset.addEventListener('click', () => {
+      const name = customPresetNameInput.value.trim();
+      const text = promptInput.value.trim();
+
+      if (!name) {
+        customPresetNameInput.focus();
+        return;
+      }
+      if (!text) {
+        promptInput.focus();
+        return;
+      }
+
+      if (editingPresetId) {
+        vscode.postMessage({
+          type: 'editCustomPreset',
+          id: editingPresetId,
+          name,
+          text
+        });
+        backupPromptText = null;
+      } else {
+        vscode.postMessage({
+          type: 'addCustomPreset',
+          name,
+          text
+        });
+      }
+
+      cancelEditingPreset();
     });
 
     /**
@@ -310,9 +495,16 @@ export function getScripts(): string {
             gitDiffSuboptions.classList.add('hidden');
           }
         }
+        if (message.customPresets) {
+          renderCustomChips(message.customPresets);
+        }
         saveState();
       } else if (message.type === 'updateStats') {
         if (message.stats) updateStatsUI(message.stats);
+      } else if (message.type === 'updateCustomPresets') {
+        if (message.customPresets) {
+          renderCustomChips(message.customPresets);
+        }
       } else if (message.type === 'searchResults') {
         if (message.query) {
           btnSelectAll.innerText = '✅ Выбрать найденное (' + message.count + ')';
