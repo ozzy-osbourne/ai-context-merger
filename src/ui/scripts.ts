@@ -38,6 +38,7 @@ export function getScripts(): string {
      */
     const previousState = vscode.getState() || {};
 
+    const btnCopy = document.getElementById('btnCopy');
     const promptToggle = document.getElementById('promptToggle');
     const promptBody = document.getElementById('promptBody');
     const promptInput = document.getElementById('promptInput');
@@ -79,6 +80,12 @@ export function getScripts(): string {
      * @type {string | null}
      */
     let backupPromptText = null;
+
+    /**
+     * Timeout identifier for resetting copy button success state.
+     * @type {number | undefined}
+     */
+    let copyFeedbackTimeout;
 
     // Restore prompt toggle and text from state
     promptToggle.checked = Boolean(previousState.promptEnabled);
@@ -122,6 +129,25 @@ export function getScripts(): string {
      * @type {number}
      */
     let currentEstimatedTokens = 0;
+
+    /**
+     * Triggers copy button success state animation and text swap.
+     * @returns {void}
+     */
+    function triggerCopySuccess() {
+      if (!btnCopy) return;
+      btnCopy.classList.add('btn-copied');
+      btnCopy.innerHTML = '<span>✓</span> СКОПИРОВАНО!';
+
+      if (copyFeedbackTimeout) {
+        clearTimeout(copyFeedbackTimeout);
+      }
+
+      copyFeedbackTimeout = setTimeout(() => {
+        btnCopy.classList.remove('btn-copied');
+        btnCopy.innerHTML = '<span>📋</span> СКОПИРОВАТЬ КОНТЕКСТ';
+      }, 1500);
+    }
 
     /**
      * Persists current UI state into the Webview session storage.
@@ -472,6 +498,8 @@ export function getScripts(): string {
         if (message.stats) updateStatsUI(message.stats);
         if (message.filters) {
           document.getElementById('filterGit').checked = Boolean(message.filters.hideGitIgnored);
+          document.getElementById('filterSecrets').checked = Boolean(message.filters.hideSecrets);
+          document.getElementById('filterMinified').checked = Boolean(message.filters.hideMinified);
           document.getElementById('filterLock').checked = Boolean(message.filters.hideLockFiles);
           document.getElementById('filterBinary').checked = Boolean(message.filters.hideBinaryFiles);
         }
@@ -511,10 +539,12 @@ export function getScripts(): string {
         } else {
           btnSelectAll.innerText = '✅ Выбрать всё';
         }
+      } else if (message.type === 'copySuccess') {
+        triggerCopySuccess();
       }
     });
 
-    document.getElementById('btnCopy').addEventListener('click', () => vscode.postMessage({ type: 'copyContext' }));
+    btnCopy.addEventListener('click', () => vscode.postMessage({ type: 'copyContext' }));
     document.getElementById('btnPreview').addEventListener('click', () => vscode.postMessage({ type: 'previewContext' }));
     document.getElementById('btnExport').addEventListener('click', () => vscode.postMessage({ type: 'exportFile' }));
     document.getElementById('btnClear').addEventListener('click', () => vscode.postMessage({ type: 'clearSelection' }));
@@ -540,6 +570,8 @@ export function getScripts(): string {
         type: 'updateFilters',
         filters: {
           hideGitIgnored: document.getElementById('filterGit').checked,
+          hideSecrets: document.getElementById('filterSecrets').checked,
+          hideMinified: document.getElementById('filterMinified').checked,
           hideLockFiles: document.getElementById('filterLock').checked,
           hideBinaryFiles: document.getElementById('filterBinary').checked
         }
@@ -547,6 +579,8 @@ export function getScripts(): string {
     }
 
     document.getElementById('filterGit').addEventListener('change', notifyFilterChange);
+    document.getElementById('filterSecrets').addEventListener('change', notifyFilterChange);
+    document.getElementById('filterMinified').addEventListener('change', notifyFilterChange);
     document.getElementById('filterLock').addEventListener('change', notifyFilterChange);
     document.getElementById('filterBinary').addEventListener('change', notifyFilterChange);
 

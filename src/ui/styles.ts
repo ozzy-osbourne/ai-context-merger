@@ -54,10 +54,20 @@ export function getStyles(): string {
       justify-content: center;
       gap: 8px;
       box-sizing: border-box;
+      transition: background-color 0.2s ease, transform 0.1s ease;
     }
 
     .btn-primary:hover {
       background-color: var(--vscode-button-hoverBackground);
+    }
+
+    .btn-primary:active {
+      transform: scale(0.98);
+    }
+
+    .btn-primary.btn-copied {
+      background-color: var(--color-green) !important;
+      color: #ffffff !important;
     }
 
     .btn-grid-2 {
@@ -533,7 +543,7 @@ export function getStyles(): string {
     .filter-title {
       font-weight: 600;
       color: var(--vscode-descriptionForeground);
-      margin-bottom: 4px;
+      margin-bottom: 6px;
       display: flex;
       align-items: center;
       gap: 4px;
@@ -542,7 +552,7 @@ export function getStyles(): string {
     .filter-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 6px 10px;
     }
 
     .filter-item {
@@ -550,6 +560,8 @@ export function getStyles(): string {
       align-items: center;
       gap: 4px;
       cursor: pointer;
+      font-size: 11px;
+      white-space: nowrap;
     }
 
     .filter-item input {

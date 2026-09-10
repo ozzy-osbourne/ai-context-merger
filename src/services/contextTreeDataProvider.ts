@@ -139,9 +139,34 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     if (totalCount === 0) {
       let isPhysicallyEmpty = false;
       try {
-        const rawEntries = await fs.promises.readdir(folderPath);
-        const visibleEntries = rawEntries.filter((name) => !ALWAYS_IGNORED.has(name));
-        isPhysicallyEmpty = visibleEntries.length === 0;
+        const rawEntries = await fs.promises.readdir(folderPath, { withFileTypes: true });
+        const visibleEntries = rawEntries.filter((e) => !ALWAYS_IGNORED.has(e.name));
+
+        if (visibleEntries.length === 0) {
+          isPhysicallyEmpty = true;
+        } else {
+          const hasFiles = visibleEntries.some((e) => !e.isDirectory());
+          if (!hasFiles) {
+            isPhysicallyEmpty = true;
+            for (const dirEntry of visibleEntries) {
+              const subPath = path.join(folderPath, dirEntry.name);
+              const subCount = await this.getFolderTotalCount(subPath);
+              if (subCount > 0) {
+                isPhysicallyEmpty = false;
+                break;
+              }
+              try {
+                const subRaw = await fs.promises.readdir(subPath);
+                if (subRaw.some((name) => !ALWAYS_IGNORED.has(name))) {
+                  isPhysicallyEmpty = false;
+                  break;
+                }
+              } catch {
+                // Ignore subfolder read failure
+              }
+            }
+          }
+        }
       } catch {
         isPhysicallyEmpty = true;
       }
@@ -566,6 +591,11 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
 
       if (status === 'deleted' && isDirectChild) {
         const fileName = path.basename(gitPath);
+
+        if (WorkspaceScanner.isFilteredByType(fileName, false, this.filters)) {
+          continue;
+        }
+
         if (this.searchQuery && !fileName.toLowerCase().includes(this.searchQuery)) {
           continue;
         }
@@ -627,7 +657,10 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
       }
     } else {
       if (isChecked) {
-        this.selectedFiles.add(targetPath);
+        const fileName = path.basename(targetPath);
+        if (!WorkspaceScanner.isFilteredByType(fileName, false, this.filters)) {
+          this.selectedFiles.add(targetPath);
+        }
       } else {
         this.selectedFiles.delete(targetPath);
       }
@@ -652,7 +685,10 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     if (this.selectedFiles.has(norm)) {
       this.selectedFiles.delete(norm);
     } else {
-      this.selectedFiles.add(norm);
+      const fileName = path.basename(norm);
+      if (!WorkspaceScanner.isFilteredByType(fileName, false, this.filters)) {
+        this.selectedFiles.add(norm);
+      }
     }
     this.refresh();
   }

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { ContextMergerControlsProvider } from './sidebarProvider';
 import { ContextTreeDataProvider, ContextTreeItem } from './services/contextTreeDataProvider';
+import { FilterSettings } from './types';
 
 /**
  * Activates the AI Context Merger extension.
@@ -11,8 +12,10 @@ import { ContextTreeDataProvider, ContextTreeItem } from './services/contextTree
 export function activate(context: vscode.ExtensionContext): void {
   const selectedFiles = new Set<string>();
 
-  const filters = {
+  const filters: FilterSettings = {
     hideGitIgnored: true,
+    hideSecrets: true,
+    hideMinified: true,
     hideLockFiles: true,
     hideBinaryFiles: true
   };

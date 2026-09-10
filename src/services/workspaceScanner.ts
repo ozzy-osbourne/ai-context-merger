@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { FilterSettings } from '../types';
-import { ALWAYS_IGNORED, LOCK_FILE_NAMES, BINARY_EXTENSIONS } from '../constants';
+import { ALWAYS_IGNORED, LOCK_FILE_NAMES, BINARY_EXTENSIONS, isSecretFile, isMinifiedOrSourceMap } from '../constants';
 import { GitService } from './gitService';
 import { PathUtils } from '../utils/pathUtils';
 
@@ -26,12 +26,17 @@ export class WorkspaceScanner {
 	 */
 	public static isIgnoredByPathSegments(fullPath: string, workspaceRootPath?: string): boolean {
 		const normalized = PathUtils.normalizePath(fullPath);
-		const relative = workspaceRootPath
-			? path.relative(PathUtils.normalizePath(workspaceRootPath), normalized)
-			: normalized;
+		let relative = normalized;
+
+		if (workspaceRootPath) {
+			relative = path.relative(PathUtils.normalizePath(workspaceRootPath), normalized);
+		}
 
 		const segments = relative.split(path.sep);
-		for (const segment of segments) {
+		const startIndex = (!workspaceRootPath && path.isAbsolute(normalized)) ? 1 : 0;
+
+		for (let i = startIndex; i < segments.length; i++) {
+			const segment = segments[i];
 			if (ALWAYS_IGNORED.has(segment)) {
 				return true;
 			}
@@ -40,7 +45,7 @@ export class WorkspaceScanner {
 	}
 
 	/**
-	 * Checks if a file matches active lockfile or binary exclusion filters.
+	 * Checks if a file matches active exclusion filters (secrets, maps/minified, lockfiles, binaries).
 	 *
 	 * @param name - File or directory base name.
 	 * @param isDirectory - Directory flag.
@@ -50,6 +55,14 @@ export class WorkspaceScanner {
 	public static isFilteredByType(name: string, isDirectory: boolean, filters: FilterSettings): boolean {
 		if (isDirectory) {
 			return false;
+		}
+
+		if (filters.hideSecrets && isSecretFile(name)) {
+			return true;
+		}
+
+		if (filters.hideMinified && isMinifiedOrSourceMap(name)) {
+			return true;
 		}
 
 		const ext = path.extname(name).toLowerCase();
@@ -108,23 +121,45 @@ export class WorkspaceScanner {
 			const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
 			const primaryFiltered = entries.filter((entry) => !ALWAYS_IGNORED.has(entry.name));
 
+			const resolvedEntries: Array<{ entry: fs.Dirent; fullPath: string; isDir: boolean }> = [];
+
+			for (const entry of primaryFiltered) {
+				const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
+				let isDir = entry.isDirectory();
+
+				if (entry.isSymbolicLink()) {
+					try {
+						const targetStat = await fs.promises.stat(fullPath);
+						isDir = targetStat.isDirectory();
+					} catch {
+						continue;
+					}
+				}
+
+				let resolvedEntry = entry;
+				if (entry.isSymbolicLink()) {
+					resolvedEntry = Object.create(entry, {
+						isDirectory: { value: () => isDir },
+						isFile: { value: () => !isDir }
+					});
+				}
+
+				resolvedEntries.push({ entry: resolvedEntry, fullPath, isDir });
+			}
+
 			let gitIgnoredPaths = new Set<string>();
 			if (filters.hideGitIgnored) {
-				const candidatePaths = primaryFiltered.map((entry) =>
-					PathUtils.normalizePath(path.join(normalizedDirPath, entry.name))
-				);
+				const candidatePaths = resolvedEntries.map((e) => e.fullPath);
 				gitIgnoredPaths = await GitService.checkIgnoredPaths(candidatePaths);
 			}
 
 			const validEntries: ScannedDirectoryEntry[] = [];
-			for (const entry of primaryFiltered) {
-				const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
-
+			for (const { entry, fullPath, isDir } of resolvedEntries) {
 				if (filters.hideGitIgnored && gitIgnoredPaths.has(fullPath)) {
 					continue;
 				}
 
-				if (this.isFilteredByType(entry.name, entry.isDirectory(), filters)) {
+				if (this.isFilteredByType(entry.name, isDir, filters)) {
 					continue;
 				}
 
@@ -143,14 +178,28 @@ export class WorkspaceScanner {
 	 * @param dirPath - Root directory path.
 	 * @param filters - Active filter settings.
 	 * @param countMap - Map cache to store counts for intermediate folders.
+	 * @param visitedDirs - Set of visited directory real paths to prevent symlink loops.
 	 * @returns Total number of selectable files.
 	 */
 	public static async countSelectableFiles(
 		dirPath: string,
 		filters: FilterSettings,
-		countMap?: Map<string, number>
+		countMap?: Map<string, number>,
+		visitedDirs: Set<string> = new Set<string>()
 	): Promise<number> {
 		const normalizedDirPath = PathUtils.normalizePath(dirPath);
+
+		let realDir: string;
+		try {
+			realDir = await fs.promises.realpath(normalizedDirPath);
+		} catch {
+			realDir = normalizedDirPath;
+		}
+
+		if (visitedDirs.has(realDir)) {
+			return 0;
+		}
+		visitedDirs.add(realDir);
 
 		if (countMap && countMap.has(normalizedDirPath)) {
 			return countMap.get(normalizedDirPath)!;
@@ -161,7 +210,7 @@ export class WorkspaceScanner {
 
 		for (const { entry, fullPath } of validEntries) {
 			if (entry.isDirectory()) {
-				const childCount = await this.countSelectableFiles(fullPath, filters, countMap);
+				const childCount = await this.countSelectableFiles(fullPath, filters, countMap, visitedDirs);
 				count += childCount;
 			} else {
 				count++;
@@ -182,15 +231,30 @@ export class WorkspaceScanner {
 	 * @param filters - Active filter settings.
 	 * @param selectedFiles - Selection set to mutate.
 	 * @param countMap - Optional map to store total file counts per folder.
+	 * @param visitedDirs - Set of visited directory real paths to prevent symlink loops.
 	 * @returns Total count of selectable files processed within directory.
 	 */
 	public static async selectFolderRecursive(
 		dirPath: string,
 		filters: FilterSettings,
 		selectedFiles: Set<string>,
-		countMap?: Map<string, number>
+		countMap?: Map<string, number>,
+		visitedDirs: Set<string> = new Set<string>()
 	): Promise<number> {
 		const normalizedDirPath = PathUtils.normalizePath(dirPath);
+
+		let realDir: string;
+		try {
+			realDir = await fs.promises.realpath(normalizedDirPath);
+		} catch {
+			realDir = normalizedDirPath;
+		}
+
+		if (visitedDirs.has(realDir)) {
+			return 0;
+		}
+		visitedDirs.add(realDir);
+
 		let affectedCount = 0;
 
 		const validEntries = await this.readValidDirectoryEntries(normalizedDirPath, filters);
@@ -201,7 +265,8 @@ export class WorkspaceScanner {
 					fullPath,
 					filters,
 					selectedFiles,
-					countMap
+					countMap,
+					visitedDirs
 				);
 				affectedCount += childCount;
 			} else {
@@ -223,22 +288,36 @@ export class WorkspaceScanner {
 	 * @param dirPath - Root directory path to search.
 	 * @param query - Substring to match against file name.
 	 * @param filters - Active filter settings.
+	 * @param visitedDirs - Set of visited directory real paths to prevent symlink loops.
 	 * @returns Array of matching file paths.
 	 */
 	public static async findMatchingFiles(
 		dirPath: string,
 		query: string,
-		filters: FilterSettings
+		filters: FilterSettings,
+		visitedDirs: Set<string> = new Set<string>()
 	): Promise<string[]> {
 		const results: string[] = [];
 		const normalizedDirPath = PathUtils.normalizePath(dirPath);
 		const lowerQuery = query.toLowerCase();
 
+		let realDir: string;
+		try {
+			realDir = await fs.promises.realpath(normalizedDirPath);
+		} catch {
+			realDir = normalizedDirPath;
+		}
+
+		if (visitedDirs.has(realDir)) {
+			return results;
+		}
+		visitedDirs.add(realDir);
+
 		const validEntries = await this.readValidDirectoryEntries(normalizedDirPath, filters);
 
 		for (const { entry, fullPath } of validEntries) {
 			if (entry.isDirectory()) {
-				const subResults = await this.findMatchingFiles(fullPath, query, filters);
+				const subResults = await this.findMatchingFiles(fullPath, query, filters, visitedDirs);
 				results.push(...subResults);
 			} else {
 				if (entry.name.toLowerCase().includes(lowerQuery)) {

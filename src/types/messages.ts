@@ -47,4 +47,7 @@ export type ExtensionToWebviewMessage =
     type: 'searchResults';
     count: number;
     query: string;
+  }
+  | {
+    type: 'copySuccess';
   };

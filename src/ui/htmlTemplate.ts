@@ -125,11 +125,17 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
           <label class="filter-item" title="Скрывать файлы и папки, указанные в файлах .gitignore">
             <input type="checkbox" id="filterGit" checked> .gitignore
           </label>
+          <label class="filter-item" title="Исключать файлы секретов, ключей, сертификатов и переменных окружения (.env, *.key, *.pem, *.tfvars, id_rsa)">
+            <input type="checkbox" id="filterSecrets" checked> Ключи и .env
+          </label>
+          <label class="filter-item" title="Исключать карты кода и минифицированные бандлы (*.map, *.min.js, *.min.css, *.bundle.js)">
+            <input type="checkbox" id="filterMinified" checked> Сборка и .map
+          </label>
           <label class="filter-item" title="Исключать служебные lock-файлы зависимостей (package-lock.json, yarn.lock и др.)">
             <input type="checkbox" id="filterLock" checked> Lock-файлы
           </label>
           <label class="filter-item" title="Исключать скомпилированные бинарники, медиа-файлы и шрифты">
-            <input type="checkbox" id="filterBinary" checked> Бинарники
+            <input type="checkbox" id="filterBinary" checked> Медиа и бинарники
           </label>
         </div>
       </div>

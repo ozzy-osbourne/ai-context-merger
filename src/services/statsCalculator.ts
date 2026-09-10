@@ -69,7 +69,9 @@ export class StatsCalculator {
 
         try {
           const stat = await fs.promises.stat(filePath);
-          if (stat.size > MAX_FILE_SIZE_BYTES) {
+          if (stat.isDirectory()) {
+            bodyLength = 0;
+          } else if (stat.size > MAX_FILE_SIZE_BYTES) {
             bodyLength = MarkdownBuilder.getSizeExceededPlaceholder(stat.size).length;
           } else if (BINARY_EXTENSIONS.has(ext)) {
             bodyLength = MarkdownBuilder.getBinaryPlaceholder(ext, stat.size).length;

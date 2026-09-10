@@ -186,7 +186,7 @@ export class GitService {
   private static async synthesizeUntrackedDiff(relPath: string, absPath: string): Promise<string> {
     try {
       const stat = await fs.promises.stat(absPath);
-      if (stat.isDirectory()) {
+      if (stat.isDirectory() || stat.size > this.MAX_DIFF_BYTES) {
         return '';
       }
       const buffer = await fs.promises.readFile(absPath);

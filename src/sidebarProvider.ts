@@ -11,7 +11,7 @@ import {
   GitExtensionExports,
   GitRepository
 } from './types';
-import { BINARY_EXTENSIONS, LOCK_FILE_NAMES } from './constants';
+import { BINARY_EXTENSIONS, LOCK_FILE_NAMES, isSecretFile, isMinifiedOrSourceMap } from './constants';
 import { GitService } from './services/gitService';
 import { WorkspaceScanner } from './services/workspaceScanner';
 import { StatsCalculator } from './services/statsCalculator';
@@ -35,6 +35,8 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
 
   public filters: FilterSettings = {
     hideGitIgnored: true,
+    hideSecrets: true,
+    hideMinified: true,
     hideLockFiles: true,
     hideBinaryFiles: true
   };
@@ -116,13 +118,36 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     const onFileEvent = (uri: vscode.Uri, isDelete: boolean = false) => {
       const fsPath = PathUtils.normalizePath(uri.fsPath);
 
-      if (WorkspaceScanner.isIgnoredByPathSegments(fsPath)) {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      const matchedFolder = workspaceFolders?.find((f) =>
+        PathUtils.isSubpath(fsPath, PathUtils.normalizePath(f.uri.fsPath))
+      );
+      const rootPath = matchedFolder ? PathUtils.normalizePath(matchedFolder.uri.fsPath) : undefined;
+
+      if (isDelete) {
+        for (const file of Array.from(this.selectedFiles)) {
+          if (file === fsPath || PathUtils.isSubpath(file, fsPath)) {
+            this.selectedFiles.delete(file);
+          }
+        }
+        this.treeDataProvider.folderTotalCountMap.clear();
+        this.triggerDebouncedRefresh();
+        return;
+      }
+
+      if (WorkspaceScanner.isIgnoredByPathSegments(fsPath, rootPath)) {
         return;
       }
 
       const fileName = path.basename(fsPath);
       const ext = path.extname(fileName).toLowerCase();
 
+      if (this.filters.hideSecrets && isSecretFile(fileName)) {
+        return;
+      }
+      if (this.filters.hideMinified && isMinifiedOrSourceMap(fileName)) {
+        return;
+      }
       if (this.filters.hideBinaryFiles && BINARY_EXTENSIONS.has(ext)) {
         return;
       }
@@ -131,15 +156,6 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       }
 
       this.treeDataProvider.folderTotalCountMap.clear();
-
-      if (isDelete) {
-        for (const file of Array.from(this.selectedFiles)) {
-          if (file === fsPath || PathUtils.isSubpath(file, fsPath)) {
-            this.selectedFiles.delete(file);
-          }
-        }
-      }
-
       this.triggerDebouncedRefresh();
     };
 
@@ -275,9 +291,23 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
           if (message.filters && typeof message.filters === 'object') {
             this.filters = {
               hideGitIgnored: Boolean(message.filters.hideGitIgnored),
+              hideSecrets: Boolean(message.filters.hideSecrets),
+              hideMinified: Boolean(message.filters.hideMinified),
               hideLockFiles: Boolean(message.filters.hideLockFiles),
               hideBinaryFiles: Boolean(message.filters.hideBinaryFiles)
             };
+
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            for (const filePath of Array.from(this.selectedFiles)) {
+              const matchedFolder = workspaceFolders?.find((f) =>
+                PathUtils.isSubpath(filePath, PathUtils.normalizePath(f.uri.fsPath))
+              );
+              const root = matchedFolder ? PathUtils.normalizePath(matchedFolder.uri.fsPath) : undefined;
+              if (WorkspaceScanner.shouldFilterItem(filePath, false, this.filters, root)) {
+                this.selectedFiles.delete(filePath);
+              }
+            }
+
             this.treeDataProvider.setFilters(this.filters);
             await this.updateStats();
           }
@@ -626,6 +656,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     );
 
     await vscode.env.clipboard.writeText(markdown);
+    this._view?.webview.postMessage({ type: 'copySuccess' });
     vscode.window.showInformationMessage(`Скопирован контекст: ${this.selectedFiles.size} файлов!`);
   }
 

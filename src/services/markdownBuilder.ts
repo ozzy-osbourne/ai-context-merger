@@ -413,6 +413,14 @@ export class MarkdownBuilder {
         const filePath = sortedFiles[i];
         const relativePath = relativePaths[i];
         const fileName = path.basename(filePath);
+        const gitStatus = gitStatuses?.get(filePath);
+
+        if (gitStatus === 'deleted') {
+          outputBlocks.push(
+            `## File path: ${relativePath}\n## File name: ${fileName}\n## File content:\n[Файл удален в Git]`
+          );
+          continue;
+        }
 
         const readResult = await this.safeReadFile(filePath);
         let contentBlock = '';

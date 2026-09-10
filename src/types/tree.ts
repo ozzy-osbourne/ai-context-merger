@@ -3,6 +3,8 @@
  */
 export interface FilterSettings {
   hideGitIgnored: boolean;
+  hideSecrets: boolean;
+  hideMinified: boolean;
   hideLockFiles: boolean;
   hideBinaryFiles: boolean;
 }
