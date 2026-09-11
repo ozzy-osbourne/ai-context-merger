@@ -6,6 +6,7 @@ import {
   FilterSettings,
   GitDiffSettings,
   GitFileStatus,
+  OutputFormat,
   PromptSettings,
   WebviewToExtensionMessage,
   GitExtensionExports,
@@ -16,6 +17,7 @@ import { GitService } from './services/gitService';
 import { WorkspaceScanner } from './services/workspaceScanner';
 import { StatsCalculator } from './services/statsCalculator';
 import { MarkdownBuilder } from './services/markdownBuilder';
+import { XmlBuilder } from './services/xmlBuilder';
 import { ContextTreeDataProvider, ContextTreeItem } from './services/contextTreeDataProvider';
 import { getHtmlTemplate } from './ui/htmlTemplate';
 import { PathUtils } from './utils/pathUtils';
@@ -24,6 +26,11 @@ import { PathUtils } from './utils/pathUtils';
  * Storage key for custom user prompt presets in globalState.
  */
 const CUSTOM_PRESETS_STORAGE_KEY = 'aiContextMerger.customPresets';
+
+/**
+ * Storage key for active output format in globalState.
+ */
+const OUTPUT_FORMAT_STORAGE_KEY = 'aiContextMerger.outputFormat';
 
 /**
  * Webview View Provider for AI Context Merger controls panel.
@@ -52,6 +59,8 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     unlimitedDiff: false
   };
 
+  public outputFormat: OutputFormat = 'markdown';
+
   private cachedGitStatuses: Map<string, GitFileStatus> = new Map<string, GitFileStatus>();
 
   private debounceTimer?: NodeJS.Timeout;
@@ -72,7 +81,8 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     public readonly selectedFiles: Set<string>,
     private readonly treeDataProvider: ContextTreeDataProvider
   ) {
-    this.context.globalState.setKeysForSync([CUSTOM_PRESETS_STORAGE_KEY]);
+    this.context.globalState.setKeysForSync([CUSTOM_PRESETS_STORAGE_KEY, OUTPUT_FORMAT_STORAGE_KEY]);
+    this.outputFormat = this.context.globalState.get<OutputFormat>(OUTPUT_FORMAT_STORAGE_KEY, 'markdown');
     this.initWatchers();
   }
 
@@ -88,6 +98,14 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
    */
   private async saveCustomPresets(presets: CustomPreset[]): Promise<void> {
     await this.context.globalState.update(CUSTOM_PRESETS_STORAGE_KEY, presets);
+  }
+
+  /**
+   * Persists chosen output format into globalState.
+   */
+  private async saveOutputFormat(format: OutputFormat): Promise<void> {
+    this.outputFormat = format;
+    await this.context.globalState.update(OUTPUT_FORMAT_STORAGE_KEY, format);
   }
 
   /**
@@ -287,6 +305,12 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
         case 'selectModified':
           await this.selectModifiedGitFiles();
           break;
+        case 'updateOutputFormat':
+          if (message.format === 'markdown' || message.format === 'xml') {
+            await this.saveOutputFormat(message.format);
+            await this.updateStats();
+          }
+          break;
         case 'updateFilters':
           if (message.filters && typeof message.filters === 'object') {
             this.filters = {
@@ -446,6 +470,38 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
   }
 
   /**
+   * Assembles the bundle content formatted as either Markdown or XML based on active format setting.
+   */
+  private async buildContextPayload(): Promise<string> {
+    let diffContent = '';
+    if (this.gitDiffSettings.includeGitDiff) {
+      diffContent = await GitService.getFilesDiff(
+        Array.from(this.selectedFiles),
+        this.gitDiffSettings.unlimitedDiff,
+        this.filters
+      );
+    }
+
+    if (this.outputFormat === 'xml') {
+      return await XmlBuilder.buildBundleXml(
+        this.selectedFiles,
+        this.promptSettings,
+        this.gitDiffSettings,
+        diffContent,
+        this.cachedGitStatuses
+      );
+    }
+
+    return await MarkdownBuilder.buildBundleMarkdown(
+      this.selectedFiles,
+      this.promptSettings,
+      this.gitDiffSettings,
+      diffContent,
+      this.cachedGitStatuses
+    );
+  }
+
+  /**
    * Recalculates context statistics with Git diff length and posts updated payload to Webview.
    */
   public async updateStats(): Promise<void> {
@@ -468,7 +524,8 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       this.promptSettings,
       this.gitDiffSettings,
       diffLength,
-      this.cachedGitStatuses
+      this.cachedGitStatuses,
+      this.outputFormat
     );
 
     this._view.webview.postMessage({
@@ -478,7 +535,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
   }
 
   /**
-   * Transmits initial state, active filters, and statistics to newly mounted Webview.
+   * Transmits initial state, active filters, format, and statistics to newly mounted Webview.
    */
   private async sendInitialData(): Promise<void> {
     if (!this._view) {
@@ -503,7 +560,8 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       this.promptSettings,
       this.gitDiffSettings,
       diffLength,
-      this.cachedGitStatuses
+      this.cachedGitStatuses,
+      this.outputFormat
     );
 
     this._view.webview.postMessage({
@@ -512,7 +570,8 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       filters: this.filters,
       promptSettings: this.promptSettings,
       gitDiffSettings: this.gitDiffSettings,
-      customPresets: this.getCustomPresets()
+      customPresets: this.getCustomPresets(),
+      outputFormat: this.outputFormat
     });
   }
 
@@ -630,7 +689,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
   }
 
   /**
-   * Assembles Markdown context bundle and writes it to the system clipboard.
+   * Assembles context bundle and writes it to the system clipboard.
    */
   public async copyContextToClipboard(): Promise<void> {
     if (this.selectedFiles.size === 0) {
@@ -638,30 +697,20 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       return;
     }
 
-    let diffContent = '';
-    if (this.gitDiffSettings.includeGitDiff) {
-      diffContent = await GitService.getFilesDiff(
-        Array.from(this.selectedFiles),
-        this.gitDiffSettings.unlimitedDiff,
-        this.filters
-      );
+    try {
+      const payload = await this.buildContextPayload();
+      await vscode.env.clipboard.writeText(payload);
+      this._view?.webview.postMessage({ type: 'copySuccess' });
+
+      const formatLabel = this.outputFormat.toUpperCase();
+      vscode.window.showInformationMessage(`Скопирован контекст (${formatLabel}): ${this.selectedFiles.size} файлов!`);
+    } catch (err: any) {
+      vscode.window.showErrorMessage(`Ошибка копирования в буфер обмена: ${err?.message || err}`);
     }
-
-    const markdown = await MarkdownBuilder.buildBundleMarkdown(
-      this.selectedFiles,
-      this.promptSettings,
-      this.gitDiffSettings,
-      diffContent,
-      this.cachedGitStatuses
-    );
-
-    await vscode.env.clipboard.writeText(markdown);
-    this._view?.webview.postMessage({ type: 'copySuccess' });
-    vscode.window.showInformationMessage(`Скопирован контекст: ${this.selectedFiles.size} файлов!`);
   }
 
   /**
-   * Prompts user for a save location and exports formatted Markdown bundle to file.
+   * Prompts user for a save location and exports formatted bundle to file.
    */
   public async exportContextToFile(): Promise<void> {
     if (this.selectedFiles.size === 0) {
@@ -669,38 +718,32 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       return;
     }
 
+    const isXml = this.outputFormat === 'xml';
+    const defaultUri = vscode.Uri.file(isXml ? 'project-context.xml' : 'project-context.md');
+    const filters: Record<string, string[]> = isXml
+      ? { XML: ['xml'], 'All Files': ['*'] }
+      : { Markdown: ['md'], 'All Files': ['*'] };
+
     const uri = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.file('project-context.md'),
-      filters: { Markdown: ['md'], 'All Files': ['*'] }
+      defaultUri,
+      filters
     });
 
     if (!uri) {
       return;
     }
 
-    let diffContent = '';
-    if (this.gitDiffSettings.includeGitDiff) {
-      diffContent = await GitService.getFilesDiff(
-        Array.from(this.selectedFiles),
-        this.gitDiffSettings.unlimitedDiff,
-        this.filters
-      );
+    try {
+      const payload = await this.buildContextPayload();
+      await fs.promises.writeFile(uri.fsPath, payload, 'utf-8');
+      vscode.window.showInformationMessage(`Файл сохранен: ${path.basename(uri.fsPath)}`);
+    } catch (err: any) {
+      vscode.window.showErrorMessage(`Ошибка сохранения файла: ${err?.message || err}`);
     }
-
-    const markdown = await MarkdownBuilder.buildBundleMarkdown(
-      this.selectedFiles,
-      this.promptSettings,
-      this.gitDiffSettings,
-      diffContent,
-      this.cachedGitStatuses
-    );
-
-    await fs.promises.writeFile(uri.fsPath, markdown, 'utf-8');
-    vscode.window.showInformationMessage(`Файл сохранен: ${path.basename(uri.fsPath)}`);
   }
 
   /**
-   * Opens assembled Markdown context in an editor split beside the current view.
+   * Opens assembled context in an editor split beside current view with matching syntax highlighting.
    */
   public async previewContext(): Promise<void> {
     if (this.selectedFiles.size === 0) {
@@ -708,28 +751,16 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       return;
     }
 
-    let diffContent = '';
-    if (this.gitDiffSettings.includeGitDiff) {
-      diffContent = await GitService.getFilesDiff(
-        Array.from(this.selectedFiles),
-        this.gitDiffSettings.unlimitedDiff,
-        this.filters
-      );
+    try {
+      const payload = await this.buildContextPayload();
+      const doc = await vscode.workspace.openTextDocument({
+        content: payload,
+        language: this.outputFormat === 'xml' ? 'xml' : 'markdown'
+      });
+      await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+    } catch (err: any) {
+      vscode.window.showErrorMessage(`Ошибка предварительного просмотра: ${err?.message || err}`);
     }
-
-    const markdown = await MarkdownBuilder.buildBundleMarkdown(
-      this.selectedFiles,
-      this.promptSettings,
-      this.gitDiffSettings,
-      diffContent,
-      this.cachedGitStatuses
-    );
-
-    const doc = await vscode.workspace.openTextDocument({
-      content: markdown,
-      language: 'markdown'
-    });
-    await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
   }
 
   /**

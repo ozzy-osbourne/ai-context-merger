@@ -37,7 +37,52 @@ export function getStyles(): string {
     }
 
     /* ==========================================================================
-       3. Buttons & Action Grids
+       3. Output Format Selector Card & Badges
+       ========================================================================== */
+    .format-card {
+      background-color: var(--vscode-editor-background);
+      border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+      border-radius: 6px;
+      padding: 7px 10px;
+      margin-bottom: 8px;
+    }
+
+    .format-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--vscode-descriptionForeground);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-bottom: 6px;
+    }
+
+    .format-options {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .format-option {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+
+    .format-option input[type="radio"] {
+      cursor: pointer;
+      margin: 0;
+    }
+
+    .format-label {
+      font-weight: 500;
+      color: var(--vscode-foreground);
+    }
+
+    /* ==========================================================================
+       4. Buttons & Action Grids
        ========================================================================== */
     .btn-primary {
       width: 100%;
@@ -97,7 +142,7 @@ export function getStyles(): string {
     }
 
     /* ==========================================================================
-       4. AI Task Prompt Card & Presets
+       5. AI Task Prompt Card & Presets
        ========================================================================== */
     .prompt-card {
       background-color: var(--vscode-editor-background);
@@ -352,7 +397,7 @@ export function getStyles(): string {
     }
 
     /* ==========================================================================
-       5. Git Diff Controls Card
+       6. Git Diff Controls Card
        ========================================================================== */
     .git-diff-card {
       background-color: var(--vscode-editor-background);
@@ -406,7 +451,7 @@ export function getStyles(): string {
     }
 
     /* ==========================================================================
-       6. Context Statistics & Budget Progress Bar
+       7. Context Statistics & Budget Progress Bar
        ========================================================================== */
     .stats-card {
       background-color: var(--vscode-editor-background);
@@ -530,7 +575,7 @@ export function getStyles(): string {
     }
 
     /* ==========================================================================
-       7. Exclusion Filters
+       8. Exclusion Filters
        ========================================================================== */
     .filter-section {
       margin-top: 8px;
@@ -570,7 +615,7 @@ export function getStyles(): string {
     }
 
     /* ==========================================================================
-       8. Search Input & Utilities
+       9. Search Input & Utilities
        ========================================================================== */
     .search-container {
       margin-top: 8px;

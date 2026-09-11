@@ -1,4 +1,4 @@
-import { ContextStats, CustomPreset, FilterSettings, GitDiffSettings, PromptSettings } from './tree';
+import { ContextStats, CustomPreset, FilterSettings, GitDiffSettings, OutputFormat, PromptSettings } from './tree';
 
 /**
  * Message payloads sent from the Webview frontend to the Extension backend.
@@ -15,6 +15,7 @@ export type WebviewToExtensionMessage =
   | { type: 'selectModified' }
   | { type: 'updateFilters'; filters: FilterSettings }
   | { type: 'updatePrompt'; enabled: boolean; text: string }
+  | { type: 'updateOutputFormat'; format: OutputFormat }
   | { type: 'addCustomPreset'; name: string; text: string }
   | { type: 'editCustomPreset'; id: string; name: string; text: string }
   | { type: 'deleteCustomPreset'; id: string }
@@ -34,6 +35,7 @@ export type ExtensionToWebviewMessage =
     promptSettings: PromptSettings;
     gitDiffSettings: GitDiffSettings;
     customPresets: CustomPreset[];
+    outputFormat: OutputFormat;
   }
   | {
     type: 'updateStats';

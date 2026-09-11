@@ -34,11 +34,14 @@ export function getScripts(): string {
 
     /**
      * Session cache restored across Webview re-renders.
-     * @type {{ promptEnabled?: boolean, promptText?: string, tokenLimit?: string, gitDiffEnabled?: boolean, diffOnly?: boolean, unlimitedDiff?: boolean }}
+     * @type {{ promptEnabled?: boolean, promptText?: string, tokenLimit?: string, gitDiffEnabled?: boolean, diffOnly?: boolean, unlimitedDiff?: boolean, outputFormat?: string }}
      */
     const previousState = vscode.getState() || {};
 
     const btnCopy = document.getElementById('btnCopy');
+    const btnPreview = document.getElementById('btnPreview');
+    const btnExport = document.getElementById('btnExport');
+
     const promptToggle = document.getElementById('promptToggle');
     const promptBody = document.getElementById('promptBody');
     const promptInput = document.getElementById('promptInput');
@@ -53,6 +56,10 @@ export function getScripts(): string {
     const gitDiffSuboptions = document.getElementById('gitDiffSuboptions');
     const diffOnlyToggle = document.getElementById('diffOnlyToggle');
     const unlimitedDiffToggle = document.getElementById('unlimitedDiffToggle');
+
+    // Format Controls
+    const formatMarkdown = document.getElementById('formatMarkdown');
+    const formatXml = document.getElementById('formatXml');
 
     // Preset Controls
     const customChipsContainer = document.getElementById('customChipsContainer');
@@ -102,6 +109,10 @@ export function getScripts(): string {
       gitDiffSuboptions.classList.remove('hidden');
     }
 
+    // Restore output format radio and update dynamic buttons
+    let currentFormat = previousState.outputFormat === 'xml' ? 'xml' : 'markdown';
+    updateFormatUI(currentFormat);
+
     // Safely restore token limit with fallback validation
     let restoredLimit = DEFAULT_TOKEN_LIMIT;
     if (previousState.tokenLimit && VALID_TOKEN_LIMITS.includes(String(previousState.tokenLimit))) {
@@ -129,6 +140,35 @@ export function getScripts(): string {
      * @type {number}
      */
     let currentEstimatedTokens = 0;
+
+    /**
+     * Updates radio button selection and adapts action button labels to current format.
+     * @param {'markdown' | 'xml'} format
+     * @returns {void}
+     */
+    function updateFormatUI(format) {
+      currentFormat = format;
+      const isXml = format === 'xml';
+
+      if (formatMarkdown && formatXml) {
+        formatMarkdown.checked = !isXml;
+        formatXml.checked = isXml;
+      }
+
+      if (btnPreview) {
+        btnPreview.innerText = isXml ? '👁️ Превью .xml' : '👁️ Превью .md';
+        btnPreview.title = isXml
+          ? 'Открыть сгенерированный XML во вкладке рядом для предварительного просмотра'
+          : 'Открыть сгенерированный Markdown во вкладке рядом для предварительного просмотра';
+      }
+
+      if (btnExport) {
+        btnExport.innerText = isXml ? '💾 Экспорт в .xml' : '💾 Экспорт в .md';
+        btnExport.title = isXml
+          ? 'Сохранить итоговый XML-файл с контекстом на диск'
+          : 'Сохранить итоговый Markdown-файл с контекстом на диск';
+      }
+    }
 
     /**
      * Triggers copy button success state animation and text swap.
@@ -164,7 +204,8 @@ export function getScripts(): string {
         tokenLimit: activeLimit,
         gitDiffEnabled: gitDiffToggle.checked,
         diffOnly: diffOnlyToggle.checked,
-        unlimitedDiff: unlimitedDiffToggle.checked
+        unlimitedDiff: unlimitedDiffToggle.checked,
+        outputFormat: currentFormat
       });
     }
 
@@ -220,6 +261,20 @@ export function getScripts(): string {
           diffOnly: diffOnlyToggle.checked,
           unlimitedDiff: unlimitedDiffToggle.checked
         }
+      });
+    }
+
+    /**
+     * Synchronizes output format change with the VS Code extension host.
+     * @param {'markdown' | 'xml'} format
+     * @returns {void}
+     */
+    function syncFormatWithExtension(format) {
+      updateFormatUI(format);
+      saveState();
+      vscode.postMessage({
+        type: 'updateOutputFormat',
+        format
       });
     }
 
@@ -370,6 +425,14 @@ export function getScripts(): string {
     updateClearSearchButtonVisibility();
     saveState();
 
+    formatMarkdown.addEventListener('change', () => {
+      if (formatMarkdown.checked) syncFormatWithExtension('markdown');
+    });
+
+    formatXml.addEventListener('change', () => {
+      if (formatXml.checked) syncFormatWithExtension('xml');
+    });
+
     promptToggle.addEventListener('change', () => {
       if (promptToggle.checked) {
         promptBody.classList.remove('hidden');
@@ -496,6 +559,11 @@ export function getScripts(): string {
 
       if (message.type === 'setData') {
         if (message.stats) updateStatsUI(message.stats);
+        if (message.outputFormat) {
+          currentFormat = message.outputFormat;
+          updateFormatUI(currentFormat);
+          saveState();
+        }
         if (message.filters) {
           document.getElementById('filterGit').checked = Boolean(message.filters.hideGitIgnored);
           document.getElementById('filterSecrets').checked = Boolean(message.filters.hideSecrets);
@@ -545,8 +613,8 @@ export function getScripts(): string {
     });
 
     btnCopy.addEventListener('click', () => vscode.postMessage({ type: 'copyContext' }));
-    document.getElementById('btnPreview').addEventListener('click', () => vscode.postMessage({ type: 'previewContext' }));
-    document.getElementById('btnExport').addEventListener('click', () => vscode.postMessage({ type: 'exportFile' }));
+    btnPreview.addEventListener('click', () => vscode.postMessage({ type: 'previewContext' }));
+    btnExport.addEventListener('click', () => vscode.postMessage({ type: 'exportFile' }));
     document.getElementById('btnClear').addEventListener('click', () => vscode.postMessage({ type: 'clearSelection' }));
     document.getElementById('btnExpandAll').addEventListener('click', () => vscode.postMessage({ type: 'expandAll' }));
     document.getElementById('btnCollapse').addEventListener('click', () => vscode.postMessage({ type: 'collapseAll' }));

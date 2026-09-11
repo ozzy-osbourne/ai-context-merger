@@ -78,13 +78,27 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
         </div>
       </div>
 
-      <button class="btn-primary" id="btnCopy" title="Собрать выбранные файлы в Markdown и скопировать готовый промпт в буфер обмена">
+      <div class="format-card">
+        <div class="format-title"><span>📄</span> Формат вывода:</div>
+        <div class="format-options">
+          <label class="format-option" title="Формат Markdown: стандартные блоки кода с подсветкой. Оптимально для ChatGPT, Gemini, DeepSeek">
+            <input type="radio" name="outputFormat" id="formatMarkdown" value="markdown" checked>
+            <span class="format-label">Markdown</span>
+          </label>
+          <label class="format-option" title="Формат XML: теги с изоляцией кода в CDATA. Официальный стандарт Anthropic">
+            <input type="radio" name="outputFormat" id="formatXml" value="xml">
+            <span class="format-label">XML (Claude)</span>
+          </label>
+        </div>
+      </div>
+
+      <button class="btn-primary" id="btnCopy" title="Собрать выбранные файлы и скопировать готовый контекст в буфер обмена">
         <span>📋</span> СКОПИРОВАТЬ КОНТЕКСТ
       </button>
 
       <div class="btn-grid-2">
-        <button class="btn-secondary" id="btnPreview" title="Открыть сгенерированный Markdown во вкладке рядом для предварительного просмотра">👁️ Превью .md</button>
-        <button class="btn-secondary" id="btnExport" title="Сохранить итоговый Markdown-файл с контекстом на диск">💾 Экспорт в .md</button>
+        <button class="btn-secondary" id="btnPreview" title="Открыть сгенерированный контекст во вкладке рядом для предварительного просмотра">👁️ Превью .md</button>
+        <button class="btn-secondary" id="btnExport" title="Сохранить итоговый файл с контекстом на диск">💾 Экспорт в .md</button>
       </div>
 
       <div class="btn-grid-2">

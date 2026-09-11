@@ -1,4 +1,9 @@
 /**
+ * Supported context bundle output formats.
+ */
+export type OutputFormat = 'markdown' | 'xml';
+
+/**
  * Active exclusion filter settings.
  */
 export interface FilterSettings {
