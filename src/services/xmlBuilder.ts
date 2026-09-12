@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { GitDiffSettings, GitFileStatus, PromptSettings } from '../types';
+import { DiagnosticsSettings, GitDiffSettings, GitFileStatus, PromptSettings } from '../types';
 import { ContextUtils } from '../utils/contextUtils';
 
 /**
@@ -8,13 +8,15 @@ import { ContextUtils } from '../utils/contextUtils';
  */
 export class XmlBuilder {
   /**
-   * Builds the complete XML context bundle containing instruction, ASCII tree, diffs, and indexed documents.
+   * Builds the complete XML context bundle containing instruction, ASCII tree, diffs, diagnostics, and indexed documents.
    *
    * @param selectedFiles - Set of absolute file paths to include.
    * @param promptSettings - Optional AI instruction configuration.
    * @param gitDiffSettings - Optional Git diff inclusion settings.
    * @param gitDiffContent - Raw Git diff payload string.
    * @param gitStatuses - Optional map containing current Git file statuses.
+   * @param diagnosticsSettings - Optional diagnostics configuration.
+   * @param diagnosticsContent - Formatted diagnostics string.
    * @returns Formatted XML document string.
    */
   public static async buildBundleXml(
@@ -22,7 +24,9 @@ export class XmlBuilder {
     promptSettings?: PromptSettings,
     gitDiffSettings?: GitDiffSettings,
     gitDiffContent?: string,
-    gitStatuses?: Map<string, GitFileStatus>
+    gitStatuses?: Map<string, GitFileStatus>,
+    diagnosticsSettings?: DiagnosticsSettings,
+    diagnosticsContent?: string
   ): Promise<string> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     const sortedFiles = Array.from(selectedFiles).sort();
@@ -52,6 +56,12 @@ export class XmlBuilder {
     }
 
     // 4. Documents container (skipped in Diff Only mode)
+    if (diagnosticsSettings?.enabled && diagnosticsContent && diagnosticsContent.trim().length > 0) {
+      const sanitizedDiag = ContextUtils.sanitizeXmlChars(diagnosticsContent.trim());
+      const safeDiag = ContextUtils.escapeCdata(sanitizedDiag);
+      xmlSections.push(`  <diagnostics>\n<![CDATA[\n${safeDiag}\n]]>\n  </diagnostics>`);
+    }
+
     if (!gitDiffSettings?.diffOnly && sortedFiles.length > 0) {
       xmlSections.push('  <documents>');
 

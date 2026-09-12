@@ -37,7 +37,12 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
 
     <body>
 
-      <div class="header-title">AI Context Merger</div>
+      <div class="top-header">
+        <div class="header-title">AI Context Merger</div>
+        <button type="button" class="btn-top-refresh" id="btnRefreshTop" title="Обновить дерево файлов, статусы Git и ошибки линтера. Выбранные файлы, промпт и настройки интерфейса сохраняются (без сброса состояний).">
+          <span>🔄</span> Обновить
+        </button>
+      </div>
 
       <div class="prompt-card">
         <div class="prompt-header">
@@ -102,6 +107,11 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
       </div>
 
       <div class="btn-grid-2">
+        <button class="btn-secondary" id="btnOpenTabs" title="Выбрать все доступные файлы, открытые прямо сейчас во вкладках редактора">📑 Открытые вкладки</button>
+        <button class="btn-secondary" id="btnGit" title="Выбрать только измененные (Modified), новые (Untracked) и удаленные (Deleted) файлы Git">🌿 Измененные (Git)</button>
+      </div>
+
+      <div class="btn-grid-2">
         <button class="btn-secondary" id="btnSelectAll" title="Выбрать все доступные файлы в рабочей области (или найденные при поиске)">✅ Выбрать всё</button>
         <button class="btn-secondary" id="btnClear" title="Снять выделение со всех файлов проекта">🧹 Снять всё</button>
       </div>
@@ -111,25 +121,42 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
         <button class="btn-secondary" id="btnCollapse" title="Свернуть все папки дерева файлов проекта">📁 Свернуть всё</button>
       </div>
 
-      <div class="btn-grid-2">
-        <button class="btn-secondary" id="btnRefresh" title="Пересканировать рабочую область и пересчитать статистику">🔄 Обновить</button>
-        <button class="btn-secondary" id="btnGit" title="Выбрать только измененные (Modified), новые (Untracked) и удаленные (Deleted) файлы Git">🌿 Измененные (Git)</button>
-      </div>
+      <!-- Единый контейнер дополнений: Git Diff и Диагностика (ошибки компилятора и линтера) -->
+      <div class="addons-card">
+        <div class="addon-block">
+          <label class="addon-header-label" title="Прикрепить блок git diff изменений выбранных файлов в итоговый контекст">
+            <input type="checkbox" id="gitDiffToggle">
+            <span>🌿 Прикрепить Git Diff</span>
+          </label>
+          <div class="addon-suboptions hidden" id="gitDiffSuboptions">
+            <label class="addon-suboption" title="Исключить полный код файлов, оставив только дерево проекта и git diff">
+              <input type="checkbox" id="diffOnlyToggle">
+              <span>Только Diff (без файлов)</span>
+            </label>
+            <label class="addon-suboption" title="Не обрезать большие диффы (по умолчанию лимит 100 KB на один файл)">
+              <input type="checkbox" id="unlimitedDiffToggle">
+              <span>Безлимитный Diff</span>
+            </label>
+          </div>
+        </div>
 
-      <div class="git-diff-card">
-        <label class="git-diff-header-label" title="Прикрепить блок git diff изменений выбранных файлов в итоговый Markdown-контекст">
-          <input type="checkbox" id="gitDiffToggle">
-          <span>🌿 Прикрепить Git Diff</span>
-        </label>
-        <div class="git-diff-suboptions hidden" id="gitDiffSuboptions">
-          <label class="git-diff-suboption" title="Исключить полный код файлов, оставив только дерево проекта и git diff (идеально для экономии токенов при Code Review)">
-            <input type="checkbox" id="diffOnlyToggle">
-            <span>Только Diff (без файлов)</span>
+        <div class="addons-card-divider"></div>
+
+        <div class="addon-block">
+          <label class="addon-header-label" title="Прикрепить список ошибок компилятора и линтера для выбранных файлов">
+            <input type="checkbox" id="diagnosticsToggle">
+            <span>⚠️ Прикрепить диагностику</span>
           </label>
-          <label class="git-diff-suboption" title="Не обрезать большие диффы (по умолчанию лимит 100 KB на один файл для защиты контекста)">
-            <input type="checkbox" id="unlimitedDiffToggle">
-            <span>Безлимитный Diff</span>
-          </label>
+          <div class="addon-suboptions hidden" id="diagnosticsSuboptions">
+            <label class="addon-suboption" title="Включать ошибки компилятора и проверки типов (TypeScript, rustc, mypy, clang и др.)">
+              <input type="checkbox" id="diagnosticsCompilerToggle" checked>
+              <span id="diagnosticsCompilerLabel">Ошибки компилятора (0)</span>
+            </label>
+            <label class="addon-suboption" title="Включать замечания линтера и статических анализаторов (ESLint, Ruff, Clippy, Biome и др.)">
+              <input type="checkbox" id="diagnosticsLinterToggle" checked>
+              <span id="diagnosticsLinterLabel">Ошибки линтера (0)</span>
+            </label>
+          </div>
         </div>
       </div>
 

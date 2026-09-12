@@ -41,6 +41,23 @@ export interface GitDiffSettings {
 }
 
 /**
+ * Compiler and linter diagnostics configuration settings.
+ */
+export interface DiagnosticsSettings {
+  enabled: boolean;
+  includeCompiler: boolean;
+  includeLinter: boolean;
+}
+
+/**
+ * Aggregated summary of compiler and linter diagnostics for selected files.
+ */
+export interface DiagnosticsSummary {
+  compilerCount: number;
+  linterCount: number;
+}
+
+/**
  * Context payload statistics and token estimates.
  */
 export interface ContextStats {

@@ -34,13 +34,16 @@ export function getScripts(): string {
 
     /**
      * Session cache restored across Webview re-renders.
-     * @type {{ promptEnabled?: boolean, promptText?: string, tokenLimit?: string, gitDiffEnabled?: boolean, diffOnly?: boolean, unlimitedDiff?: boolean, outputFormat?: string }}
+     * @type {{ promptEnabled?: boolean, promptText?: string, tokenLimit?: string, gitDiffEnabled?: boolean, diffOnly?: boolean, unlimitedDiff?: boolean, diagnosticsEnabled?: boolean, diagnosticsIncludeCompiler?: boolean, diagnosticsIncludeLinter?: boolean, outputFormat?: string }}
      */
     const previousState = vscode.getState() || {};
 
+    const btnRefreshTop = document.getElementById('btnRefreshTop');
     const btnCopy = document.getElementById('btnCopy');
     const btnPreview = document.getElementById('btnPreview');
     const btnExport = document.getElementById('btnExport');
+    const btnOpenTabs = document.getElementById('btnOpenTabs');
+    const btnGit = document.getElementById('btnGit');
 
     const promptToggle = document.getElementById('promptToggle');
     const promptBody = document.getElementById('promptBody');
@@ -56,6 +59,14 @@ export function getScripts(): string {
     const gitDiffSuboptions = document.getElementById('gitDiffSuboptions');
     const diffOnlyToggle = document.getElementById('diffOnlyToggle');
     const unlimitedDiffToggle = document.getElementById('unlimitedDiffToggle');
+
+    // Diagnostics Controls
+    const diagnosticsToggle = document.getElementById('diagnosticsToggle');
+    const diagnosticsSuboptions = document.getElementById('diagnosticsSuboptions');
+    const diagnosticsCompilerToggle = document.getElementById('diagnosticsCompilerToggle');
+    const diagnosticsCompilerLabel = document.getElementById('diagnosticsCompilerLabel');
+    const diagnosticsLinterToggle = document.getElementById('diagnosticsLinterToggle');
+    const diagnosticsLinterLabel = document.getElementById('diagnosticsLinterLabel');
 
     // Format Controls
     const formatMarkdown = document.getElementById('formatMarkdown');
@@ -109,6 +120,19 @@ export function getScripts(): string {
       gitDiffSuboptions.classList.remove('hidden');
     }
 
+    // Restore Diagnostics toggles from state (defaulting suboptions to checked if unspecified)
+    diagnosticsToggle.checked = Boolean(previousState.diagnosticsEnabled);
+    diagnosticsCompilerToggle.checked = previousState.diagnosticsIncludeCompiler !== undefined
+      ? Boolean(previousState.diagnosticsIncludeCompiler)
+      : true;
+    diagnosticsLinterToggle.checked = previousState.diagnosticsIncludeLinter !== undefined
+      ? Boolean(previousState.diagnosticsIncludeLinter)
+      : true;
+
+    if (diagnosticsToggle.checked) {
+      diagnosticsSuboptions.classList.remove('hidden');
+    }
+
     // Restore output format radio and update dynamic buttons
     let currentFormat = previousState.outputFormat === 'xml' ? 'xml' : 'markdown';
     updateFormatUI(currentFormat);
@@ -140,6 +164,12 @@ export function getScripts(): string {
      * @type {number}
      */
     let currentEstimatedTokens = 0;
+
+    /**
+     * Current diagnostics counter cached from extension backend.
+     * @type {{ compilerCount: number, linterCount: number }}
+     */
+    let currentDiagnosticsSummary = { compilerCount: 0, linterCount: 0 };
 
     /**
      * Updates radio button selection and adapts action button labels to current format.
@@ -205,6 +235,9 @@ export function getScripts(): string {
         gitDiffEnabled: gitDiffToggle.checked,
         diffOnly: diffOnlyToggle.checked,
         unlimitedDiff: unlimitedDiffToggle.checked,
+        diagnosticsEnabled: diagnosticsToggle.checked,
+        diagnosticsIncludeCompiler: diagnosticsCompilerToggle.checked,
+        diagnosticsIncludeLinter: diagnosticsLinterToggle.checked,
         outputFormat: currentFormat
       });
     }
@@ -265,6 +298,22 @@ export function getScripts(): string {
     }
 
     /**
+     * Synchronizes current diagnostics inclusion settings with the VS Code extension host.
+     * @returns {void}
+     */
+    function syncDiagnosticsWithExtension() {
+      saveState();
+      vscode.postMessage({
+        type: 'updateDiagnostics',
+        settings: {
+          enabled: diagnosticsToggle.checked,
+          includeCompiler: diagnosticsCompilerToggle.checked,
+          includeLinter: diagnosticsLinterToggle.checked
+        }
+      });
+    }
+
+    /**
      * Synchronizes output format change with the VS Code extension host.
      * @param {'markdown' | 'xml'} format
      * @returns {void}
@@ -276,6 +325,20 @@ export function getScripts(): string {
         type: 'updateOutputFormat',
         format
       });
+    }
+
+    /**
+     * Renders diagnostics counters directly on the expanded suboption labels.
+     * @param {{ compilerCount: number, linterCount: number }} summary - Collected diagnostics summary.
+     * @returns {void}
+     */
+    function renderDiagnosticsUI(summary) {
+      currentDiagnosticsSummary = summary || { compilerCount: 0, linterCount: 0 };
+      const compCount = currentDiagnosticsSummary.compilerCount || 0;
+      const lintCount = currentDiagnosticsSummary.linterCount || 0;
+
+      diagnosticsCompilerLabel.innerText = 'Ошибки компилятора (' + compCount + ')';
+      diagnosticsLinterLabel.innerText = 'Ошибки линтера (' + lintCount + ')';
     }
 
     /**
@@ -313,6 +376,7 @@ export function getScripts(): string {
     /**
      * Switches inline form into edit mode for a target preset.
      * @param {{ id: string, name: string, text: string }} preset
+     * @returns {void}
      */
     function startEditingPreset(preset) {
       if (editingPresetId === null) {
@@ -333,6 +397,7 @@ export function getScripts(): string {
 
     /**
      * Cancels edit mode and resets the inline preset form.
+     * @returns {void}
      */
     function cancelEditingPreset() {
       if (editingPresetId !== null && backupPromptText !== null) {
@@ -351,6 +416,7 @@ export function getScripts(): string {
     /**
      * Renders custom presets chips into DOM.
      * @param {Array<{ id: string, name: string, text: string }>} presets
+     * @returns {void}
      */
     function renderCustomChips(presets) {
       customPresets = presets || [];
@@ -461,6 +527,23 @@ export function getScripts(): string {
 
     unlimitedDiffToggle.addEventListener('change', () => {
       syncGitDiffWithExtension();
+    });
+
+    diagnosticsToggle.addEventListener('change', () => {
+      if (diagnosticsToggle.checked) {
+        diagnosticsSuboptions.classList.remove('hidden');
+      } else {
+        diagnosticsSuboptions.classList.add('hidden');
+      }
+      syncDiagnosticsWithExtension();
+    });
+
+    diagnosticsCompilerToggle.addEventListener('change', () => {
+      syncDiagnosticsWithExtension();
+    });
+
+    diagnosticsLinterToggle.addEventListener('change', () => {
+      syncDiagnosticsWithExtension();
     });
 
     btnClearPrompt.addEventListener('click', (e) => {
@@ -591,12 +674,27 @@ export function getScripts(): string {
             gitDiffSuboptions.classList.add('hidden');
           }
         }
+        if (message.diagnosticsSettings) {
+          diagnosticsToggle.checked = Boolean(message.diagnosticsSettings.enabled);
+          diagnosticsCompilerToggle.checked = Boolean(message.diagnosticsSettings.includeCompiler);
+          diagnosticsLinterToggle.checked = Boolean(message.diagnosticsSettings.includeLinter);
+          if (diagnosticsToggle.checked) {
+            diagnosticsSuboptions.classList.remove('hidden');
+          } else {
+            diagnosticsSuboptions.classList.add('hidden');
+          }
+        }
+        if (message.diagnosticsSummary) {
+          renderDiagnosticsUI(message.diagnosticsSummary);
+        }
         if (message.customPresets) {
           renderCustomChips(message.customPresets);
         }
         saveState();
       } else if (message.type === 'updateStats') {
         if (message.stats) updateStatsUI(message.stats);
+      } else if (message.type === 'updateDiagnosticsSummary') {
+        if (message.summary) renderDiagnosticsUI(message.summary);
       } else if (message.type === 'updateCustomPresets') {
         if (message.customPresets) {
           renderCustomChips(message.customPresets);
@@ -612,14 +710,15 @@ export function getScripts(): string {
       }
     });
 
+    btnRefreshTop.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
     btnCopy.addEventListener('click', () => vscode.postMessage({ type: 'copyContext' }));
     btnPreview.addEventListener('click', () => vscode.postMessage({ type: 'previewContext' }));
     btnExport.addEventListener('click', () => vscode.postMessage({ type: 'exportFile' }));
+    btnOpenTabs.addEventListener('click', () => vscode.postMessage({ type: 'selectOpenTabs' }));
+    btnGit.addEventListener('click', () => vscode.postMessage({ type: 'selectModified' }));
     document.getElementById('btnClear').addEventListener('click', () => vscode.postMessage({ type: 'clearSelection' }));
     document.getElementById('btnExpandAll').addEventListener('click', () => vscode.postMessage({ type: 'expandAll' }));
     document.getElementById('btnCollapse').addEventListener('click', () => vscode.postMessage({ type: 'collapseAll' }));
-    document.getElementById('btnRefresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
-    document.getElementById('btnGit').addEventListener('click', () => vscode.postMessage({ type: 'selectModified' }));
 
     btnSelectAll.addEventListener('click', () => {
       if (currentSearchQuery) {

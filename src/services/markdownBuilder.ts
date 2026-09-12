@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { LANGUAGE_MAP } from '../constants';
-import { GitDiffSettings, GitFileStatus, PromptSettings } from '../types';
+import { DiagnosticsSettings, GitDiffSettings, GitFileStatus, PromptSettings } from '../types';
 import { ContextUtils } from '../utils/contextUtils';
 
 /**
@@ -40,13 +40,15 @@ export class MarkdownBuilder {
   }
 
   /**
-   * Builds the complete Markdown bundle containing instruction, ASCII tree with Git tags, diffs, and file sections.
+   * Builds the complete Markdown bundle containing instruction, ASCII tree, diffs, diagnostics, and file sections.
    *
    * @param selectedFiles - Set of absolute file paths to include.
    * @param promptSettings - Optional AI instruction configuration.
    * @param gitDiffSettings - Optional Git diff inclusion settings.
    * @param gitDiffContent - Raw Git diff payload string.
    * @param gitStatuses - Optional map containing current Git file statuses.
+   * @param diagnosticsSettings - Optional compiler/linter diagnostics configuration.
+   * @param diagnosticsContent - Formatted diagnostics string.
    * @returns Formatted Markdown string.
    */
   public static async buildBundleMarkdown(
@@ -54,7 +56,9 @@ export class MarkdownBuilder {
     promptSettings?: PromptSettings,
     gitDiffSettings?: GitDiffSettings,
     gitDiffContent?: string,
-    gitStatuses?: Map<string, GitFileStatus>
+    gitStatuses?: Map<string, GitFileStatus>,
+    diagnosticsSettings?: DiagnosticsSettings,
+    diagnosticsContent?: string
   ): Promise<string> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     const sortedFiles = Array.from(selectedFiles).sort();
@@ -78,7 +82,10 @@ export class MarkdownBuilder {
       outputBlocks.push(`## Git Diff:\n${fence}diff\n${gitDiffContent.trim()}\n${fence}`);
     }
 
-    // Skip outputting full file bodies in Diff Only mode
+    if (diagnosticsSettings?.enabled && diagnosticsContent && diagnosticsContent.trim().length > 0) {
+      outputBlocks.push(`## Problems & Diagnostics:\n${diagnosticsContent.trim()}`);
+    }
+
     if (!gitDiffSettings?.diffOnly) {
       for (let i = 0; i < sortedFiles.length; i++) {
         const filePath = sortedFiles[i];

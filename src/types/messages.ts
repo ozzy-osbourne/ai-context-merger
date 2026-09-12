@@ -1,4 +1,13 @@
-import { ContextStats, CustomPreset, FilterSettings, GitDiffSettings, OutputFormat, PromptSettings } from './tree';
+import {
+  ContextStats,
+  CustomPreset,
+  DiagnosticsSettings,
+  DiagnosticsSummary,
+  FilterSettings,
+  GitDiffSettings,
+  OutputFormat,
+  PromptSettings
+} from './tree';
 
 /**
  * Message payloads sent from the Webview frontend to the Extension backend.
@@ -6,6 +15,7 @@ import { ContextStats, CustomPreset, FilterSettings, GitDiffSettings, OutputForm
 export type WebviewToExtensionMessage =
   | { type: 'selectAll' }
   | { type: 'selectFound'; query: string }
+  | { type: 'selectOpenTabs' }
   | { type: 'clearSelection' }
   | { type: 'expandAll' }
   | { type: 'collapseAll' }
@@ -20,6 +30,7 @@ export type WebviewToExtensionMessage =
   | { type: 'editCustomPreset'; id: string; name: string; text: string }
   | { type: 'deleteCustomPreset'; id: string }
   | { type: 'updateGitDiff'; settings: GitDiffSettings }
+  | { type: 'updateDiagnostics'; settings: DiagnosticsSettings }
   | { type: 'updateSearch'; query: string }
   | { type: 'refresh' }
   | { type: 'requestInitialData' };
@@ -34,12 +45,18 @@ export type ExtensionToWebviewMessage =
     filters: FilterSettings;
     promptSettings: PromptSettings;
     gitDiffSettings: GitDiffSettings;
+    diagnosticsSettings: DiagnosticsSettings;
+    diagnosticsSummary: DiagnosticsSummary;
     customPresets: CustomPreset[];
     outputFormat: OutputFormat;
   }
   | {
     type: 'updateStats';
     stats: ContextStats;
+  }
+  | {
+    type: 'updateDiagnosticsSummary';
+    summary: DiagnosticsSummary;
   }
   | {
     type: 'updateCustomPresets';

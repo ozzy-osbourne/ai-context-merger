@@ -3,6 +3,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import {
   CustomPreset,
+  DiagnosticsSettings,
+  DiagnosticsSummary,
   FilterSettings,
   GitDiffSettings,
   GitFileStatus,
@@ -20,6 +22,7 @@ import { MarkdownBuilder } from './services/markdownBuilder';
 import { XmlBuilder } from './services/xmlBuilder';
 import { ContextTreeDataProvider, ContextTreeItem } from './services/contextTreeDataProvider';
 import { getHtmlTemplate } from './ui/htmlTemplate';
+import { ContextUtils } from './utils/contextUtils';
 import { PathUtils } from './utils/pathUtils';
 
 /**
@@ -34,7 +37,7 @@ const OUTPUT_FORMAT_STORAGE_KEY = 'aiContextMerger.outputFormat';
 
 /**
  * Webview View Provider for AI Context Merger controls panel.
- * Handles state synchronization, action commands, file watchers, and prompt configuration.
+ * Handles state synchronization, action commands, file watchers, open tabs selection, and diagnostics monitoring.
  */
 export class ContextMergerControlsProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewType = 'aiContextMergerControlsView';
@@ -59,11 +62,18 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     unlimitedDiff: false
   };
 
+  public diagnosticsSettings: DiagnosticsSettings = {
+    enabled: false,
+    includeCompiler: true,
+    includeLinter: true
+  };
+
   public outputFormat: OutputFormat = 'markdown';
 
   private cachedGitStatuses: Map<string, GitFileStatus> = new Map<string, GitFileStatus>();
 
   private debounceTimer?: NodeJS.Timeout;
+  private diagnosticsDebounceTimer?: NodeJS.Timeout;
   private readonly watcherDisposables: vscode.Disposable[] = [];
   private isDisposed: boolean = false;
 
@@ -125,7 +135,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
   }
 
   /**
-   * Initializes non-blocking file system and Git watchers.
+   * Initializes non-blocking file system, Git, and compiler diagnostics watchers.
    */
   private initWatchers(): void {
     this.disposeWatchers();
@@ -184,11 +194,30 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     );
 
     this.initGitWatcher();
+
+    // Isolated diagnostics watcher: updates token metrics and problem counts without resetting folder caches or Git
+    const diagnosticsWatcher = vscode.languages.onDidChangeDiagnostics((e) => {
+      if (this.selectedFiles.size === 0) {
+        return;
+      }
+
+      const hasAffectedFiles = e.uris.some((uri) =>
+        this.selectedFiles.has(PathUtils.normalizePath(uri.fsPath))
+      );
+
+      if (hasAffectedFiles) {
+        if (this.diagnosticsDebounceTimer) {
+          clearTimeout(this.diagnosticsDebounceTimer);
+        }
+
+        this.diagnosticsDebounceTimer = setTimeout(async () => {
+          await this.updateStats();
+        }, 300);
+      }
+    });
+    this.watcherDisposables.push(diagnosticsWatcher);
   }
 
-  /**
-   * Subscribes to Git repository state change events to refresh diff indicators.
-   */
   private async initGitWatcher(): Promise<void> {
     try {
       const gitExtension = vscode.extensions.getExtension<GitExtensionExports>('vscode.git');
@@ -218,7 +247,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
   }
 
   /**
-   * Schedules a debounced tree, Git decoration, and statistics refresh.
+   * Schedules a debounced tree, Git decoration, and statistics refresh without resetting user selections.
    */
   public triggerDebouncedRefresh(): void {
     if (this.isDisposed) {
@@ -230,16 +259,23 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     }
 
     this.debounceTimer = setTimeout(async () => {
-      this.cachedGitStatuses = await GitService.getFileStatuses();
-      this.treeDataProvider.setGitStatuses(this.cachedGitStatuses);
-      this.treeDataProvider.refresh();
-      await this.updateStats();
+      await this.forceRefresh();
     }, 300);
   }
 
   /**
-   * Disposes active file and Git watchers.
+   * Performs an immediate workspace re-scan, synchronizing Git statuses, tree nodes, and diagnostics.
    */
+  public async forceRefresh(): Promise<void> {
+    if (this.isDisposed) {
+      return;
+    }
+    this.treeDataProvider.folderTotalCountMap.clear();
+    this.cachedGitStatuses = await GitService.getFileStatuses();
+    this.treeDataProvider.setGitStatuses(this.cachedGitStatuses);
+    await this.updateStats();
+  }
+
   private disposeWatchers(): void {
     this.watcherDisposables.forEach((d) => {
       try {
@@ -252,12 +288,48 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
   }
 
   /**
-   * Resolves Webview View instance and binds IPC message listeners.
+   * Calculates aggregated count of compiler issues and linter issues across currently selected files.
    *
-   * @param webviewView - Webview view instance.
-   * @param _context - View resolve context.
-   * @param _token - Cancellation token.
+   * @returns Diagnostics summary object with compiler and linter counters.
    */
+  public getDiagnosticsSummary(): DiagnosticsSummary {
+    let compilerCount = 0;
+    let linterCount = 0;
+
+    for (const filePath of this.selectedFiles) {
+      try {
+        const uri = vscode.Uri.file(filePath);
+        const diags = vscode.languages.getDiagnostics(uri);
+        for (const d of diags) {
+          const cat = ContextUtils.classifyDiagnostic(d);
+          if (cat === 'compiler') {
+            compilerCount++;
+          } else {
+            linterCount++;
+          }
+        }
+      } catch {
+        // Ignore unreadable file URI
+      }
+    }
+
+    return { compilerCount, linterCount };
+  }
+
+  /**
+   * Transmits updated diagnostics summary to the Webview.
+   */
+  private sendDiagnosticsSummary(): void {
+    if (!this._view) {
+      return;
+    }
+    const summary = this.getDiagnosticsSummary();
+    this._view.webview.postMessage({
+      type: 'updateDiagnosticsSummary',
+      summary
+    });
+  }
+
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
     _context: vscode.WebviewViewResolveContext,
@@ -283,6 +355,9 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
           break;
         case 'selectFound':
           await this.selectFoundFiles(message.query);
+          break;
+        case 'selectOpenTabs':
+          await this.selectOpenTabs();
           break;
         case 'clearSelection':
           this.clearSelection();
@@ -456,11 +531,22 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
             await this.updateStats();
           }
           break;
+        case 'updateDiagnostics':
+          if (message.settings && typeof message.settings === 'object') {
+            this.diagnosticsSettings = {
+              enabled: Boolean(message.settings.enabled),
+              includeCompiler: Boolean(message.settings.includeCompiler),
+              includeLinter: Boolean(message.settings.includeLinter)
+            };
+            await this.updateStats();
+          }
+          break;
         case 'updateSearch':
           await this.handleSearchInput(message.query);
           break;
         case 'refresh':
-          this.triggerDebouncedRefresh();
+          await this.forceRefresh();
+          vscode.window.showInformationMessage('Данные рабочей области обновлены (выборка сохранена).');
           break;
         case 'requestInitialData':
           await this.sendInitialData();
@@ -470,8 +556,28 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
   }
 
   /**
-   * Assembles the bundle content formatted as either Markdown or XML based on active format setting.
+   * Generates formatted compiler/linter diagnostics payload for selected files.
+   *
+   * @returns Formatted diagnostics text or empty string if disabled/unselected.
    */
+  private getDiagnosticsPayload(): string {
+    if (
+      !this.diagnosticsSettings.enabled ||
+      (!this.diagnosticsSettings.includeCompiler && !this.diagnosticsSettings.includeLinter) ||
+      this.selectedFiles.size === 0
+    ) {
+      return '';
+    }
+
+    const items = ContextUtils.getDiagnosticsForFiles(
+      this.selectedFiles,
+      this.diagnosticsSettings,
+      vscode.workspace.workspaceFolders
+    );
+
+    return ContextUtils.formatDiagnosticsText(items);
+  }
+
   private async buildContextPayload(): Promise<string> {
     let diffContent = '';
     if (this.gitDiffSettings.includeGitDiff) {
@@ -482,13 +588,17 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       );
     }
 
+    const diagnosticsContent = this.getDiagnosticsPayload();
+
     if (this.outputFormat === 'xml') {
       return await XmlBuilder.buildBundleXml(
         this.selectedFiles,
         this.promptSettings,
         this.gitDiffSettings,
         diffContent,
-        this.cachedGitStatuses
+        this.cachedGitStatuses,
+        this.diagnosticsSettings,
+        diagnosticsContent
       );
     }
 
@@ -497,12 +607,15 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       this.promptSettings,
       this.gitDiffSettings,
       diffContent,
-      this.cachedGitStatuses
+      this.cachedGitStatuses,
+      this.diagnosticsSettings,
+      diagnosticsContent
     );
   }
 
   /**
    * Recalculates context statistics with Git diff length and posts updated payload to Webview.
+   * Always synchronizes current diagnostics counts to keep controls reactive to tree selection changes.
    */
   public async updateStats(): Promise<void> {
     if (!this._view) {
@@ -519,19 +632,25 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       diffLength = diffContent.length;
     }
 
+    const diagnosticsPayload = this.getDiagnosticsPayload();
+
     const stats = await StatsCalculator.calculateStats(
       this.selectedFiles,
       this.promptSettings,
       this.gitDiffSettings,
       diffLength,
       this.cachedGitStatuses,
-      this.outputFormat
+      this.outputFormat,
+      this.diagnosticsSettings,
+      diagnosticsPayload.length
     );
 
     this._view.webview.postMessage({
       type: 'updateStats',
       stats
     });
+
+    this.sendDiagnosticsSummary();
   }
 
   /**
@@ -555,13 +674,17 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       diffLength = diffContent.length;
     }
 
+    const diagnosticsPayload = this.getDiagnosticsPayload();
+
     const stats = await StatsCalculator.calculateStats(
       this.selectedFiles,
       this.promptSettings,
       this.gitDiffSettings,
       diffLength,
       this.cachedGitStatuses,
-      this.outputFormat
+      this.outputFormat,
+      this.diagnosticsSettings,
+      diagnosticsPayload.length
     );
 
     this._view.webview.postMessage({
@@ -570,6 +693,8 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       filters: this.filters,
       promptSettings: this.promptSettings,
       gitDiffSettings: this.gitDiffSettings,
+      diagnosticsSettings: this.diagnosticsSettings,
+      diagnosticsSummary: this.getDiagnosticsSummary(),
       customPresets: this.getCustomPresets(),
       outputFormat: this.outputFormat
     });
@@ -599,10 +724,80 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
   }
 
   /**
-   * Handles user search query changes, updates tree filter, and calculates matching count.
-   *
-   * @param query - Search substring.
+   * Selects all active file URIs currently opened across editor tab groups that reside within the active workspace.
    */
+  public async selectOpenTabs(): Promise<void> {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      vscode.window.showWarningMessage('Рабочая область не открыта.');
+      return;
+    }
+
+    const openUris: vscode.Uri[] = [];
+
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        if (tab.input && typeof tab.input === 'object') {
+          if ('uri' in tab.input && (tab.input as { uri: unknown }).uri instanceof vscode.Uri) {
+            const uri = (tab.input as { uri: vscode.Uri }).uri;
+            if (uri.scheme === 'file') {
+              openUris.push(uri);
+            }
+          }
+          if ('modified' in tab.input && (tab.input as { modified: unknown }).modified instanceof vscode.Uri) {
+            const uri = (tab.input as { modified: vscode.Uri }).modified;
+            if (uri.scheme === 'file') {
+              openUris.push(uri);
+            }
+          }
+        }
+      }
+    }
+
+    this.selectedFiles.clear();
+    let addedCount = 0;
+
+    for (const uri of openUris) {
+      const fsPath = PathUtils.normalizePath(uri.fsPath);
+      const matchedFolder = workspaceFolders.find((f) =>
+        PathUtils.isSubpath(fsPath, PathUtils.normalizePath(f.uri.fsPath))
+      );
+
+      // Discard external tabs located outside of workspace folders
+      if (!matchedFolder) {
+        continue;
+      }
+
+      // Verify physical presence on disk to skip ghost or deleted tabs
+      try {
+        const stat = await fs.promises.stat(fsPath);
+        if (!stat.isFile()) {
+          continue;
+        }
+      } catch {
+        continue;
+      }
+
+      const rootPath = PathUtils.normalizePath(matchedFolder.uri.fsPath);
+
+      if (!WorkspaceScanner.shouldFilterItem(fsPath, false, this.filters, rootPath)) {
+        if (!this.selectedFiles.has(fsPath)) {
+          this.selectedFiles.add(fsPath);
+          addedCount++;
+        }
+      }
+    }
+
+    this.treeDataProvider.refresh();
+    await this.updateStats();
+
+    if (addedCount > 0) {
+      vscode.window.showInformationMessage(`Выбрано файлов из открытых вкладок: ${addedCount}`);
+    } else {
+      vscode.window.showWarningMessage('В открытых вкладках не найдено доступных файлов проекта (или они скрыты фильтрами).');
+    }
+  }
+
   private async handleSearchInput(query: string): Promise<void> {
     const trimmed = (query || '').trim();
     await this.treeDataProvider.setSearchQuery(trimmed);
@@ -771,6 +966,10 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = undefined;
+    }
+    if (this.diagnosticsDebounceTimer) {
+      clearTimeout(this.diagnosticsDebounceTimer);
+      this.diagnosticsDebounceTimer = undefined;
     }
     this.disposeWatchers();
   }

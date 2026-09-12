@@ -25,19 +25,51 @@ export function getStyles(): string {
     }
 
     /* ==========================================================================
-       2. Typography & Section Headers
+       2. Header & Action Bar
        ========================================================================== */
+    .top-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+    }
+
     .header-title {
       font-size: 11px;
       font-weight: 700;
       letter-spacing: 1px;
       color: var(--vscode-descriptionForeground);
-      margin-bottom: 12px;
       text-transform: uppercase;
+      margin: 0;
+    }
+
+    .btn-top-refresh {
+      background-color: var(--vscode-button-secondaryBackground);
+      color: var(--vscode-button-secondaryForeground);
+      border: 1px solid var(--vscode-widget-border, transparent);
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background-color 0.2s, border-color 0.2s;
+    }
+
+    .btn-top-refresh:hover {
+      background-color: var(--vscode-button-secondaryHoverBackground);
+      border-color: var(--vscode-focusBorder);
     }
 
     /* ==========================================================================
-       3. Output Format Selector Card & Badges
+       3. Output Format Selector Card
        ========================================================================== */
     .format-card {
       background-color: var(--vscode-editor-background);
@@ -397,9 +429,9 @@ export function getStyles(): string {
     }
 
     /* ==========================================================================
-       6. Git Diff Controls Card
+       6. Context Addons Card (Git Diff & Diagnostics)
        ========================================================================== */
-    .git-diff-card {
+    .addons-card {
       background-color: var(--vscode-editor-background);
       border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
       border-radius: 6px;
@@ -407,7 +439,12 @@ export function getStyles(): string {
       margin-top: 8px;
     }
 
-    .git-diff-header-label {
+    .addon-block {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .addon-header-label {
       display: flex;
       align-items: center;
       gap: 6px;
@@ -416,12 +453,12 @@ export function getStyles(): string {
       cursor: pointer;
     }
 
-    .git-diff-header-label input {
+    .addon-header-label input {
       cursor: pointer;
       margin: 0;
     }
 
-    .git-diff-suboptions {
+    .addon-suboptions {
       margin-top: 6px;
       padding-left: 20px;
       display: flex;
@@ -431,7 +468,7 @@ export function getStyles(): string {
       margin-left: 6px;
     }
 
-    .git-diff-suboption {
+    .addon-suboption {
       display: flex;
       align-items: center;
       gap: 6px;
@@ -441,13 +478,19 @@ export function getStyles(): string {
       transition: color 0.2s ease;
     }
 
-    .git-diff-suboption:hover {
+    .addon-suboption:hover {
       color: var(--vscode-foreground);
     }
 
-    .git-diff-suboption input {
+    .addon-suboption input {
       cursor: pointer;
       margin: 0;
+    }
+
+    .addons-card-divider {
+      height: 1px;
+      background-color: var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+      margin: 8px 0;
     }
 
     /* ==========================================================================
@@ -575,13 +618,14 @@ export function getStyles(): string {
     }
 
     /* ==========================================================================
-       8. Exclusion Filters
+       8. Exclusion Filters (с рамкой и оформлением в едином стиле)
        ========================================================================== */
     .filter-section {
       margin-top: 8px;
       background-color: var(--vscode-editor-background);
-      border-radius: 4px;
-      padding: 6px 8px;
+      border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+      border-radius: 6px;
+      padding: 8px 10px;
       font-size: 11px;
     }
 

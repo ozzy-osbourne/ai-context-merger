@@ -1,7 +1,14 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ContextStats, GitDiffSettings, GitFileStatus, OutputFormat, PromptSettings } from '../types';
+import {
+  ContextStats,
+  DiagnosticsSettings,
+  GitDiffSettings,
+  GitFileStatus,
+  OutputFormat,
+  PromptSettings
+} from '../types';
 import { MAX_CONTEXT_TOKENS, BINARY_EXTENSIONS, MAX_FILE_SIZE_BYTES } from '../constants';
 import { ContextUtils } from '../utils/contextUtils';
 import { MarkdownBuilder } from './markdownBuilder';
@@ -11,7 +18,7 @@ import { MarkdownBuilder } from './markdownBuilder';
  */
 export class StatsCalculator {
   /**
-   * Computes token metrics for the selected file context bundle based on chosen output format.
+   * Computes token metrics for the selected file context bundle based on chosen output format, diffs, and diagnostics.
    *
    * @param selectedFiles - Set of selected absolute file paths.
    * @param promptSettings - Optional AI instruction settings.
@@ -19,6 +26,8 @@ export class StatsCalculator {
    * @param gitDiffLength - Character length of the active Git diff payload.
    * @param gitStatuses - Optional map containing current Git file statuses.
    * @param outputFormat - Current output format ('markdown' or 'xml').
+   * @param diagnosticsSettings - Optional compiler/linter diagnostics configuration.
+   * @param diagnosticsLength - Character length of formatted diagnostics.
    * @returns Aggregated statistics for the selection.
    */
   public static async calculateStats(
@@ -27,7 +36,9 @@ export class StatsCalculator {
     gitDiffSettings?: GitDiffSettings,
     gitDiffLength: number = 0,
     gitStatuses?: Map<string, GitFileStatus>,
-    outputFormat: OutputFormat = 'markdown'
+    outputFormat: OutputFormat = 'markdown',
+    diagnosticsSettings?: DiagnosticsSettings,
+    diagnosticsLength: number = 0
   ): Promise<ContextStats> {
     if (selectedFiles.size === 0) {
       return { count: 0, tokens: 0, percentage: 0 };
@@ -62,7 +73,10 @@ export class StatsCalculator {
         totalChars += `  <git_diff>\n<![CDATA[\n\n]]>\n  </git_diff>\n\n`.length + gitDiffLength;
       }
 
-      // 4. Documents
+      if (diagnosticsSettings?.enabled && diagnosticsLength > 0) {
+        totalChars += `  <diagnostics>\n<![CDATA[\n\n]]>\n  </diagnostics>\n\n`.length + diagnosticsLength;
+      }
+
       if (!gitDiffSettings?.diffOnly) {
         totalChars += '  <documents>\n  </documents>\n\n'.length;
 
@@ -103,7 +117,7 @@ export class StatsCalculator {
               bodyLength = stat.size;
             }
           } catch {
-            bodyLength = 30; // Inaccessible placeholder
+            bodyLength = 30;
           }
 
           return docHeader.length + bodyLength + docFooter.length;
@@ -133,7 +147,10 @@ export class StatsCalculator {
         totalChars += `## Git Diff:\n\`\`\`diff\n\n\`\`\``.length + gitDiffLength + 6;
       }
 
-      // 4. File content lengths (omitted if Diff Only mode is active)
+      if (diagnosticsSettings?.enabled && diagnosticsLength > 0) {
+        totalChars += `## Problems & Diagnostics:\n`.length + diagnosticsLength + 6;
+      }
+
       if (!gitDiffSettings?.diffOnly) {
         const fileStatPromises = sortedFiles.map(async (filePath, index) => {
           const relPath = relativePaths[index];
