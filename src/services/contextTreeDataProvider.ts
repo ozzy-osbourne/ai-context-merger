@@ -71,6 +71,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
   private searchQuery: string = '';
   private expansionLevel: number = 1;
   private treeVersion: number = 0;
+  private showOnlySelected: boolean = false;
 
   private readonly matchingFilePaths: Set<string> = new Set<string>();
   private readonly matchingFolderPaths: Set<string> = new Set<string>();
@@ -91,6 +92,28 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     private readonly selectedFiles: Set<string>,
     private filters: FilterSettings
   ) { }
+
+  /**
+   * Toggles the filter mode to display exclusively selected files in the TreeView.
+   *
+   * @returns Updated state of the selected-only filter.
+   */
+  public toggleShowOnlySelected(): boolean {
+    this.showOnlySelected = !this.showOnlySelected;
+    vscode.commands.executeCommand('setContext', 'aiContextMerger.showOnlySelected', this.showOnlySelected);
+    this.treeVersion++;
+    this.refresh();
+    return this.showOnlySelected;
+  }
+
+  /**
+   * Returns whether the TreeView is currently filtering to only show selected files.
+   *
+   * @returns `true` if only selected files are displayed.
+   */
+  public isShowOnlySelected(): boolean {
+    return this.showOnlySelected;
+  }
 
   /**
    * Assigns updated Git file change statuses and refreshes visual decorations.
@@ -443,7 +466,28 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
         return [emptyItem];
       }
 
-      const folderPromises = workspaceFolders.map(async (folder) => {
+      if (this.showOnlySelected && this.selectedFiles.size === 0) {
+        const emptyItem = new ContextTreeItem(
+          vscode.Uri.parse('ai-context-merger:no-selected'),
+          false,
+          undefined,
+          vscode.TreeItemCollapsibleState.None,
+          'нет отмеченных файлов'
+        );
+        emptyItem.label = 'Ничего не выбрано';
+        emptyItem.iconPath = new vscode.ThemeIcon('info');
+        emptyItem.contextValue = 'emptyState';
+        return [emptyItem];
+      }
+
+      const activeFolders = this.showOnlySelected
+        ? workspaceFolders.filter((folder) => {
+            const folderPath = PathUtils.normalizePath(folder.uri.fsPath);
+            return this.getSelectedCountInFolder(folderPath) > 0;
+          })
+        : workspaceFolders;
+
+      const folderPromises = activeFolders.map(async (folder) => {
         const folderPath = PathUtils.normalizePath(folder.uri.fsPath);
         const { isChecked, description, isDisabled } = await this.resolveFolderState(folderPath);
 
@@ -462,6 +506,8 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
           description,
           this.treeVersion
         );
+
+        rootItem.contextValue = isChecked ? 'directory-checked' : 'directory-unchecked';
 
         if (isDisabled) {
           rootItem.iconPath = new vscode.ThemeIcon(
@@ -497,7 +543,14 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
       this.filters
     );
 
-    const filteredBySearch = validEntries.filter(({ entry, fullPath }) => {
+    const filteredEntries = validEntries.filter(({ entry, fullPath }) => {
+      if (this.showOnlySelected) {
+        if (entry.isDirectory()) {
+          return this.getSelectedCountInFolder(fullPath) > 0;
+        }
+        return this.selectedFiles.has(fullPath);
+      }
+
       if (!this.searchQuery) {
         return true;
       }
@@ -507,7 +560,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
       return this.matchingFilePaths.has(fullPath);
     });
 
-    const sortedEntries = filteredBySearch.sort((a, b) => {
+    const sortedEntries = filteredEntries.sort((a, b) => {
       const aIsDir = a.entry.isDirectory();
       const bIsDir = b.entry.isDirectory();
       if (aIsDir === bIsDir) {
@@ -524,6 +577,8 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
 
         if (isDisabled) {
           collapsibleState = vscode.TreeItemCollapsibleState.None;
+        } else if (this.showOnlySelected) {
+          collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
         } else if (this.searchQuery && this.matchingFolderPaths.has(fullPath)) {
           collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
         } else if (this.gitExpandedFolderPaths.has(fullPath)) {
@@ -541,6 +596,8 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
           this.treeVersion
         );
 
+        folderItem.contextValue = isChecked ? 'directory-checked' : 'directory-unchecked';
+
         if (isDisabled) {
           folderItem.iconPath = new vscode.ThemeIcon(
             'folder',
@@ -555,6 +612,8 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
       const gitStatus = this.gitStatuses.get(fullPath);
 
       let statusBadge: string | undefined;
+      const isModified = gitStatus === 'modified' || gitStatus === 'untracked' || gitStatus === 'renamed';
+
       if (gitStatus === 'modified') {
         statusBadge = '[M]';
       } else if (gitStatus === 'untracked') {
@@ -570,6 +629,12 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
         vscode.TreeItemCollapsibleState.None,
         statusBadge
       );
+
+      let contextValue = isChecked ? 'file-checked' : 'file-unchecked';
+      if (isModified) {
+        contextValue += '-modified';
+      }
+      fileItem.contextValue = contextValue;
 
       fileItem.command = {
         command: 'aiContextMerger.toggleFileByClick',
@@ -590,6 +655,12 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
       );
 
       if (status === 'deleted' && isDirectChild) {
+        const isChecked = this.selectedFiles.has(gitPath);
+
+        if (this.showOnlySelected && !isChecked) {
+          continue;
+        }
+
         const fileName = path.basename(gitPath);
 
         if (WorkspaceScanner.isFilteredByType(fileName, false, this.filters)) {
@@ -600,7 +671,6 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
           continue;
         }
 
-        const isChecked = this.selectedFiles.has(gitPath);
         const deletedItem = new ContextTreeItem(
           vscode.Uri.file(gitPath),
           false,
@@ -609,6 +679,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
           '[D]'
         );
         deletedItem.iconPath = new vscode.ThemeIcon('diff-removed');
+        deletedItem.contextValue = isChecked ? 'file-checked-modified' : 'file-unchecked-modified';
         deletedItem.command = {
           command: 'aiContextMerger.toggleFileByClick',
           title: 'Выбрать файл',

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { ContextMergerControlsProvider } from './sidebarProvider';
 import { ContextTreeDataProvider, ContextTreeItem } from './services/contextTreeDataProvider';
+import { ContextMenuService } from './services/contextMenuService';
 import { FilterSettings } from './types';
 
 /**
@@ -37,6 +38,15 @@ export function activate(context: vscode.ExtensionContext): void {
 
   controlsProvider.bindTreeView(treeView);
 
+  const contextMenuService = new ContextMenuService(
+    selectedFiles,
+    treeDataProvider,
+    controlsProvider
+  );
+
+  // Initialize selected-only context flag
+  vscode.commands.executeCommand('setContext', 'aiContextMerger.showOnlySelected', false);
+
   // Handle item selection toggle when clicking on a file row
   const toggleClickCommand = vscode.commands.registerCommand(
     'aiContextMerger.toggleFileByClick',
@@ -58,6 +68,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     controlsProvider,
     toggleClickCommand,
+    ...contextMenuService.registerCommands(),
 
     treeView.onDidChangeCheckboxState(async (e) => {
       for (const [item, state] of e.items) {

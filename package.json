@@ -42,6 +42,172 @@
           "icon": "resources/icon.svg"
         }
       ]
+    },
+    "commands": [
+      {
+        "command": "aiContextMerger.addToContext",
+        "title": "➕ Добавить в контекст",
+        "category": "AI Context Merger"
+      },
+      {
+        "command": "aiContextMerger.removeFromContext",
+        "title": "➖ Убрать из контекста",
+        "category": "AI Context Merger"
+      },
+      {
+        "command": "aiContextMerger.copyImmediately",
+        "title": "📋 Скопировать сразу в буфер",
+        "category": "AI Context Merger"
+      },
+      {
+        "command": "aiContextMerger.copyGitDiffImmediately",
+        "title": "🌿 Скопировать Git Diff",
+        "category": "AI Context Merger"
+      },
+      {
+        "command": "aiContextMerger.treeToggleSelectedOnly",
+        "title": "Показать только выбранные",
+        "category": "AI Context Merger",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "aiContextMerger.treeCopyContext",
+        "title": "Скопировать весь контекст",
+        "category": "AI Context Merger",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "aiContextMerger.treeClearAll",
+        "title": "Снять всё выделение",
+        "category": "AI Context Merger",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "aiContextMerger.treeRefresh",
+        "title": "Обновить файлы и Git",
+        "category": "AI Context Merger",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "aiContextMerger.treeItemCopyFile",
+        "title": "Скопировать этот файл",
+        "category": "AI Context Merger",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "aiContextMerger.treeItemOpenDiff",
+        "title": "Показать Git Diff",
+        "category": "AI Context Merger",
+        "icon": "$(diff)"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "aiContextMerger.contextSubmenu",
+        "label": "AI Context Merger"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "submenu": "aiContextMerger.contextSubmenu",
+          "group": "7_modification@1"
+        }
+      ],
+      "editor/context": [
+        {
+          "submenu": "aiContextMerger.contextSubmenu",
+          "group": "7_modification@1"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "submenu": "aiContextMerger.contextSubmenu",
+          "group": "7_modification@1"
+        }
+      ],
+      "aiContextMerger.contextSubmenu": [
+        {
+          "command": "aiContextMerger.addToContext",
+          "group": "1_context@1"
+        },
+        {
+          "command": "aiContextMerger.removeFromContext",
+          "group": "1_context@2"
+        },
+        {
+          "command": "aiContextMerger.copyImmediately",
+          "group": "2_copy@1"
+        },
+        {
+          "command": "aiContextMerger.copyGitDiffImmediately",
+          "group": "2_copy@2"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "aiContextMerger.treeToggleSelectedOnly",
+          "when": "view == aiContextMergerTreeView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "aiContextMerger.treeCopyContext",
+          "when": "view == aiContextMergerTreeView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "aiContextMerger.treeClearAll",
+          "when": "view == aiContextMergerTreeView",
+          "group": "navigation@3"
+        },
+        {
+          "command": "aiContextMerger.treeRefresh",
+          "when": "view == aiContextMergerTreeView",
+          "group": "navigation@4"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "aiContextMerger.treeItemOpenDiff",
+          "when": "view == aiContextMergerTreeView && viewItem =~ /modified/",
+          "group": "inline@1"
+        },
+        {
+          "command": "aiContextMerger.treeItemCopyFile",
+          "when": "view == aiContextMergerTreeView && viewItem =~ /file/",
+          "group": "inline@2"
+        },
+        {
+          "command": "aiContextMerger.addToContext",
+          "when": "view == aiContextMergerTreeView && viewItem =~ /unchecked/",
+          "group": "1_toggle@1"
+        },
+        {
+          "command": "aiContextMerger.removeFromContext",
+          "when": "view == aiContextMergerTreeView && viewItem =~ /checked/",
+          "group": "1_toggle@2"
+        },
+        {
+          "command": "aiContextMerger.treeItemCopyFile",
+          "when": "view == aiContextMergerTreeView && viewItem =~ /file/ && !listMultiSelection",
+          "group": "2_action@1"
+        },
+        {
+          "command": "aiContextMerger.treeItemOpenDiff",
+          "when": "view == aiContextMergerTreeView && viewItem =~ /modified/ && !listMultiSelection",
+          "group": "2_action@2"
+        },
+        {
+          "command": "aiContextMerger.copyImmediately",
+          "when": "view == aiContextMergerTreeView",
+          "group": "3_batch@1"
+        },
+        {
+          "command": "aiContextMerger.copyGitDiffImmediately",
+          "when": "view == aiContextMergerTreeView",
+          "group": "3_batch@2"
+        }
+      ]
     }
   },
   "scripts": {
