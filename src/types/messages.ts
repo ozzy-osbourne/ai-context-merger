@@ -26,6 +26,7 @@ export type WebviewToExtensionMessage =
   | { type: 'updateFilters'; filters: FilterSettings }
   | { type: 'updatePrompt'; enabled: boolean; text: string }
   | { type: 'updateOutputFormat'; format: OutputFormat }
+  | { type: 'updateTokenLimit'; limit: string }
   | { type: 'addCustomPreset'; name: string; text: string }
   | { type: 'editCustomPreset'; id: string; name: string; text: string }
   | { type: 'deleteCustomPreset'; id: string }
@@ -49,6 +50,7 @@ export type ExtensionToWebviewMessage =
     diagnosticsSummary: DiagnosticsSummary;
     customPresets: CustomPreset[];
     outputFormat: OutputFormat;
+    tokenLimit: string;
   }
   | {
     type: 'updateStats';

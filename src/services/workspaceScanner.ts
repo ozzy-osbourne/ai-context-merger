@@ -9,323 +9,336 @@ import { PathUtils } from '../utils/pathUtils';
  * Scanned directory entry containing the filesystem descriptor and its normalized path.
  */
 export interface ScannedDirectoryEntry {
-	readonly entry: fs.Dirent;
-	readonly fullPath: string;
+  readonly entry: fs.Dirent;
+  readonly fullPath: string;
 }
 
 /**
  * Service for scanning workspace directories and managing hierarchical selections.
  */
 export class WorkspaceScanner {
-	/**
-	 * Checks if a path belongs to unconditionally ignored system directories.
-	 *
-	 * @param fullPath - Absolute target path.
-	 * @param workspaceRootPath - Optional workspace root path for relative segment extraction.
-	 * @returns `true` if path contains an ignored segment.
-	 */
-	public static isIgnoredByPathSegments(fullPath: string, workspaceRootPath?: string): boolean {
-		const normalized = PathUtils.normalizePath(fullPath);
-		let relative = normalized;
+  /**
+   * Checks if a path belongs to unconditionally ignored system directories.
+   *
+   * @param fullPath - Absolute target path.
+   * @param workspaceRootPath - Optional workspace root path for relative segment extraction.
+   * @returns `true` if path contains an ignored segment.
+   */
+  public static isIgnoredByPathSegments(fullPath: string, workspaceRootPath?: string): boolean {
+    const normalized = PathUtils.normalizePath(fullPath);
+    let relative = normalized;
 
-		if (workspaceRootPath) {
-			relative = path.relative(PathUtils.normalizePath(workspaceRootPath), normalized);
-		}
+    if (workspaceRootPath) {
+      relative = path.relative(PathUtils.normalizePath(workspaceRootPath), normalized);
+    }
 
-		const segments = relative.split(path.sep);
-		const startIndex = (!workspaceRootPath && path.isAbsolute(normalized)) ? 1 : 0;
+    const segments = relative.split(path.sep);
+    const startIndex = (!workspaceRootPath && path.isAbsolute(normalized)) ? 1 : 0;
 
-		for (let i = startIndex; i < segments.length; i++) {
-			const segment = segments[i];
-			if (ALWAYS_IGNORED.has(segment)) {
-				return true;
-			}
-		}
-		return false;
-	}
+    for (let i = startIndex; i < segments.length; i++) {
+      const segment = segments[i];
+      if (ALWAYS_IGNORED.has(segment)) {
+        return true;
+      }
+    }
+    return false;
+  }
 
-	/**
-	 * Checks if a file matches active exclusion filters (secrets, maps/minified, lockfiles, binaries).
-	 *
-	 * @param name - File or directory base name.
-	 * @param isDirectory - Directory flag.
-	 * @param filters - Active filter settings.
-	 * @returns `true` if item should be excluded.
-	 */
-	public static isFilteredByType(name: string, isDirectory: boolean, filters: FilterSettings): boolean {
-		if (isDirectory) {
-			return false;
-		}
+  /**
+   * Checks if a file matches active exclusion filters (secrets, maps/minified, lockfiles, binaries).
+   *
+   * @param name - File or directory base name.
+   * @param isDirectory - Directory flag.
+   * @param filters - Active filter settings.
+   * @returns `true` if item should be excluded.
+   */
+  public static isFilteredByType(name: string, isDirectory: boolean, filters: FilterSettings): boolean {
+    if (isDirectory) {
+      return false;
+    }
 
-		if (filters.hideSecrets && isSecretFile(name)) {
-			return true;
-		}
+    if (filters.hideSecrets && isSecretFile(name)) {
+      return true;
+    }
 
-		if (filters.hideMinified && isMinifiedOrSourceMap(name)) {
-			return true;
-		}
+    if (filters.hideMinified && isMinifiedOrSourceMap(name)) {
+      return true;
+    }
 
-		const ext = path.extname(name).toLowerCase();
-		if (filters.hideLockFiles && LOCK_FILE_NAMES.has(name)) {
-			return true;
-		}
-		if (filters.hideBinaryFiles && BINARY_EXTENSIONS.has(ext)) {
-			return true;
-		}
-		return false;
-	}
+    const ext = path.extname(name).toLowerCase();
+    if (filters.hideLockFiles && LOCK_FILE_NAMES.has(name)) {
+      return true;
+    }
+    if (filters.hideBinaryFiles && BINARY_EXTENSIONS.has(ext)) {
+      return true;
+    }
+    return false;
+  }
 
-	/**
-	 * Evaluates all exclusion rules for a given file item.
-	 *
-	 * @param fullPath - Absolute path to item.
-	 * @param isDirectory - Directory flag.
-	 * @param filters - Active filter settings.
-	 * @param workspaceRootPath - Optional workspace root directory.
-	 * @returns `true` if item should be filtered out.
-	 */
-	public static shouldFilterItem(
-		fullPath: string,
-		isDirectory: boolean,
-		filters: FilterSettings,
-		workspaceRootPath?: string
-	): boolean {
-		const fileName = path.basename(fullPath);
+  /**
+   * Evaluates all exclusion rules for a given file or directory item, including Git repository ignore rules.
+   *
+   * @param fullPath - Absolute path to item.
+   * @param isDirectory - Directory flag.
+   * @param filters - Active filter settings.
+   * @param workspaceRootPath - Optional workspace root directory.
+   * @returns `true` if item should be filtered out.
+   */
+  public static async shouldFilterItem(
+    fullPath: string,
+    isDirectory: boolean,
+    filters: FilterSettings,
+    workspaceRootPath?: string
+  ): Promise<boolean> {
+    const fileName = path.basename(fullPath);
 
-		if (this.isIgnoredByPathSegments(fullPath, workspaceRootPath)) {
-			return true;
-		}
+    if (this.isIgnoredByPathSegments(fullPath, workspaceRootPath)) {
+      return true;
+    }
 
-		return this.isFilteredByType(fileName, isDirectory, filters);
-	}
+    if (this.isFilteredByType(fileName, isDirectory, filters)) {
+      return true;
+    }
 
-	/**
-	 * Reads a directory and filters out items matching system ignores, Git ignores, and active file filters.
-	 *
-	 * @param dirPath - Absolute directory path to read.
-	 * @param filters - Active exclusion filters.
-	 * @returns Array of eligible directory entries with resolved paths.
-	 */
-	public static async readValidDirectoryEntries(
-		dirPath: string,
-		filters: FilterSettings
-	): Promise<ScannedDirectoryEntry[]> {
-		const normalizedDirPath = PathUtils.normalizePath(dirPath);
+    if (filters.hideGitIgnored) {
+      const isIgnored = await GitService.isPathIgnored(fullPath, isDirectory);
+      if (isIgnored) {
+        return true;
+      }
+    }
 
-		try {
-			const stat = await fs.promises.stat(normalizedDirPath);
-			if (!stat.isDirectory()) {
-				return [];
-			}
+    return false;
+  }
 
-			const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
-			const primaryFiltered = entries.filter((entry) => !ALWAYS_IGNORED.has(entry.name));
+  /**
+   * Reads a directory and filters out items matching system ignores, Git ignores, and active file filters.
+   *
+   * @param dirPath - Absolute directory path to read.
+   * @param filters - Active exclusion filters.
+   * @returns Array of eligible directory entries with resolved paths.
+   */
+  public static async readValidDirectoryEntries(
+    dirPath: string,
+    filters: FilterSettings
+  ): Promise<ScannedDirectoryEntry[]> {
+    const normalizedDirPath = PathUtils.normalizePath(dirPath);
 
-			const resolvedEntries: Array<{ entry: fs.Dirent; fullPath: string; isDir: boolean }> = [];
+    try {
+      const stat = await fs.promises.stat(normalizedDirPath);
+      if (!stat.isDirectory()) {
+        return [];
+      }
 
-			for (const entry of primaryFiltered) {
-				const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
-				let isDir = entry.isDirectory();
+      const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
+      const primaryFiltered = entries.filter((entry) => !ALWAYS_IGNORED.has(entry.name));
 
-				if (entry.isSymbolicLink()) {
-					try {
-						const targetStat = await fs.promises.stat(fullPath);
-						isDir = targetStat.isDirectory();
-					} catch {
-						continue;
-					}
-				}
+      const resolvedEntries: Array<{ entry: fs.Dirent; fullPath: string; isDir: boolean }> = [];
 
-				let resolvedEntry = entry;
-				if (entry.isSymbolicLink()) {
-					resolvedEntry = Object.create(entry, {
-						isDirectory: { value: () => isDir },
-						isFile: { value: () => !isDir }
-					});
-				}
+      for (const entry of primaryFiltered) {
+        const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
+        let isDir = entry.isDirectory();
 
-				resolvedEntries.push({ entry: resolvedEntry, fullPath, isDir });
-			}
+        if (entry.isSymbolicLink()) {
+          try {
+            const targetStat = await fs.promises.stat(fullPath);
+            isDir = targetStat.isDirectory();
+          } catch {
+            continue;
+          }
+        }
 
-			let gitIgnoredPaths = new Set<string>();
-			if (filters.hideGitIgnored) {
-				const candidatePaths = resolvedEntries.map((e) => e.fullPath);
-				gitIgnoredPaths = await GitService.checkIgnoredPaths(candidatePaths);
-			}
+        let resolvedEntry = entry;
+        if (entry.isSymbolicLink()) {
+          resolvedEntry = Object.create(entry, {
+            isDirectory: { value: () => isDir },
+            isFile: { value: () => !isDir }
+          });
+        }
 
-			const validEntries: ScannedDirectoryEntry[] = [];
-			for (const { entry, fullPath, isDir } of resolvedEntries) {
-				if (filters.hideGitIgnored && gitIgnoredPaths.has(fullPath)) {
-					continue;
-				}
+        resolvedEntries.push({ entry: resolvedEntry, fullPath, isDir });
+      }
 
-				if (this.isFilteredByType(entry.name, isDir, filters)) {
-					continue;
-				}
+      let gitIgnoredPaths = new Set<string>();
+      if (filters.hideGitIgnored) {
+        const candidatePaths = resolvedEntries.map((e) => (e.isDir ? `${e.fullPath}/` : e.fullPath));
+        gitIgnoredPaths = await GitService.checkIgnoredPaths(candidatePaths);
+      }
 
-				validEntries.push({ entry, fullPath });
-			}
+      const validEntries: ScannedDirectoryEntry[] = [];
+      for (const { entry, fullPath, isDir } of resolvedEntries) {
+        if (filters.hideGitIgnored) {
+          if (gitIgnoredPaths.has(fullPath) || gitIgnoredPaths.has(`${fullPath}/`)) {
+            continue;
+          }
+        }
 
-			return validEntries;
-		} catch {
-			return [];
-		}
-	}
+        if (this.isFilteredByType(entry.name, isDir, filters)) {
+          continue;
+        }
 
-	/**
-	 * Counts the total number of selectable files in a directory subtree and caches counts for folders.
-	 *
-	 * @param dirPath - Root directory path.
-	 * @param filters - Active filter settings.
-	 * @param countMap - Map cache to store counts for intermediate folders.
-	 * @param visitedDirs - Set of visited directory real paths to prevent symlink loops.
-	 * @returns Total number of selectable files.
-	 */
-	public static async countSelectableFiles(
-		dirPath: string,
-		filters: FilterSettings,
-		countMap?: Map<string, number>,
-		visitedDirs: Set<string> = new Set<string>()
-	): Promise<number> {
-		const normalizedDirPath = PathUtils.normalizePath(dirPath);
+        validEntries.push({ entry, fullPath });
+      }
 
-		let realDir: string;
-		try {
-			realDir = await fs.promises.realpath(normalizedDirPath);
-		} catch {
-			realDir = normalizedDirPath;
-		}
+      return validEntries;
+    } catch {
+      return [];
+    }
+  }
 
-		if (visitedDirs.has(realDir)) {
-			return 0;
-		}
-		visitedDirs.add(realDir);
+  /**
+   * Counts the total number of selectable files in a directory subtree and caches counts for folders.
+   *
+   * @param dirPath - Root directory path.
+   * @param filters - Active filter settings.
+   * @param countMap - Map cache to store counts for intermediate folders.
+   * @param visitedDirs - Set of visited directory real paths to prevent symlink loops.
+   * @returns Total number of selectable files.
+   */
+  public static async countSelectableFiles(
+    dirPath: string,
+    filters: FilterSettings,
+    countMap?: Map<string, number>,
+    visitedDirs: Set<string> = new Set<string>()
+  ): Promise<number> {
+    const normalizedDirPath = PathUtils.normalizePath(dirPath);
 
-		if (countMap && countMap.has(normalizedDirPath)) {
-			return countMap.get(normalizedDirPath)!;
-		}
+    let realDir: string;
+    try {
+      realDir = await fs.promises.realpath(normalizedDirPath);
+    } catch {
+      realDir = normalizedDirPath;
+    }
 
-		let count = 0;
-		const validEntries = await this.readValidDirectoryEntries(normalizedDirPath, filters);
+    if (visitedDirs.has(realDir)) {
+      return 0;
+    }
+    visitedDirs.add(realDir);
 
-		for (const { entry, fullPath } of validEntries) {
-			if (entry.isDirectory()) {
-				const childCount = await this.countSelectableFiles(fullPath, filters, countMap, visitedDirs);
-				count += childCount;
-			} else {
-				count++;
-			}
-		}
+    if (countMap && countMap.has(normalizedDirPath)) {
+      return countMap.get(normalizedDirPath)!;
+    }
 
-		if (countMap) {
-			countMap.set(normalizedDirPath, count);
-		}
+    let count = 0;
+    const validEntries = await this.readValidDirectoryEntries(normalizedDirPath, filters);
 
-		return count;
-	}
+    for (const { entry, fullPath } of validEntries) {
+      if (entry.isDirectory()) {
+        const childCount = await this.countSelectableFiles(fullPath, filters, countMap, visitedDirs);
+        count += childCount;
+      } else {
+        count++;
+      }
+    }
 
-	/**
-	 * Recursively selects all eligible files in directory and populates folder counts.
-	 *
-	 * @param dirPath - Root directory path.
-	 * @param filters - Active filter settings.
-	 * @param selectedFiles - Selection set to mutate.
-	 * @param countMap - Optional map to store total file counts per folder.
-	 * @param visitedDirs - Set of visited directory real paths to prevent symlink loops.
-	 * @returns Total count of selectable files processed within directory.
-	 */
-	public static async selectFolderRecursive(
-		dirPath: string,
-		filters: FilterSettings,
-		selectedFiles: Set<string>,
-		countMap?: Map<string, number>,
-		visitedDirs: Set<string> = new Set<string>()
-	): Promise<number> {
-		const normalizedDirPath = PathUtils.normalizePath(dirPath);
+    if (countMap) {
+      countMap.set(normalizedDirPath, count);
+    }
 
-		let realDir: string;
-		try {
-			realDir = await fs.promises.realpath(normalizedDirPath);
-		} catch {
-			realDir = normalizedDirPath;
-		}
+    return count;
+  }
 
-		if (visitedDirs.has(realDir)) {
-			return 0;
-		}
-		visitedDirs.add(realDir);
+  /**
+   * Recursively selects all eligible files in directory and populates folder counts.
+   *
+   * @param dirPath - Root directory path.
+   * @param filters - Active filter settings.
+   * @param selectedFiles - Selection set to mutate.
+   * @param countMap - Optional map to store total file counts per folder.
+   * @param visitedDirs - Set of visited directory real paths to prevent symlink loops.
+   * @returns Total count of selectable files processed within directory.
+   */
+  public static async selectFolderRecursive(
+    dirPath: string,
+    filters: FilterSettings,
+    selectedFiles: Set<string>,
+    countMap?: Map<string, number>,
+    visitedDirs: Set<string> = new Set<string>()
+  ): Promise<number> {
+    const normalizedDirPath = PathUtils.normalizePath(dirPath);
 
-		let affectedCount = 0;
+    let realDir: string;
+    try {
+      realDir = await fs.promises.realpath(normalizedDirPath);
+    } catch {
+      realDir = normalizedDirPath;
+    }
 
-		const validEntries = await this.readValidDirectoryEntries(normalizedDirPath, filters);
+    if (visitedDirs.has(realDir)) {
+      return 0;
+    }
+    visitedDirs.add(realDir);
 
-		for (const { entry, fullPath } of validEntries) {
-			if (entry.isDirectory()) {
-				const childCount = await this.selectFolderRecursive(
-					fullPath,
-					filters,
-					selectedFiles,
-					countMap,
-					visitedDirs
-				);
-				affectedCount += childCount;
-			} else {
-				affectedCount++;
-				selectedFiles.add(fullPath);
-			}
-		}
+    let affectedCount = 0;
 
-		if (countMap) {
-			countMap.set(normalizedDirPath, affectedCount);
-		}
+    const validEntries = await this.readValidDirectoryEntries(normalizedDirPath, filters);
 
-		return affectedCount;
-	}
+    for (const { entry, fullPath } of validEntries) {
+      if (entry.isDirectory()) {
+        const childCount = await this.selectFolderRecursive(
+          fullPath,
+          filters,
+          selectedFiles,
+          countMap,
+          visitedDirs
+        );
+        affectedCount += childCount;
+      } else {
+        affectedCount++;
+        selectedFiles.add(fullPath);
+      }
+    }
 
-	/**
-	 * Recursively searches for files matching a query substring while applying exclusion filters.
-	 *
-	 * @param dirPath - Root directory path to search.
-	 * @param query - Substring to match against file name.
-	 * @param filters - Active filter settings.
-	 * @param visitedDirs - Set of visited directory real paths to prevent symlink loops.
-	 * @returns Array of matching file paths.
-	 */
-	public static async findMatchingFiles(
-		dirPath: string,
-		query: string,
-		filters: FilterSettings,
-		visitedDirs: Set<string> = new Set<string>()
-	): Promise<string[]> {
-		const results: string[] = [];
-		const normalizedDirPath = PathUtils.normalizePath(dirPath);
-		const lowerQuery = query.toLowerCase();
+    if (countMap) {
+      countMap.set(normalizedDirPath, affectedCount);
+    }
 
-		let realDir: string;
-		try {
-			realDir = await fs.promises.realpath(normalizedDirPath);
-		} catch {
-			realDir = normalizedDirPath;
-		}
+    return affectedCount;
+  }
 
-		if (visitedDirs.has(realDir)) {
-			return results;
-		}
-		visitedDirs.add(realDir);
+  /**
+   * Recursively searches for files matching a query substring while applying exclusion filters.
+   *
+   * @param dirPath - Root directory path to search.
+   * @param query - Substring to match against file name.
+   * @param filters - Active filter settings.
+   * @param visitedDirs - Set of visited directory real paths to prevent symlink loops.
+   * @returns Array of matching file paths.
+   */
+  public static async findMatchingFiles(
+    dirPath: string,
+    query: string,
+    filters: FilterSettings,
+    visitedDirs: Set<string> = new Set<string>()
+  ): Promise<string[]> {
+    const results: string[] = [];
+    const normalizedDirPath = PathUtils.normalizePath(dirPath);
+    const lowerQuery = query.toLowerCase();
 
-		const validEntries = await this.readValidDirectoryEntries(normalizedDirPath, filters);
+    let realDir: string;
+    try {
+      realDir = await fs.promises.realpath(normalizedDirPath);
+    } catch {
+      realDir = normalizedDirPath;
+    }
 
-		for (const { entry, fullPath } of validEntries) {
-			if (entry.isDirectory()) {
-				const subResults = await this.findMatchingFiles(fullPath, query, filters, visitedDirs);
-				results.push(...subResults);
-			} else {
-				if (entry.name.toLowerCase().includes(lowerQuery)) {
-					results.push(fullPath);
-				}
-			}
-		}
+    if (visitedDirs.has(realDir)) {
+      return results;
+    }
+    visitedDirs.add(realDir);
 
-		return results;
-	}
+    const validEntries = await this.readValidDirectoryEntries(normalizedDirPath, filters);
+
+    for (const { entry, fullPath } of validEntries) {
+      if (entry.isDirectory()) {
+        const subResults = await this.findMatchingFiles(fullPath, query, filters, visitedDirs);
+        results.push(...subResults);
+      } else {
+        if (entry.name.toLowerCase().includes(lowerQuery)) {
+          results.push(fullPath);
+        }
+      }
+    }
+
+    return results;
+  }
 }

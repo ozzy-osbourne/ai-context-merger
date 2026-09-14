@@ -581,7 +581,6 @@ export function getStyles(): string {
       align-items: center;
       gap: 3px;
       white-space: nowrap;
-      order: 1;
     }
 
     .progress-footer-right {
@@ -589,7 +588,6 @@ export function getStyles(): string {
       align-items: center;
       gap: 5px;
       margin-left: auto;
-      order: 2;
     }
 
     .progress-percent {
@@ -755,14 +753,13 @@ export function getStyles(): string {
     }
 
     /* ==========================================================================
-       10. Responsive Media Queries (Узкий сайдбар)
+       10. Responsive Media Queries (Narrow Sidebar)
        ========================================================================== */
     @media (max-width: 280px) {
       body {
         padding: 6px;
       }
 
-      /* Перенос кнопок в 1 столбик при узком сайдбаре */
       .btn-grid-2 {
         grid-template-columns: 1fr;
         gap: 5px;
@@ -773,14 +770,12 @@ export function getStyles(): string {
         font-size: 11px;
       }
 
-      /* Опции формата вывода в столбик */
       .format-options {
         flex-direction: column;
         align-items: flex-start;
         gap: 6px;
       }
 
-      /* Статистика: заголовок и значения в столбик по левому краю */
       .stats-header {
         flex-direction: column;
         align-items: flex-start;
@@ -792,7 +787,6 @@ export function getStyles(): string {
         text-align: left;
       }
 
-      /* Подвал прогресс-бара: 100% сверху, предупреждение ПОД ним, все по левому краю */
       .progress-footer {
         flex-direction: column;
         align-items: flex-end;

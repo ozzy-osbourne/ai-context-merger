@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import { ContextMergerControlsProvider } from './sidebarProvider';
 import { ContextTreeDataProvider, ContextTreeItem } from './services/contextTreeDataProvider';
 import { ContextMenuService } from './services/contextMenuService';
-import { FilterSettings } from './types';
+import { PresetService } from './services/presetService';
 
 /**
  * Activates the AI Context Merger extension.
@@ -11,15 +11,13 @@ import { FilterSettings } from './types';
  * @param context - Extension context provided by VS Code.
  */
 export function activate(context: vscode.ExtensionContext): void {
-  const selectedFiles = new Set<string>();
+  // 1. Restore persistent files selection from project workspaceState
+  const savedFiles = context.workspaceState.get<string[]>('aiContextMerger.selectedFiles', []);
+  const selectedFiles = new Set<string>(savedFiles);
 
-  const filters: FilterSettings = {
-    hideGitIgnored: true,
-    hideSecrets: true,
-    hideMinified: true,
-    hideLockFiles: true,
-    hideBinaryFiles: true
-  };
+  // 2. Restore global synchronized filter settings
+  const presetService = new PresetService(context);
+  const filters = presetService.getFilters();
 
   const treeDataProvider = new ContextTreeDataProvider(selectedFiles, filters);
 
@@ -54,6 +52,9 @@ export function activate(context: vscode.ExtensionContext): void {
       await treeDataProvider.toggleFileByPath(filePath);
       await controlsProvider.updateStats();
 
+      // Persist active selection to workspaceState
+      await context.workspaceState.update('aiContextMerger.selectedFiles', Array.from(selectedFiles));
+
       try {
         const stat = await fs.promises.stat(filePath).catch(() => null);
         if (stat && stat.isFile()) {
@@ -76,6 +77,7 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       treeDataProvider.refresh();
       await controlsProvider.updateStats();
+      await context.workspaceState.update('aiContextMerger.selectedFiles', Array.from(selectedFiles));
     }),
 
     vscode.window.registerWebviewViewProvider(

@@ -34,7 +34,6 @@ export function getScripts(): string {
 
     /**
      * Session cache restored across Webview re-renders.
-     * @type {{ promptEnabled?: boolean, promptText?: string, tokenLimit?: string, gitDiffEnabled?: boolean, diffOnly?: boolean, unlimitedDiff?: boolean, diagnosticsEnabled?: boolean, diagnosticsIncludeCompiler?: boolean, diagnosticsIncludeLinter?: boolean, outputFormat?: string }}
      */
     const previousState = vscode.getState() || {};
 
@@ -120,7 +119,7 @@ export function getScripts(): string {
       gitDiffSuboptions.classList.remove('hidden');
     }
 
-    // Restore Diagnostics toggles from state (defaulting suboptions to checked if unspecified)
+    // Restore Diagnostics toggles from state
     diagnosticsToggle.checked = Boolean(previousState.diagnosticsEnabled);
     diagnosticsCompilerToggle.checked = previousState.diagnosticsIncludeCompiler !== undefined
       ? Boolean(previousState.diagnosticsIncludeCompiler)
@@ -137,7 +136,7 @@ export function getScripts(): string {
     let currentFormat = previousState.outputFormat === 'xml' ? 'xml' : 'markdown';
     updateFormatUI(currentFormat);
 
-    // Safely restore token limit with fallback validation
+    // Restore token limit with fallback validation
     let restoredLimit = DEFAULT_TOKEN_LIMIT;
     if (previousState.tokenLimit && VALID_TOKEN_LIMITS.includes(String(previousState.tokenLimit))) {
       restoredLimit = String(previousState.tokenLimit);
@@ -164,12 +163,6 @@ export function getScripts(): string {
      * @type {number}
      */
     let currentEstimatedTokens = 0;
-
-    /**
-     * Current diagnostics counter cached from extension backend.
-     * @type {{ compilerCount: number, linterCount: number }}
-     */
-    let currentDiagnosticsSummary = { compilerCount: 0, linterCount: 0 };
 
     /**
      * Updates radio button selection and adapts action button labels to current format.
@@ -333,10 +326,9 @@ export function getScripts(): string {
      * @returns {void}
      */
     function renderDiagnosticsUI(summary) {
-      currentDiagnosticsSummary = summary || { compilerCount: 0, linterCount: 0 };
-      const compCount = currentDiagnosticsSummary.compilerCount || 0;
-      const lintCount = currentDiagnosticsSummary.linterCount || 0;
-
+      const compCount = summary?.compilerCount || 0;
+      const lintCount = summary?.linterCount || 0;
+      
       diagnosticsCompilerLabel.innerText = 'Ошибки компилятора (' + compCount + ')';
       diagnosticsLinterLabel.innerText = 'Ошибки линтера (' + lintCount + ')';
     }
@@ -435,7 +427,6 @@ export function getScripts(): string {
         const chip = document.createElement('div');
         chip.className = 'preset-chip' + (editingPresetId === preset.id ? ' editing' : '');
 
-        // Use preset button
         const labelBtn = document.createElement('button');
         labelBtn.type = 'button';
         labelBtn.className = 'chip-label-btn';
@@ -450,7 +441,6 @@ export function getScripts(): string {
         const actions = document.createElement('span');
         actions.className = 'chip-actions';
 
-        // Edit button
         const editBtn = document.createElement('button');
         editBtn.type = 'button';
         editBtn.className = 'chip-edit-btn';
@@ -463,7 +453,6 @@ export function getScripts(): string {
         });
         actions.appendChild(editBtn);
 
-        // Delete button
         const deleteBtn = document.createElement('button');
         deleteBtn.type = 'button';
         deleteBtn.className = 'chip-delete-btn';
@@ -571,6 +560,10 @@ export function getScripts(): string {
     tokenLimitSelect.addEventListener('change', () => {
       saveState();
       renderProgressIndicator();
+      vscode.postMessage({
+        type: 'updateTokenLimit',
+        limit: tokenLimitSelect.value
+      });
     });
 
     document.querySelectorAll('.preset-chip[data-preset]').forEach(chip => {
@@ -584,7 +577,6 @@ export function getScripts(): string {
       });
     });
 
-    // Custom Preset Inline Form Listeners
     btnShowAddPreset.addEventListener('click', () => {
       editingPresetId = null;
       inlineFormTitle.innerText = '💾 Сохранить текущий текст как пресет:';
@@ -642,11 +634,16 @@ export function getScripts(): string {
 
       if (message.type === 'setData') {
         if (message.stats) updateStatsUI(message.stats);
+
         if (message.outputFormat) {
           currentFormat = message.outputFormat;
           updateFormatUI(currentFormat);
-          saveState();
         }
+
+        if (message.tokenLimit && VALID_TOKEN_LIMITS.includes(String(message.tokenLimit))) {
+          tokenLimitSelect.value = String(message.tokenLimit);
+        }
+
         if (message.filters) {
           document.getElementById('filterGit').checked = Boolean(message.filters.hideGitIgnored);
           document.getElementById('filterSecrets').checked = Boolean(message.filters.hideSecrets);
@@ -654,6 +651,8 @@ export function getScripts(): string {
           document.getElementById('filterLock').checked = Boolean(message.filters.hideLockFiles);
           document.getElementById('filterBinary').checked = Boolean(message.filters.hideBinaryFiles);
         }
+
+        // Restores draft from project workspaceState safely without erasing newly typed input
         if (message.promptSettings) {
           promptToggle.checked = Boolean(message.promptSettings.enabled);
           promptInput.value = message.promptSettings.text || '';
@@ -664,6 +663,7 @@ export function getScripts(): string {
           }
           updateClearPromptButtonVisibility();
         }
+
         if (message.gitDiffSettings) {
           gitDiffToggle.checked = Boolean(message.gitDiffSettings.includeGitDiff);
           diffOnlyToggle.checked = Boolean(message.gitDiffSettings.diffOnly);
@@ -674,6 +674,7 @@ export function getScripts(): string {
             gitDiffSuboptions.classList.add('hidden');
           }
         }
+
         if (message.diagnosticsSettings) {
           diagnosticsToggle.checked = Boolean(message.diagnosticsSettings.enabled);
           diagnosticsCompilerToggle.checked = Boolean(message.diagnosticsSettings.includeCompiler);
@@ -684,13 +685,17 @@ export function getScripts(): string {
             diagnosticsSuboptions.classList.add('hidden');
           }
         }
+
         if (message.diagnosticsSummary) {
           renderDiagnosticsUI(message.diagnosticsSummary);
         }
+
         if (message.customPresets) {
           renderCustomChips(message.customPresets);
         }
+
         saveState();
+        renderProgressIndicator();
       } else if (message.type === 'updateStats') {
         if (message.stats) updateStatsUI(message.stats);
       } else if (message.type === 'updateDiagnosticsSummary') {

@@ -191,7 +191,8 @@ export class ContextMenuService {
           this.treeDataProvider.folderTotalCountMap
         );
       } else if (stat.isFile()) {
-        if (!WorkspaceScanner.shouldFilterItem(fsPath, false, filters, rootPath)) {
+        const isFiltered = await WorkspaceScanner.shouldFilterItem(fsPath, false, filters, rootPath);
+        if (!isFiltered) {
           resolvedFiles.add(fsPath);
         }
       }

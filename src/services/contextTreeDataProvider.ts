@@ -75,7 +75,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
 
   private readonly matchingFilePaths: Set<string> = new Set<string>();
   private readonly matchingFolderPaths: Set<string> = new Set<string>();
-  private readonly gitExpandedFolderPaths: Set<string> = new Set<string>();
+  private readonly expandedFolderPaths: Set<string> = new Set<string>();
 
   public readonly folderTotalCountMap: Map<string, number> = new Map<string, number>();
   private readonly pendingCountPromises: Map<string, Promise<number>> = new Map<string, Promise<number>>();
@@ -306,12 +306,12 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
   }
 
   /**
-   * Expands all ancestor directory paths containing Git modified files and refreshes the view.
+   * Expands all ancestor directory paths containing target files and refreshes the view.
    *
-   * @param filePaths - List of modified file paths.
+   * @param filePaths - List of target file paths.
    */
-  public setGitExpandedFolders(filePaths: string[]): void {
-    this.gitExpandedFolderPaths.clear();
+  public setExpandedFolders(filePaths: string[]): void {
+    this.expandedFolderPaths.clear();
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
       return;
@@ -322,7 +322,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
         const root = PathUtils.normalizePath(folder.uri.fsPath);
         const ancestors = PathUtils.getAncestorPaths(filePath, root);
         for (const ancestor of ancestors) {
-          this.gitExpandedFolderPaths.add(ancestor);
+          this.expandedFolderPaths.add(ancestor);
         }
       }
     }
@@ -332,7 +332,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
   }
 
   /**
-   * Resolves parent item for an element.
+   * Resolves parent item for an element to allow treeView.reveal navigation.
    *
    * @param element - Current node.
    * @returns Parent tree item or undefined.
@@ -416,7 +416,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
    */
   public collapseAll(): void {
     this.expansionLevel = 0;
-    this.gitExpandedFolderPaths.clear();
+    this.expandedFolderPaths.clear();
     this.treeVersion++;
     vscode.commands.executeCommand('workbench.actions.treeView.aiContextMergerTreeView.collapseAll');
     this.refresh();
@@ -581,7 +581,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
           collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
         } else if (this.searchQuery && this.matchingFolderPaths.has(fullPath)) {
           collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
-        } else if (this.gitExpandedFolderPaths.has(fullPath)) {
+        } else if (this.expandedFolderPaths.has(fullPath)) {
           collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
         } else if (depth <= this.expansionLevel) {
           collapsibleState = vscode.TreeItemCollapsibleState.Expanded;

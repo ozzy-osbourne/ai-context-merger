@@ -22,7 +22,7 @@ export class GitService {
    *
    * @returns Git API instance or `null` if unavailable.
    */
-  private static async getGitApi(): Promise<GitAPI | null> {
+  public static async getGitApi(): Promise<GitAPI | null> {
     if (this.cachedGitApi) {
       return this.cachedGitApi;
     }
@@ -44,6 +44,42 @@ export class GitService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Awaits Git extension repository initialization to eliminate startup race conditions.
+   *
+   * @param timeoutMs - Maximum wait time in milliseconds.
+   * @returns Active Git API instance with available repositories.
+   */
+  public static async awaitGitRepositories(timeoutMs: number = 600): Promise<GitAPI | null> {
+    const gitApi = await this.getGitApi();
+    if (!gitApi) {
+      return null;
+    }
+
+    if (gitApi.repositories.length > 0) {
+      return gitApi;
+    }
+
+    return new Promise((resolve) => {
+      let resolved = false;
+      const timer = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          resolve(gitApi);
+        }
+      }, timeoutMs);
+
+      const disposable = gitApi.onDidOpenRepository(() => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timer);
+          disposable.dispose();
+          resolve(gitApi);
+        }
+      });
+    });
   }
 
   /**
@@ -79,6 +115,24 @@ export class GitService {
   }
 
   /**
+   * Checks whether an individual path is ignored by its enclosing Git repository.
+   * Ensures directories are checked with trailing slashes to conform to directory gitignore patterns.
+   *
+   * @param targetPath - Absolute path to test.
+   * @param isDirectory - Flag indicating if path is a directory.
+   * @returns `true` if path is ignored by Git.
+   */
+  public static async isPathIgnored(targetPath: string, isDirectory: boolean): Promise<boolean> {
+    const normPath = PathUtils.normalizePath(targetPath);
+    const checkPath = isDirectory && !normPath.endsWith('/') && !normPath.endsWith('\\')
+      ? `${normPath}/`
+      : normPath;
+
+    const ignored = await this.checkIgnoredPaths([checkPath]);
+    return ignored.has(normPath) || ignored.has(checkPath);
+  }
+
+  /**
    * Checks an array of absolute file paths against repository `.gitignore` rules.
    * Correctly routes paths exclusively to their respective nested repositories.
    *
@@ -92,7 +146,7 @@ export class GitService {
     }
 
     try {
-      const gitApi = await this.getGitApi();
+      const gitApi = await this.awaitGitRepositories();
       if (!gitApi || !gitApi.repositories || gitApi.repositories.length === 0) {
         return ignoredPaths;
       }
@@ -123,7 +177,12 @@ export class GitService {
             try {
               const result: Set<string> = await repo.checkIgnore(repoPaths);
               for (const item of result) {
-                ignoredPaths.add(PathUtils.normalizePath(item));
+                const normalizedItem = PathUtils.normalizePath(item);
+                ignoredPaths.add(normalizedItem);
+                // Also store without trailing slash if present
+                if (normalizedItem.endsWith('/') || normalizedItem.endsWith('\\')) {
+                  ignoredPaths.add(normalizedItem.slice(0, -1));
+                }
               }
             } catch {
               // Ignore check failure on individual repository
@@ -193,7 +252,7 @@ export class GitService {
     const statusMap = new Map<string, GitFileStatus>();
 
     try {
-      const gitApi = await this.getGitApi();
+      const gitApi = await this.awaitGitRepositories();
       if (!gitApi || !gitApi.repositories || gitApi.repositories.length === 0) {
         return statusMap;
       }
@@ -246,7 +305,7 @@ export class GitService {
   }
 
   /**
-   * Synthesizes a valid Git unified diff representation for untracked newly created files using rock-solid decoding.
+   * Synthesizes a valid Git unified diff representation for untracked newly created files using safe decoding.
    *
    * @param relPath - POSIX relative path of the file to the repository root.
    * @param absPath - Normalized absolute path to file on disk.
@@ -296,7 +355,7 @@ export class GitService {
       return '';
     }
 
-    const gitApi = await this.getGitApi();
+    const gitApi = await this.awaitGitRepositories();
     if (!gitApi || !gitApi.repositories || gitApi.repositories.length === 0) {
       return '';
     }
@@ -313,7 +372,7 @@ export class GitService {
       }
 
       const repoRoot = PathUtils.normalizePath(matchedRepo.rootUri.fsPath);
-      const isFiltered = WorkspaceScanner.shouldFilterItem(normPath, false, filters, repoRoot);
+      const isFiltered = await WorkspaceScanner.shouldFilterItem(normPath, false, filters, repoRoot);
       if (isFiltered) {
         continue;
       }

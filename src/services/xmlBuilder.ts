@@ -47,9 +47,11 @@ export class XmlBuilder {
       }
     }
 
-    // 2. Project structure tree
+    // 2. Project structure tree (isolated in CDATA to protect paths containing XML special chars)
     const asciiTree = AsciiTreeService.generateAsciiTree(relativePaths, gitStatuses, sortedFiles);
-    xmlSections.push(`  <project_structure>\n${asciiTree}\n  </project_structure>`);
+    const sanitizedAsciiTree = XmlUtils.sanitizeXmlChars(asciiTree);
+    const safeAsciiTree = XmlUtils.escapeCdata(sanitizedAsciiTree);
+    xmlSections.push(`  <project_structure>\n<![CDATA[\n${safeAsciiTree}\n]]>\n  </project_structure>`);
 
     // 3. Optional Git Diff section
     if (gitDiffSettings?.includeGitDiff && gitDiffContent && gitDiffContent.trim().length > 0) {
@@ -58,13 +60,14 @@ export class XmlBuilder {
       xmlSections.push(`  <git_diff>\n<![CDATA[\n${safeDiff}\n]]>\n  </git_diff>`);
     }
 
-    // 4. Documents container (skipped in Diff Only mode)
+    // 4. Optional Diagnostics section
     if (diagnosticsSettings?.enabled && diagnosticsContent && diagnosticsContent.trim().length > 0) {
       const sanitizedDiag = XmlUtils.sanitizeXmlChars(diagnosticsContent.trim());
       const safeDiag = XmlUtils.escapeCdata(sanitizedDiag);
       xmlSections.push(`  <diagnostics>\n<![CDATA[\n${safeDiag}\n]]>\n  </diagnostics>`);
     }
 
+    // 5. Documents container (skipped in Diff Only mode)
     if (!gitDiffSettings?.diffOnly && sortedFiles.length > 0) {
       xmlSections.push('  <documents>');
 

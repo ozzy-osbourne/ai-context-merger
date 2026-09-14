@@ -41,14 +41,16 @@ export class SelectionService {
 
   /**
    * Selects all active file URIs currently opened across editor tab groups that reside within the active workspace.
+   * Automatically expands ancestor directories and returns resolved file paths.
    *
    * @param filters - Active exclusion filters.
+   * @returns Array of normalized absolute paths of selected files.
    */
-  public async selectOpenTabs(filters: FilterSettings): Promise<void> {
+  public async selectOpenTabs(filters: FilterSettings): Promise<string[]> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
       vscode.window.showWarningMessage('Рабочая область не открыта.');
-      return;
+      return [];
     }
 
     const openUris: vscode.Uri[] = [];
@@ -73,7 +75,7 @@ export class SelectionService {
     }
 
     this.selectedFiles.clear();
-    let addedCount = 0;
+    const newlyAddedPaths: string[] = [];
 
     for (const uri of openUris) {
       const fsPath = PathUtils.normalizePath(uri.fsPath);
@@ -95,22 +97,26 @@ export class SelectionService {
       }
 
       const rootPath = PathUtils.normalizePath(matchedFolder.uri.fsPath);
+      const isFiltered = await WorkspaceScanner.shouldFilterItem(fsPath, false, filters, rootPath);
 
-      if (!WorkspaceScanner.shouldFilterItem(fsPath, false, filters, rootPath)) {
+      if (!isFiltered) {
         if (!this.selectedFiles.has(fsPath)) {
           this.selectedFiles.add(fsPath);
-          addedCount++;
+          newlyAddedPaths.push(fsPath);
         }
       }
     }
 
-    this.treeDataProvider.setGitExpandedFolders(Array.from(this.selectedFiles));
+    // Expand ancestor directories in TreeView
+    this.treeDataProvider.setExpandedFolders(newlyAddedPaths);
 
-    if (addedCount > 0) {
-      vscode.window.showInformationMessage(`Выбрано файлов из открытых вкладок: ${addedCount}`);
+    if (newlyAddedPaths.length > 0) {
+      vscode.window.showInformationMessage(`Выбрано файлов из открытых вкладок: ${newlyAddedPaths.length}`);
     } else {
       vscode.window.showWarningMessage('В открытых вкладках не найдено доступных файлов проекта (или они скрыты фильтрами).');
     }
+
+    return newlyAddedPaths;
   }
 
   /**
@@ -130,7 +136,7 @@ export class SelectionService {
         PathUtils.isSubpath(filePath, PathUtils.normalizePath(f.uri.fsPath))
       );
       const rootPath = matchedFolder ? PathUtils.normalizePath(matchedFolder.uri.fsPath) : undefined;
-      const isFiltered = WorkspaceScanner.shouldFilterItem(filePath, false, filters, rootPath);
+      const isFiltered = await WorkspaceScanner.shouldFilterItem(filePath, false, filters, rootPath);
 
       if (!isFiltered) {
         this.selectedFiles.add(filePath);
@@ -138,7 +144,7 @@ export class SelectionService {
       }
     }
 
-    this.treeDataProvider.setGitExpandedFolders(matchedModifiedPaths);
+    this.treeDataProvider.setExpandedFolders(matchedModifiedPaths);
     vscode.window.showInformationMessage(`Выбрано файлов Git: ${this.selectedFiles.size}`);
   }
 

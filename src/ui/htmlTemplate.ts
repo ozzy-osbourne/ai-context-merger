@@ -121,7 +121,7 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
         <button class="btn-secondary" id="btnCollapse" title="Свернуть все папки дерева файлов проекта">📁 Свернуть всё</button>
       </div>
 
-      <!-- Единый контейнер дополнений: Git Diff и Диагностика (ошибки компилятора и линтера) -->
+      <!-- Unified Addons Container: Git Diff & Diagnostics (Compiler & Linter Issues) -->
       <div class="addons-card">
         <div class="addon-block">
           <label class="addon-header-label" title="Прикрепить блок git diff изменений выбранных файлов в итоговый контекст">

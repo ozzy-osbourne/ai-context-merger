@@ -47,6 +47,23 @@ export class FileReaderService {
   ];
 
   /**
+   * Common Russian vowel characters in lowercase for frequency analysis.
+   */
+  private static readonly CYRILLIC_VOWELS_REGEX = /[аеёиоуыэюя]/gi;
+
+  /**
+   * Regex matching classic double-encoded UTF-8 mojibake patterns (e.g., "РџСЂРёРІРµС‚", "Ã©Ã¨", "â€™").
+   */
+  private static readonly MOJIBAKE_PATTERNS = [
+    // Cyrillic double-encoded as Windows-1251 (UTF-8 bytes 0xD0..0xD1 decoded as 'Р', 'С')
+    /(?:[РС][\u0080-\u00BF\u0400-\u044F]){4,}/,
+    // Cyrillic double-encoded as Windows-1252 / ISO-8859-1 (UTF-8 bytes 0xD0, 0xD1 decoded as 'Ð', 'Ñ')
+    /(?:[ÐÑ][\u0080-\u00BF\u00C0-\u00FF]){3,}/,
+    // Latin quotes & symbols double-encoded as Windows-1252 (UTF-8 byte 0xE2 decoded as 'â')
+    /â[\u0080-\u009F]{2}/
+  ];
+
+  /**
    * Generates a placeholder string for files exceeding the maximum allowable size limit.
    *
    * @param sizeInBytes - File size in bytes.
@@ -115,7 +132,7 @@ export class FileReaderService {
   }
 
   /**
-   * Inspects non-UTF16 buffer for null bytes indicating raw binary data.
+   * Inspects buffer for null bytes indicating raw binary data.
    *
    * @param buffer - File content buffer.
    * @returns `true` if null bytes are found.
@@ -151,11 +168,11 @@ export class FileReaderService {
       const b2 = buffer[i + 1];
 
       // Little-endian: [ASCII, 0x00]
-      if ((b1 >= 0x09 && b1 <= 0x7e) && b2 === 0x00) {
+      if (b1 >= 0x09 && b1 <= 0x7e && b2 === 0x00) {
         leMatches++;
       }
       // Big-endian: [0x00, ASCII]
-      if (b1 === 0x00 && (b2 >= 0x09 && b2 <= 0x7e)) {
+      if (b1 === 0x00 && b2 >= 0x09 && b2 <= 0x7e) {
         beMatches++;
       }
     }
@@ -171,61 +188,98 @@ export class FileReaderService {
   }
 
   /**
-   * Attempts to decode buffer using common legacy single-byte encodings (Windows-1251, CP866, Windows-1252).
+   * Detects whether decoded text exhibits signatures of double-encoded UTF-8 mojibake.
    *
-   * @param buffer - Raw buffer.
-   * @returns Decoded text if confident, or null.
+   * @param text - Candidate decoded text.
+   * @returns `true` if corrupted mojibake sequence patterns are detected.
    */
-  private static tryDecodeLegacyEncodings(buffer: Buffer): string | null {
+  private static containsMojibakeSignature(text: string): boolean {
+    const sample = text.slice(0, 4000);
+    return this.MOJIBAKE_PATTERNS.some((regex) => regex.test(sample));
+  }
+
+  /**
+   * Attempts robust statistical recovery of legacy single-byte Cyrillic encodings (Windows-1251, CP866, KOI8-R).
+   * Strictly avoids blind fallback to Windows-1252 to prevent corrupting text with mojibake.
+   *
+   * @param buffer - Raw file buffer.
+   * @returns Decoded text if high statistical confidence is met, or null.
+   */
+  private static tryDecodeLegacyCyrillic(buffer: Buffer): string | null {
     const checkLength = Math.min(buffer.length, 4000);
-    let win1251CyrillicCount = 0;
-    let cp866CyrillicCount = 0;
+    if (checkLength < 10) {
+      return null;
+    }
+
+    let win1251Specific = 0; // Bytes 0xC0-0xDF (Capital Cyrillic in Windows-1251; pseudo-graphics in CP866)
+    let cp866Specific = 0;   // Bytes 0x80-0xAF (Cyrillic in CP866; control/symbols in Windows-1251)
+    let koi8rSpecific = 0;   // Bytes 0xE0-0xFF (Lowercase Cyrillic in KOI8-R; overlapping lowercase in Win1251)
+    let highByteCount = 0;
 
     for (let i = 0; i < checkLength; i++) {
       const b = buffer[i];
-      // Windows-1251 Cyrillic range: 0xC0..0xFF ('А'..'я')
-      if (b >= 0xc0 && b <= 0xff) {
-        win1251CyrillicCount++;
-      }
-      // CP866 Cyrillic ranges: 0x80..0xAF ('А'..'п') and 0xE0..0xEF ('р'..'я')
-      if ((b >= 0x80 && b <= 0xaf) || (b >= 0xe0 && b <= 0xef)) {
-        cp866CyrillicCount++;
+      if (b >= 0x80) {
+        highByteCount++;
+        if (b >= 0xc0 && b <= 0xdf) {
+          win1251Specific++;
+        }
+        if (b >= 0x80 && b <= 0xaf) {
+          cp866Specific++;
+        }
+        if (b >= 0xe0 && b <= 0xff) {
+          koi8rSpecific++;
+        }
       }
     }
 
-    const candidateEncodings: string[] = [];
-    if (win1251CyrillicCount > 5) {
-      candidateEncodings.push('windows-1251');
+    // Require at least 8 high-range bytes to warrant legacy analysis
+    if (highByteCount < 8) {
+      return null;
     }
-    if (cp866CyrillicCount > 5) {
-      candidateEncodings.push('ibm866');
-    }
-    candidateEncodings.push('windows-1252');
 
-    for (const encoding of candidateEncodings) {
+    // Rank candidates by characteristic non-overlapping byte score
+    const candidates: string[] = [];
+    if (win1251Specific > cp866Specific && win1251Specific > 5) {
+      candidates.push('windows-1251', 'ibm866', 'koi8-r');
+    } else if (cp866Specific > win1251Specific && cp866Specific > 5) {
+      candidates.push('ibm866', 'windows-1251', 'koi8-r');
+    } else if (koi8rSpecific > 5) {
+      candidates.push('koi8-r', 'windows-1251', 'ibm866');
+    }
+
+    let bestDecoded: string | null = null;
+    let highestVowelRatio = 0;
+
+    for (const encoding of candidates) {
       try {
         const decoder = new TextDecoder(encoding, { fatal: true });
         const decoded = decoder.decode(buffer);
 
-        // Disallow replacement characters or corrupt control chars
         if (decoded.includes('\uFFFD')) {
           continue;
         }
 
-        // If Cyrillic was suspected, verify decoded output actually contains Cyrillic Unicode glyphs
-        if (encoding === 'windows-1251' || encoding === 'ibm866') {
-          if (/[\u0400-\u04FF]/.test(decoded)) {
-            return decoded.trimEnd();
+        const cyrillicLetters = decoded.match(/[\u0400-\u04FF]/g);
+        if (!cyrillicLetters || cyrillicLetters.length < 6) {
+          continue;
+        }
+
+        // Natural Russian text has ~40% vowel ratio among letters. Pseudo-graphics decoded as Cyrillic will have near zero.
+        const vowels = decoded.match(this.CYRILLIC_VOWELS_REGEX);
+        const vowelRatio = vowels ? vowels.length / cyrillicLetters.length : 0;
+
+        if (vowelRatio >= 0.25 && vowelRatio <= 0.60) {
+          if (vowelRatio > highestVowelRatio) {
+            highestVowelRatio = vowelRatio;
+            bestDecoded = decoded.trimEnd();
           }
-        } else {
-          return decoded.trimEnd();
         }
       } catch {
-        // Continue to next candidate
+        // Skip incompatible encoding
       }
     }
 
-    return null;
+    return bestDecoded;
   }
 
   /**
@@ -277,19 +331,20 @@ export class FileReaderService {
       };
     }
 
-    // 2. Check explicit Byte Order Marks (BOM)
-    // UTF-8 BOM: EF BB BF
+    // 2. Explicit Byte Order Marks (BOM)
     if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
       try {
         const decoder = new TextDecoder('utf-8', { fatal: true });
         const text = decoder.decode(buffer.subarray(3)).trimEnd();
+        if (this.containsMojibakeSignature(text)) {
+          return { placeholder: this.getInvalidEncodingPlaceholder(stat.size, 'Обнаружен повреждённый моджибейк') };
+        }
         return { text };
       } catch {
         return { placeholder: this.getInvalidEncodingPlaceholder(stat.size, 'UTF-8 BOM') };
       }
     }
 
-    // UTF-16LE BOM: FF FE
     if (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe) {
       try {
         const decoder = new TextDecoder('utf-16le', { fatal: true });
@@ -300,7 +355,6 @@ export class FileReaderService {
       }
     }
 
-    // UTF-16BE BOM: FE FF
     if (buffer.length >= 2 && buffer[0] === 0xfe && buffer[1] === 0xff) {
       try {
         const decoder = new TextDecoder('utf-16be', { fatal: true });
@@ -311,7 +365,7 @@ export class FileReaderService {
       }
     }
 
-    // 3. Check UTF-16 without BOM
+    // 3. UTF-16 without BOM
     const detectedUtf16 = this.detectUtf16NoBom(buffer);
     if (detectedUtf16) {
       try {
@@ -328,30 +382,32 @@ export class FileReaderService {
       const strictDecoder = new TextDecoder('utf-8', { fatal: true });
       const text = strictDecoder.decode(buffer).trimEnd();
 
-      // Zero tolerance for replacement characters
       if (!text.includes('\uFFFD')) {
+        if (this.containsMojibakeSignature(text)) {
+          return { placeholder: this.getInvalidEncodingPlaceholder(stat.size, 'Обнаружен повреждённый моджибейк') };
+        }
         return { text };
       }
     } catch {
-      // Not valid UTF-8, proceed to binary and legacy heuristics
+      // Not valid UTF-8, proceed to heuristics
     }
 
-    // 5. If not valid UTF-8 and contains null bytes, it is definitively binary
+    // 5. Binary detection via null bytes
     if (this.hasNullBytes(buffer)) {
       return {
         placeholder: this.getBinaryPlaceholder(ext, stat.size, true)
       };
     }
 
-    // 6. Attempt fallback recovery for legacy text encodings (Windows-1251, CP866, Windows-1252)
-    const recoveredText = this.tryDecodeLegacyEncodings(buffer);
+    // 6. Intelligent statistical legacy Cyrillic recovery
+    const recoveredText = this.tryDecodeLegacyCyrillic(buffer);
     if (recoveredText !== null) {
       return { text: recoveredText };
     }
 
-    // 7. Strict guard: never allow broken / corrupted text to pass into LLM context
+    // 7. Strict safeguard: reject unrecognized encoding rather than emitting mojibake
     return {
-      placeholder: this.getInvalidEncodingPlaceholder(stat.size)
+      placeholder: this.getInvalidEncodingPlaceholder(stat.size, 'Неизвестная однобайтовая кодировка')
     };
   }
 }
