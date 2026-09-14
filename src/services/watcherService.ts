@@ -7,12 +7,19 @@ import { PathUtils } from '../utils/pathUtils';
 
 /**
  * Service managing non-blocking filesystem, Git, and diagnostics watchers with debounce mechanisms.
+ * Guarantees race-condition-free event subscription lifecycle.
  */
 export class WatcherService implements vscode.Disposable {
   private readonly watcherDisposables: vscode.Disposable[] = [];
   private debounceTimer?: NodeJS.Timeout;
   private diagnosticsDebounceTimer?: NodeJS.Timeout;
   private isDisposed: boolean = false;
+
+  /**
+   * Monotonic counter tracking watcher initialization cycles.
+   * Prevents pending asynchronous Git extension promises from attaching orphaned listeners after re-init.
+   */
+  private watcherGeneration: number = 0;
 
   constructor(
     private readonly selectedFiles: Set<string>,
@@ -24,18 +31,20 @@ export class WatcherService implements vscode.Disposable {
   }
 
   /**
-   * Reinitializes all watchers.
+   * Reinitializes all filesystem and Git watchers.
    */
   public reinitWatchers(): void {
     this.initWatchers();
   }
 
   /**
-   * Initializes non-blocking file system, Git, and compiler diagnostics watchers.
+   * Sets up watchers for workspace files, git repositories, and diagnostic changes.
    */
   private initWatchers(): void {
     this.disposeWatchers();
+    const generation = ++this.watcherGeneration;
 
+    // 1. File system watcher
     const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*');
     this.watcherDisposables.push(fileWatcher);
 
@@ -47,6 +56,7 @@ export class WatcherService implements vscode.Disposable {
       );
       const rootPath = matchedFolder ? PathUtils.normalizePath(matchedFolder.uri.fsPath) : undefined;
 
+      // Handle deleted file: remove immediately from active selection
       if (isDelete) {
         for (const file of Array.from(this.selectedFiles)) {
           if (file === fsPath || PathUtils.isSubpath(file, fsPath)) {
@@ -57,6 +67,7 @@ export class WatcherService implements vscode.Disposable {
         return;
       }
 
+      // Ignore changes in unconditionally excluded folders (.git, node_modules, etc.)
       if (WorkspaceScanner.isIgnoredByPathSegments(fsPath, rootPath)) {
         return;
       }
@@ -65,6 +76,7 @@ export class WatcherService implements vscode.Disposable {
       const ext = path.extname(fileName).toLowerCase();
       const filters = this.getFilters();
 
+      // Check if file event matches active exclusion filters
       if (filters.hideSecrets && isSecretFile(fileName)) {
         return;
       }
@@ -87,8 +99,10 @@ export class WatcherService implements vscode.Disposable {
       fileWatcher.onDidDelete((uri) => onFileEvent(uri, true))
     );
 
-    this.initGitWatcher();
+    // 2. Git extension watcher with generation check
+    this.initGitWatcher(generation);
 
+    // 3. Diagnostics watcher (debounced to 300ms)
     const diagnosticsWatcher = vscode.languages.onDidChangeDiagnostics((e) => {
       if (this.selectedFiles.size === 0) {
         return;
@@ -111,7 +125,12 @@ export class WatcherService implements vscode.Disposable {
     this.watcherDisposables.push(diagnosticsWatcher);
   }
 
-  private async initGitWatcher(): Promise<void> {
+  /**
+   * Initializes built-in Git extension listeners with race-condition guards.
+   *
+   * @param generation - The generation token of the invoking initWatchers cycle.
+   */
+  private async initGitWatcher(generation: number): Promise<void> {
     try {
       const gitExtension = vscode.extensions.getExtension<GitExtensionExports>('vscode.git');
       if (!gitExtension) {
@@ -124,7 +143,15 @@ export class WatcherService implements vscode.Disposable {
         return;
       }
 
+      // If service was disposed or reinitialized during await, abort to avoid memory leak
+      if (this.isDisposed || generation !== this.watcherGeneration) {
+        return;
+      }
+
       const onRepoOpen = gitApi.onDidOpenRepository((repo: GitRepository) => {
+        if (this.isDisposed || generation !== this.watcherGeneration) {
+          return;
+        }
         const disp = repo.state.onDidChange(() => this.triggerDebouncedRefresh());
         this.watcherDisposables.push(disp);
       });
@@ -135,12 +162,12 @@ export class WatcherService implements vscode.Disposable {
         this.watcherDisposables.push(disp);
       }
     } catch {
-      // Ignore Git extension binding failure
+      // Gracefully ignore git watcher failure if git extension is disabled
     }
   }
 
   /**
-   * Schedules debounced refresh callback.
+   * Schedules debounced refresh callback (300ms) to coalesce rapid file system events.
    */
   public triggerDebouncedRefresh(): void {
     if (this.isDisposed) {
@@ -156,19 +183,26 @@ export class WatcherService implements vscode.Disposable {
     }, 300);
   }
 
+  /**
+   * Disposes active watcher instances.
+   */
   private disposeWatchers(): void {
     this.watcherDisposables.forEach((d) => {
       try {
         d.dispose();
       } catch {
-        // Ignore disposable failure
+        // Ignore individual disposal failure
       }
     });
     this.watcherDisposables.length = 0;
   }
 
+  /**
+   * Cleans up all timers and watcher disposables.
+   */
   public dispose(): void {
     this.isDisposed = true;
+    this.watcherGeneration++;
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = undefined;

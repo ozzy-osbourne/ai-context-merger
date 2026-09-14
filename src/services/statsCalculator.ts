@@ -17,21 +17,22 @@ import { PathUtils } from '../utils/pathUtils';
 
 /**
  * Service calculating character budgets, token estimates, and usage percentages.
+ * Provides real-time metrics for LLM context limits across Markdown and XML payloads.
  */
 export class StatsCalculator {
   /**
-   * Computes token metrics for the selected file context bundle based on chosen output format, diffs, and diagnostics.
+   * Computes token metrics for the selected file context bundle based on output format, diffs, and diagnostics.
    *
    * @param selectedFiles - Set of selected absolute file paths.
-   * @param promptSettings - Optional AI instruction settings.
-   * @param gitDiffSettings - Optional Git diff configuration settings.
+   * @param promptSettings - Optional AI instruction configuration.
+   * @param gitDiffSettings - Optional Git diff inclusion settings.
    * @param gitDiffLength - Character length of the active Git diff payload.
    * @param gitStatuses - Optional map containing current Git file statuses.
    * @param outputFormat - Current output format ('markdown' or 'xml').
    * @param diagnosticsSettings - Optional compiler/linter diagnostics configuration.
    * @param diagnosticsLength - Character length of formatted diagnostics.
-   * @param tokenLimit - User-configured token limit (e.g. 32000, 200000, 1000000).
-   * @returns Aggregated statistics for the selection.
+   * @param tokenLimit - User-configured token limit threshold (e.g. 32000, 200000, 1000000).
+   * @returns Aggregated statistics: file count, estimated tokens, and budget usage percentage.
    */
   public static async calculateStats(
     selectedFiles: Set<string>,
@@ -44,6 +45,7 @@ export class StatsCalculator {
     diagnosticsLength: number = 0,
     tokenLimit?: number | string
   ): Promise<ContextStats> {
+    // Return zeros immediately when no files are selected
     if (selectedFiles.size === 0) {
       return { count: 0, tokens: 0, percentage: 0 };
     }
@@ -57,11 +59,14 @@ export class StatsCalculator {
     );
     const asciiTree = AsciiTreeService.generateAsciiTree(relativePaths, gitStatuses, sortedFiles);
 
+    // =========================================================================
+    // Format Branch A: XML Payload Character Estimation
+    // =========================================================================
     if (outputFormat === 'xml') {
-      // Root context tags: <context>\n\n</context>
-      totalChars += 22;
+      // Base XML declaration and root tags: <?xml version="1.0" encoding="UTF-8"?>\n<context>\n\n</context>
+      totalChars += '<?xml version="1.0" encoding="UTF-8"?>\n<context>\n\n</context>'.length;
 
-      // 1. Instruction
+      // 1. Task Instructions
       if (promptSettings && promptSettings.enabled) {
         const trimmedPrompt = promptSettings.text.trim();
         if (trimmedPrompt.length > 0) {
@@ -69,18 +74,20 @@ export class StatsCalculator {
         }
       }
 
-      // 2. Structure
+      // 2. ASCII Project Structure
       totalChars += `  <project_structure>\n<![CDATA[\n${asciiTree}\n]]>\n  </project_structure>\n\n`.length;
 
-      // 3. Git Diff
+      // 3. Git Diff section
       if (gitDiffSettings?.includeGitDiff && gitDiffLength > 0) {
         totalChars += `  <git_diff>\n<![CDATA[\n\n]]>\n  </git_diff>\n\n`.length + gitDiffLength;
       }
 
+      // 4. Diagnostics section
       if (diagnosticsSettings?.enabled && diagnosticsLength > 0) {
         totalChars += `  <diagnostics>\n<![CDATA[\n\n]]>\n  </diagnostics>\n\n`.length + diagnosticsLength;
       }
 
+      // 5. Documents container and file entries
       if (!gitDiffSettings?.diffOnly) {
         totalChars += '  <documents>\n  </documents>\n\n'.length;
 
@@ -133,28 +140,32 @@ export class StatsCalculator {
         }
       }
     } else {
-      // 1. AI instruction characters (Markdown)
+      // =========================================================================
+      // Format Branch B: Markdown Payload Character Estimation
+      // =========================================================================
+
+      // 1. Task Instructions
       if (promptSettings && promptSettings.enabled) {
         const trimmedPrompt = promptSettings.text.trim();
         if (trimmedPrompt.length > 0) {
-          totalChars += `## Instruction:\n${trimmedPrompt}`.length;
-          totalChars += 6; // Delimiter: \n\n---\n\n
+          totalChars += `## Instruction:\n${trimmedPrompt}`.length + 6; // Delimiter: \n\n---\n\n
         }
       }
 
-      // 2. ASCII structure characters with Git status decorations
-      totalChars += asciiTree.length;
-      totalChars += 6;
+      // 2. ASCII Project Structure
+      totalChars += asciiTree.length + 6;
 
-      // 3. Git Diff section characters
+      // 3. Git Diff section
       if (gitDiffSettings?.includeGitDiff && gitDiffLength > 0) {
         totalChars += `## Git Diff:\n\`\`\`diff\n\n\`\`\``.length + gitDiffLength + 6;
       }
 
+      // 4. Diagnostics section
       if (diagnosticsSettings?.enabled && diagnosticsLength > 0) {
         totalChars += `## Problems & Diagnostics:\n`.length + diagnosticsLength + 6;
       }
 
+      // 5. File sections
       if (!gitDiffSettings?.diffOnly) {
         const fileStatPromises = sortedFiles.map(async (filePath, index) => {
           const relPath = relativePaths[index];
@@ -190,10 +201,12 @@ export class StatsCalculator {
       }
     }
 
+    // Parse active max budget threshold
     const maxBudget = tokenLimit
       ? (typeof tokenLimit === 'string' ? parseInt(tokenLimit, 10) || MAX_CONTEXT_TOKENS : tokenLimit)
       : MAX_CONTEXT_TOKENS;
 
+    // Standard LLM heuristic: ~4 characters per token
     const estimatedTokens = Math.ceil(totalChars / 4);
     const percentage = Math.min(100, Math.round((estimatedTokens / maxBudget) * 100));
 

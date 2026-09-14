@@ -11,39 +11,19 @@ import { PathUtils } from '../utils/pathUtils';
 import { SelectionService } from './selectionService';
 
 /**
- * Service providing Explorer, Editor, Tab, and TreeView actions and context menus.
- * Fully supports multi-file selections across both standard VS Code Explorer and custom TreeView.
+ * Service handling Explorer, Editor, and TreeView context menu actions.
  */
 export class ContextMenuService {
-  /**
-   * Creates an instance of ContextMenuService.
-   *
-   * @param selectedFiles - Shared set containing normalized absolute paths of selected files.
-   * @param treeDataProvider - Reference to the Context TreeDataProvider for refresh sync.
-   * @param controlsProvider - Reference to the sidebar controls provider for filters and state.
-   */
   constructor(
     private readonly selectedFiles: Set<string>,
     private readonly treeDataProvider: ContextTreeDataProvider,
     private readonly controlsProvider: ContextMergerControlsProvider
   ) {}
 
-  /**
-   * Helper safely extracting a human-readable message from an unknown error.
-   *
-   * @param err - Unknown caught error.
-   * @returns String error representation.
-   */
   private extractErrorMessage(err: unknown): string {
     return err instanceof Error ? err.message : String(err);
   }
 
-  /**
-   * Helper extracting a raw vscode.Uri from either a ContextTreeItem, an existing Uri, or an active editor.
-   *
-   * @param item - Target item to extract URI from.
-   * @returns Resolved vscode.Uri or undefined.
-   */
   private extractUri(item?: ContextTreeItem | vscode.Uri): vscode.Uri | undefined {
     if (!item) {
       return undefined;
@@ -51,13 +31,6 @@ export class ContextMenuService {
     return item instanceof ContextTreeItem ? item.uri : item;
   }
 
-  /**
-   * Normalizes heterogeneous arguments from explorer/context and view/item/context into standardized Uri arrays.
-   *
-   * @param target - Primary clicked item.
-   * @param allSelected - Array of selected items (Uris from Explorer, or ContextTreeItems from TreeView).
-   * @returns Normalized target URI and list of all selected URIs.
-   */
   private extractUris(
     target?: ContextTreeItem | vscode.Uri,
     allSelected?: Array<ContextTreeItem | vscode.Uri>
@@ -70,14 +43,8 @@ export class ContextMenuService {
     return { targetUri, selectedUris };
   }
 
-  /**
-   * Registers all context menu and TreeView header/inline commands in VS Code command registry.
-   *
-   * @returns Array of disposables to register in extension subscriptions.
-   */
   public registerCommands(): vscode.Disposable[] {
     return [
-      // Explorer / Tab / Editor / TreeView Multi-select commands
       vscode.commands.registerCommand(
         'aiContextMerger.addToContext',
         async (target?: ContextTreeItem | vscode.Uri, allSelected?: Array<ContextTreeItem | vscode.Uri>) => {
@@ -110,13 +77,13 @@ export class ContextMenuService {
         }
       ),
 
-      // TreeView Header (view/title) commands
       vscode.commands.registerCommand('aiContextMerger.treeRefresh', async () => {
         await this.controlsProvider.forceRefresh();
       }),
 
-      vscode.commands.registerCommand('aiContextMerger.treeClearAll', () => {
-        this.controlsProvider.clearSelection();
+      vscode.commands.registerCommand('aiContextMerger.treeClearAll', async () => {
+        await this.controlsProvider.clearSelection();
+        vscode.window.showInformationMessage('Выделение файлов снято.');
       }),
 
       vscode.commands.registerCommand('aiContextMerger.treeToggleSelectedOnly', async () => {
@@ -127,7 +94,6 @@ export class ContextMenuService {
         await this.controlsProvider.copyContextToClipboard();
       }),
 
-      // TreeView Item Inline / Context commands
       vscode.commands.registerCommand(
         'aiContextMerger.treeItemCopyFile',
         async (target?: ContextTreeItem | vscode.Uri) => {
@@ -144,13 +110,6 @@ export class ContextMenuService {
     ];
   }
 
-  /**
-   * Resolves raw URIs into a flat list of selectable file paths, traversing directories recursively.
-   *
-   * @param targetUri - Primary clicked item URI.
-   * @param allSelectedUris - All selected URIs if multi-selection was used.
-   * @returns Array of normalized absolute file paths eligible for context.
-   */
   private async resolveTargetFiles(
     targetUri?: vscode.Uri,
     allSelectedUris?: vscode.Uri[]
@@ -210,12 +169,6 @@ export class ContextMenuService {
     return Array.from(resolvedFiles);
   }
 
-  /**
-   * Adds targets (files or folders) to the current active selection and synchronizes the TreeView.
-   *
-   * @param targetUri - Primary clicked item URI.
-   * @param allSelectedUris - All selected URIs if multi-selection was used.
-   */
   public async addUrisToContext(
     targetUri?: vscode.Uri,
     allSelectedUris?: vscode.Uri[]
@@ -243,12 +196,6 @@ export class ContextMenuService {
     vscode.window.showInformationMessage(`AI Context Merger: ${pluralLabel} в контекст (всего: ${this.selectedFiles.size}).`);
   }
 
-  /**
-   * Removes targets (files or directory subtrees) from the current active selection.
-   *
-   * @param targetUri - Primary clicked item URI.
-   * @param allSelectedUris - All selected URIs if multi-selection was used.
-   */
   public async removeUrisFromContext(
     targetUri?: vscode.Uri,
     allSelectedUris?: vscode.Uri[]
@@ -292,12 +239,6 @@ export class ContextMenuService {
     vscode.window.showInformationMessage(`AI Context Merger: ${removedCount} файлов убрано из контекста.`);
   }
 
-  /**
-   * Assembles context bundle for targets on the fly and writes directly to clipboard without altering sidebar selection.
-   *
-   * @param targetUri - Primary clicked item URI.
-   * @param allSelectedUris - All selected URIs if multi-selection was used.
-   */
   public async copyUrisImmediately(
     targetUri?: vscode.Uri,
     allSelectedUris?: vscode.Uri[]
@@ -331,12 +272,6 @@ export class ContextMenuService {
     }
   }
 
-  /**
-   * Generates and copies Git Diff exclusively for the specified targets.
-   *
-   * @param targetUri - Primary clicked item URI.
-   * @param allSelectedUris - All selected URIs if multi-selection was used.
-   */
   public async copyUrisGitDiffImmediately(
     targetUri?: vscode.Uri,
     allSelectedUris?: vscode.Uri[]
@@ -367,11 +302,6 @@ export class ContextMenuService {
     }
   }
 
-  /**
-   * Copies the content of a single file item to clipboard.
-   *
-   * @param target - Target TreeItem or Uri.
-   */
   public async copySingleFile(target?: ContextTreeItem | vscode.Uri): Promise<void> {
     const targetUri = target instanceof ContextTreeItem ? target.uri : target;
     if (!targetUri || targetUri.scheme !== 'file') {
@@ -403,14 +333,18 @@ export class ContextMenuService {
     }
   }
 
-  /**
-   * Opens the side-by-side Git diff comparison against HEAD for a target file.
-   *
-   * @param target - Target TreeItem or Uri.
-   */
   public async openGitDiff(target?: ContextTreeItem | vscode.Uri): Promise<void> {
     const targetUri = target instanceof ContextTreeItem ? target.uri : target;
     if (!targetUri || targetUri.scheme !== 'file') {
+      return;
+    }
+
+    const filePath = PathUtils.normalizePath(targetUri.fsPath);
+    const gitStatuses = await GitService.getFileStatuses();
+    const status = gitStatuses.get(filePath);
+
+    if (status === 'untracked') {
+      await vscode.commands.executeCommand('vscode.open', targetUri);
       return;
     }
 

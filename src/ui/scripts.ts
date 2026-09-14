@@ -1,77 +1,66 @@
 import { PROMPT_PRESETS } from '../constants/presets';
 
 /**
- * Generates the client-side JavaScript for the controls Webview.
+ * Generates the complete client-side JavaScript for the controls Webview panel.
+ * Coordinates DOM interactions, IPC messaging with the extension host, state persistence,
+ * debounced search queries, and user feedback animations.
  *
- * @returns Client JavaScript code string.
+ * @returns Serialized client JavaScript code string.
  */
 export function getScripts(): string {
   const presetsJson = JSON.stringify(PROMPT_PRESETS);
 
   return `
     /**
-     * Acquisition of the VS Code Webview messaging and state API.
+     * Acquisition of the native VS Code Webview messaging and state API.
+     * Allows posting messages to the extension host and saving session state across tab switches.
      */
     const vscode = acquireVsCodeApi();
 
     /**
-     * Task instruction prompt presets dictionary.
+     * Dictionary of default AI task prompt presets injected from extension constants.
      * @type {Record<string, string>}
      */
     const PRESET_TEXTS = ${presetsJson};
 
     /**
-     * Default token limit fallback value.
+     * Default token budget fallback value when no user preference is configured.
      * @type {string}
      */
     const DEFAULT_TOKEN_LIMIT = '200000';
 
     /**
-     * Whitelist of allowable token context window limits.
+     * Whitelist of valid token context window limits supported by the dropdown.
      * @type {readonly string[]}
      */
     const VALID_TOKEN_LIMITS = ['32000', '64000', '128000', '200000', '1000000', '2000000'];
 
     /**
-     * Session cache restored across Webview re-renders.
+     * Session state restored from VS Code's internal webview cache across visibility toggles.
      */
     const previousState = vscode.getState() || {};
 
+    // =========================================================================
+    // 1. Primary Action & Header DOM Elements
+    // =========================================================================
     const btnRefreshTop = document.getElementById('btnRefreshTop');
     const btnCopy = document.getElementById('btnCopy');
     const btnPreview = document.getElementById('btnPreview');
     const btnExport = document.getElementById('btnExport');
     const btnOpenTabs = document.getElementById('btnOpenTabs');
     const btnGit = document.getElementById('btnGit');
+    const btnSelectAll = document.getElementById('btnSelectAll');
+    const btnClear = document.getElementById('btnClear');
+    const btnExpandAll = document.getElementById('btnExpandAll');
+    const btnCollapse = document.getElementById('btnCollapse');
 
+    // =========================================================================
+    // 2. AI Task Prompt & Presets DOM Elements
+    // =========================================================================
     const promptToggle = document.getElementById('promptToggle');
     const promptBody = document.getElementById('promptBody');
     const promptInput = document.getElementById('promptInput');
     const btnClearPrompt = document.getElementById('btnClearPrompt');
-    const btnSelectAll = document.getElementById('btnSelectAll');
-    const searchInput = document.getElementById('searchInput');
-    const btnClearSearch = document.getElementById('btnClearSearch');
-    const tokenLimitSelect = document.getElementById('tokenLimitSelect');
-    const tokenOverflowWarning = document.getElementById('tokenOverflowWarning');
-
-    const gitDiffToggle = document.getElementById('gitDiffToggle');
-    const gitDiffSuboptions = document.getElementById('gitDiffSuboptions');
-    const diffOnlyToggle = document.getElementById('diffOnlyToggle');
-    const unlimitedDiffToggle = document.getElementById('unlimitedDiffToggle');
-
-    // Diagnostics Controls
-    const diagnosticsToggle = document.getElementById('diagnosticsToggle');
-    const diagnosticsSuboptions = document.getElementById('diagnosticsSuboptions');
-    const diagnosticsCompilerToggle = document.getElementById('diagnosticsCompilerToggle');
-    const diagnosticsCompilerLabel = document.getElementById('diagnosticsCompilerLabel');
-    const diagnosticsLinterToggle = document.getElementById('diagnosticsLinterToggle');
-    const diagnosticsLinterLabel = document.getElementById('diagnosticsLinterLabel');
-
-    // Format Controls
-    const formatMarkdown = document.getElementById('formatMarkdown');
-    const formatXml = document.getElementById('formatXml');
-
-    // Preset Controls
     const customChipsContainer = document.getElementById('customChipsContainer');
     const btnShowAddPreset = document.getElementById('btnShowAddPreset');
     const inlineAddForm = document.getElementById('inlineAddForm');
@@ -80,38 +69,82 @@ export function getScripts(): string {
     const btnSavePreset = document.getElementById('btnSavePreset');
     const btnCancelPreset = document.getElementById('btnCancelPreset');
 
+    // =========================================================================
+    // 3. Format & Context Addons (Git Diff & Diagnostics) DOM Elements
+    // =========================================================================
+    const formatMarkdown = document.getElementById('formatMarkdown');
+    const formatXml = document.getElementById('formatXml');
+
+    const gitDiffToggle = document.getElementById('gitDiffToggle');
+    const gitDiffSuboptions = document.getElementById('gitDiffSuboptions');
+    const diffOnlyToggle = document.getElementById('diffOnlyToggle');
+    const unlimitedDiffToggle = document.getElementById('unlimitedDiffToggle');
+
+    const diagnosticsToggle = document.getElementById('diagnosticsToggle');
+    const diagnosticsSuboptions = document.getElementById('diagnosticsSuboptions');
+    const diagnosticsCompilerToggle = document.getElementById('diagnosticsCompilerToggle');
+    const diagnosticsCompilerLabel = document.getElementById('diagnosticsCompilerLabel');
+    const diagnosticsLinterToggle = document.getElementById('diagnosticsLinterToggle');
+    const diagnosticsLinterLabel = document.getElementById('diagnosticsLinterLabel');
+
+    // =========================================================================
+    // 4. Statistics, Progress & Search DOM Elements
+    // =========================================================================
+    const searchInput = document.getElementById('searchInput');
+    const btnClearSearch = document.getElementById('btnClearSearch');
+    const tokenLimitSelect = document.getElementById('tokenLimitSelect');
+    const tokenOverflowWarning = document.getElementById('tokenOverflowWarning');
+
+    // =========================================================================
+    // 5. In-Memory Component State
+    // =========================================================================
     /**
-     * Current user custom presets array in memory.
+     * Active user-defined custom presets list.
      * @type {Array<{ id: string, name: string, text: string }>}
      */
     let customPresets = [];
 
     /**
-     * ID of the preset currently in edit mode, or null if creating a new one.
+     * Identifier of the preset currently open in edit mode, or null if creating a new one.
      * @type {string | null}
      */
     let editingPresetId = null;
 
     /**
-     * Stored draft prompt text to restore when cancelling preset editing.
+     * Temporary backup of the prompt textarea content to restore if preset editing is cancelled.
      * @type {string | null}
      */
     let backupPromptText = null;
 
     /**
-     * Timeout identifier for resetting copy button success state.
+     * Timer handle for resetting copy button success animation.
      * @type {number | undefined}
      */
     let copyFeedbackTimeout;
 
-    // Restore prompt toggle and text from state
+    /**
+     * Timer handle for debouncing live search input events.
+     * @type {number | undefined}
+     */
+    let searchDebounceTimer;
+
+    /**
+     * Most recent token estimate received from extension backend.
+     * @type {number}
+     */
+    let currentEstimatedTokens = 0;
+
+    // =========================================================================
+    // 6. Restoring Session State from Webview Cache
+    // =========================================================================
+    // Restore prompt toggle and draft text
     promptToggle.checked = Boolean(previousState.promptEnabled);
     promptInput.value = previousState.promptText || '';
     if (promptToggle.checked) {
       promptBody.classList.remove('hidden');
     }
 
-    // Restore Git Diff toggles from state
+    // Restore Git Diff toggles
     gitDiffToggle.checked = Boolean(previousState.gitDiffEnabled);
     diffOnlyToggle.checked = Boolean(previousState.diffOnly);
     unlimitedDiffToggle.checked = Boolean(previousState.unlimitedDiff);
@@ -119,7 +152,7 @@ export function getScripts(): string {
       gitDiffSuboptions.classList.remove('hidden');
     }
 
-    // Restore Diagnostics toggles from state
+    // Restore Diagnostics toggles
     diagnosticsToggle.checked = Boolean(previousState.diagnosticsEnabled);
     diagnosticsCompilerToggle.checked = previousState.diagnosticsIncludeCompiler !== undefined
       ? Boolean(previousState.diagnosticsIncludeCompiler)
@@ -132,11 +165,11 @@ export function getScripts(): string {
       diagnosticsSuboptions.classList.remove('hidden');
     }
 
-    // Restore output format radio and update dynamic buttons
+    // Restore output format and adapt action buttons
     let currentFormat = previousState.outputFormat === 'xml' ? 'xml' : 'markdown';
     updateFormatUI(currentFormat);
 
-    // Restore token limit with fallback validation
+    // Restore token limit preference with validation
     let restoredLimit = DEFAULT_TOKEN_LIMIT;
     if (previousState.tokenLimit && VALID_TOKEN_LIMITS.includes(String(previousState.tokenLimit))) {
       restoredLimit = String(previousState.tokenLimit);
@@ -146,28 +179,18 @@ export function getScripts(): string {
       tokenLimitSelect.value = DEFAULT_TOKEN_LIMIT;
     }
 
-    /**
-     * Active search query string restored from previous state.
-     * @type {string}
-     */
+    // Restore active search query
     let currentSearchQuery = previousState.searchQuery || '';
     searchInput.value = currentSearchQuery;
 
-    /**
-     * Timer handle for debouncing search input events.
-     * @type {number | undefined}
-     */
-    let searchDebounceTimer;
+    // =========================================================================
+    // 7. UI Update & Feedback Functions
+    // =========================================================================
 
     /**
-     * Most recent token estimate received from the extension backend.
-     * @type {number}
-     */
-    let currentEstimatedTokens = 0;
-
-    /**
-     * Updates radio button selection and adapts action button labels to current format.
-     * @param {'markdown' | 'xml'} format
+     * Synchronizes radio buttons and adapts button labels to the current output format.
+     *
+     * @param {'markdown' | 'xml'} format - Target output format.
      * @returns {void}
      */
     function updateFormatUI(format) {
@@ -195,11 +218,14 @@ export function getScripts(): string {
     }
 
     /**
-     * Triggers copy button success state animation and text swap.
+     * Triggers copy button success state animation and restores default text after delay.
+     *
      * @returns {void}
      */
     function triggerCopySuccess() {
       if (!btnCopy) return;
+      btnCopy.disabled = false;
+      btnCopy.style.opacity = '1';
       btnCopy.classList.add('btn-copied');
       btnCopy.innerHTML = '<span>✓</span> СКОПИРОВАНО!';
 
@@ -214,7 +240,21 @@ export function getScripts(): string {
     }
 
     /**
-     * Persists current UI state into the Webview session storage.
+     * Resets copy button from loading state back to default if an error occurs.
+     *
+     * @returns {void}
+     */
+    function triggerCopyError() {
+      if (!btnCopy) return;
+      btnCopy.disabled = false;
+      btnCopy.style.opacity = '1';
+      btnCopy.classList.remove('btn-copied');
+      btnCopy.innerHTML = '<span>📋</span> СКОПИРОВАТЬ КОНТЕКСТ';
+    }
+
+    /**
+     * Persists all current UI controls state into Webview session storage.
+     *
      * @returns {void}
      */
     function saveState() {
@@ -238,7 +278,8 @@ export function getScripts(): string {
     }
 
     /**
-     * Toggles visibility of the instruction clear button based on text length.
+     * Toggles visibility of the prompt clear button based on text presence.
+     *
      * @returns {void}
      */
     function updateClearPromptButtonVisibility() {
@@ -251,7 +292,8 @@ export function getScripts(): string {
     }
 
     /**
-     * Toggles visibility of the search clear button based on text input length.
+     * Toggles visibility of the search input clear button based on length.
+     *
      * @returns {void}
      */
     function updateClearSearchButtonVisibility() {
@@ -263,7 +305,8 @@ export function getScripts(): string {
     }
 
     /**
-     * Synchronizes current prompt settings with the VS Code extension host.
+     * Synchronizes active instruction text and enabled state with the extension host.
+     *
      * @returns {void}
      */
     function syncPromptWithExtension() {
@@ -277,7 +320,8 @@ export function getScripts(): string {
     }
 
     /**
-     * Synchronizes current Git Diff settings with the VS Code extension host.
+     * Synchronizes active Git Diff configuration with the extension host.
+     *
      * @returns {void}
      */
     function syncGitDiffWithExtension() {
@@ -293,7 +337,8 @@ export function getScripts(): string {
     }
 
     /**
-     * Synchronizes current diagnostics inclusion settings with the VS Code extension host.
+     * Synchronizes active compiler/linter diagnostics settings with the extension host.
+     *
      * @returns {void}
      */
     function syncDiagnosticsWithExtension() {
@@ -309,8 +354,9 @@ export function getScripts(): string {
     }
 
     /**
-     * Synchronizes output format change with the VS Code extension host.
-     * @param {'markdown' | 'xml'} format
+     * Synchronizes chosen output format (Markdown or XML) with the extension host.
+     *
+     * @param {'markdown' | 'xml'} format - Chosen format.
      * @returns {void}
      */
     function syncFormatWithExtension(format) {
@@ -323,8 +369,9 @@ export function getScripts(): string {
     }
 
     /**
-     * Renders diagnostics counters directly on the expanded suboption labels.
-     * @param {{ compilerCount: number, linterCount: number }} summary - Collected diagnostics summary.
+     * Renders compiler and linter problem counters on the suboption labels.
+     *
+     * @param {{ compilerCount: number, linterCount: number }} summary - Aggregated issues summary.
      * @returns {void}
      */
     function renderDiagnosticsUI(summary) {
@@ -336,7 +383,8 @@ export function getScripts(): string {
     }
 
     /**
-     * Recalculates progress bar width, percentage caption, warning colors, and overflow alerts.
+     * Updates token progress bar width, percentage label, and overflow warnings.
+     *
      * @returns {void}
      */
     function renderProgressIndicator() {
@@ -350,6 +398,7 @@ export function getScripts(): string {
       const bar = document.getElementById('progressBar');
       bar.style.width = percentage + '%';
 
+      // Dynamic color thresholding (Green -> Yellow -> Red)
       if (percentage < 33) {
         bar.style.backgroundColor = 'var(--color-green)';
       } else if (percentage < 66) {
@@ -360,6 +409,7 @@ export function getScripts(): string {
 
       document.getElementById('progressPercent').innerText = percentage + '%';
 
+      // Show overflow alert if tokens exceed chosen LLM budget
       if (currentEstimatedTokens > maxLimit) {
         tokenOverflowWarning.classList.remove('hidden');
       } else {
@@ -368,8 +418,9 @@ export function getScripts(): string {
     }
 
     /**
-     * Switches inline form into edit mode for a target preset.
-     * @param {{ id: string, name: string, text: string }} preset
+     * Opens inline preset form in edit mode for a target preset.
+     *
+     * @param {{ id: string, name: string, text: string }} preset - Target preset object.
      * @returns {void}
      */
     function startEditingPreset(preset) {
@@ -390,7 +441,8 @@ export function getScripts(): string {
     }
 
     /**
-     * Cancels edit mode and resets the inline preset form.
+     * Cancels preset edit mode and restores backed-up prompt draft.
+     *
      * @returns {void}
      */
     function cancelEditingPreset() {
@@ -408,8 +460,9 @@ export function getScripts(): string {
     }
 
     /**
-     * Renders custom presets chips into DOM.
-     * @param {Array<{ id: string, name: string, text: string }>} presets
+     * Renders custom preset chips and action buttons into the DOM container.
+     *
+     * @param {Array<{ id: string, name: string, text: string }>} presets - Custom presets list.
      * @returns {void}
      */
     function renderCustomChips(presets) {
@@ -443,6 +496,7 @@ export function getScripts(): string {
         const actions = document.createElement('span');
         actions.className = 'chip-actions';
 
+        // Edit button
         const editBtn = document.createElement('button');
         editBtn.type = 'button';
         editBtn.className = 'chip-edit-btn';
@@ -455,6 +509,7 @@ export function getScripts(): string {
         });
         actions.appendChild(editBtn);
 
+        // Delete button
         const deleteBtn = document.createElement('button');
         deleteBtn.type = 'button';
         deleteBtn.className = 'chip-delete-btn';
@@ -478,6 +533,7 @@ export function getScripts(): string {
       });
     }
 
+    // Initialize button visibility and state
     updateClearPromptButtonVisibility();
     updateClearSearchButtonVisibility();
     saveState();
@@ -489,6 +545,11 @@ export function getScripts(): string {
       });
     }
 
+    // =========================================================================
+    // 8. Event Listeners Registration
+    // =========================================================================
+
+    // Output Format Radios
     formatMarkdown.addEventListener('change', () => {
       if (formatMarkdown.checked) syncFormatWithExtension('markdown');
     });
@@ -497,6 +558,7 @@ export function getScripts(): string {
       if (formatXml.checked) syncFormatWithExtension('xml');
     });
 
+    // Prompt Inputs & Toggles
     promptToggle.addEventListener('change', () => {
       if (promptToggle.checked) {
         promptBody.classList.remove('hidden');
@@ -510,6 +572,14 @@ export function getScripts(): string {
       syncPromptWithExtension();
     });
 
+    btnClearPrompt.addEventListener('click', (e) => {
+      e.stopPropagation();
+      promptInput.value = '';
+      promptInput.focus();
+      syncPromptWithExtension();
+    });
+
+    // Git Diff Options
     gitDiffToggle.addEventListener('change', () => {
       if (gitDiffToggle.checked) {
         gitDiffSuboptions.classList.remove('hidden');
@@ -527,6 +597,7 @@ export function getScripts(): string {
       syncGitDiffWithExtension();
     });
 
+    // Diagnostics Options
     diagnosticsToggle.addEventListener('change', () => {
       if (diagnosticsToggle.checked) {
         diagnosticsSuboptions.classList.remove('hidden');
@@ -544,11 +615,23 @@ export function getScripts(): string {
       syncDiagnosticsWithExtension();
     });
 
-    btnClearPrompt.addEventListener('click', (e) => {
-      e.stopPropagation();
-      promptInput.value = '';
-      promptInput.focus();
-      syncPromptWithExtension();
+    // Live Search Input with 300ms debounce
+    searchInput.addEventListener('input', (e) => {
+      currentSearchQuery = e.target.value.trim();
+      saveState();
+      updateClearSearchButtonVisibility();
+
+      if (!currentSearchQuery) {
+        btnSelectAll.innerText = '✅ Выбрать всё';
+      }
+
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        vscode.postMessage({
+          type: 'updateSearch',
+          query: currentSearchQuery
+        });
+      }, 300);
     });
 
     btnClearSearch.addEventListener('click', (e) => {
@@ -567,6 +650,7 @@ export function getScripts(): string {
       });
     });
 
+    // Token Limit Dropdown
     tokenLimitSelect.addEventListener('change', () => {
       saveState();
       renderProgressIndicator();
@@ -576,6 +660,7 @@ export function getScripts(): string {
       });
     });
 
+    // Default Prompt Preset Chips
     document.querySelectorAll('.preset-chip[data-preset]').forEach(chip => {
       chip.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -587,6 +672,7 @@ export function getScripts(): string {
       });
     });
 
+    // Custom Preset Inline Form Actions
     btnShowAddPreset.addEventListener('click', () => {
       editingPresetId = null;
       inlineFormTitle.innerText = '💾 Сохранить текущий текст как пресет:';
@@ -633,11 +719,63 @@ export function getScripts(): string {
       cancelEditingPreset();
     });
 
+    // Primary Action Buttons
+    btnRefreshTop.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
+
+    btnCopy.addEventListener('click', () => {
+      // Guard against duplicate concurrent assembly requests
+      if (btnCopy.disabled) {
+        return;
+      }
+      btnCopy.disabled = true;
+      btnCopy.style.opacity = '0.7';
+      btnCopy.innerHTML = '<span>⏳</span> СБОРКА КОНТЕКСТА...';
+      vscode.postMessage({ type: 'copyContext' });
+    });
+
+    btnPreview.addEventListener('click', () => vscode.postMessage({ type: 'previewContext' }));
+    btnExport.addEventListener('click', () => vscode.postMessage({ type: 'exportFile' }));
+    btnOpenTabs.addEventListener('click', () => vscode.postMessage({ type: 'selectOpenTabs' }));
+    btnGit.addEventListener('click', () => vscode.postMessage({ type: 'selectModified' }));
+    btnClear.addEventListener('click', () => vscode.postMessage({ type: 'clearSelection' }));
+    btnExpandAll.addEventListener('click', () => vscode.postMessage({ type: 'expandAll' }));
+    btnCollapse.addEventListener('click', () => vscode.postMessage({ type: 'collapseAll' }));
+
+    btnSelectAll.addEventListener('click', () => {
+      if (currentSearchQuery) {
+        vscode.postMessage({ type: 'selectFound', query: currentSearchQuery });
+      } else {
+        vscode.postMessage({ type: 'selectAll' });
+      }
+    });
+
     /**
-     * Handles IPC messages dispatched from the extension backend.
-     * @param {MessageEvent} event - Incoming postMessage payload event.
+     * Broadcasts updated file exclusion filters to the extension host.
+     *
      * @returns {void}
      */
+    function notifyFilterChange() {
+      vscode.postMessage({
+        type: 'updateFilters',
+        filters: {
+          hideGitIgnored: document.getElementById('filterGit').checked,
+          hideSecrets: document.getElementById('filterSecrets').checked,
+          hideMinified: document.getElementById('filterMinified').checked,
+          hideLockFiles: document.getElementById('filterLock').checked,
+          hideBinaryFiles: document.getElementById('filterBinary').checked
+        }
+      });
+    }
+
+    document.getElementById('filterGit').addEventListener('change', notifyFilterChange);
+    document.getElementById('filterSecrets').addEventListener('change', notifyFilterChange);
+    document.getElementById('filterMinified').addEventListener('change', notifyFilterChange);
+    document.getElementById('filterLock').addEventListener('change', notifyFilterChange);
+    document.getElementById('filterBinary').addEventListener('change', notifyFilterChange);
+
+    // =========================================================================
+    // 9. Inbound IPC Message Dispatcher (Extension -> Webview)
+    // =========================================================================
     window.addEventListener('message', event => {
       const message = event.data;
       if (!message || typeof message.type !== 'string') return;
@@ -662,7 +800,6 @@ export function getScripts(): string {
           document.getElementById('filterBinary').checked = Boolean(message.filters.hideBinaryFiles);
         }
 
-        // Restores draft from project workspaceState safely without erasing newly typed input
         if (message.promptSettings) {
           promptToggle.checked = Boolean(message.promptSettings.enabled);
           promptInput.value = message.promptSettings.text || '';
@@ -722,71 +859,15 @@ export function getScripts(): string {
         }
       } else if (message.type === 'copySuccess') {
         triggerCopySuccess();
-      }
-    });
-
-    btnRefreshTop.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
-    btnCopy.addEventListener('click', () => vscode.postMessage({ type: 'copyContext' }));
-    btnPreview.addEventListener('click', () => vscode.postMessage({ type: 'previewContext' }));
-    btnExport.addEventListener('click', () => vscode.postMessage({ type: 'exportFile' }));
-    btnOpenTabs.addEventListener('click', () => vscode.postMessage({ type: 'selectOpenTabs' }));
-    btnGit.addEventListener('click', () => vscode.postMessage({ type: 'selectModified' }));
-    document.getElementById('btnClear').addEventListener('click', () => vscode.postMessage({ type: 'clearSelection' }));
-    document.getElementById('btnExpandAll').addEventListener('click', () => vscode.postMessage({ type: 'expandAll' }));
-    document.getElementById('btnCollapse').addEventListener('click', () => vscode.postMessage({ type: 'collapseAll' }));
-
-    btnSelectAll.addEventListener('click', () => {
-      if (currentSearchQuery) {
-        vscode.postMessage({ type: 'selectFound', query: currentSearchQuery });
-      } else {
-        vscode.postMessage({ type: 'selectAll' });
+      } else if (message.type === 'copyError') {
+        triggerCopyError();
       }
     });
 
     /**
-     * Broadcasts updated exclusion filter toggles to the extension backend.
-     * @returns {void}
-     */
-    function notifyFilterChange() {
-      vscode.postMessage({
-        type: 'updateFilters',
-        filters: {
-          hideGitIgnored: document.getElementById('filterGit').checked,
-          hideSecrets: document.getElementById('filterSecrets').checked,
-          hideMinified: document.getElementById('filterMinified').checked,
-          hideLockFiles: document.getElementById('filterLock').checked,
-          hideBinaryFiles: document.getElementById('filterBinary').checked
-        }
-      });
-    }
-
-    document.getElementById('filterGit').addEventListener('change', notifyFilterChange);
-    document.getElementById('filterSecrets').addEventListener('change', notifyFilterChange);
-    document.getElementById('filterMinified').addEventListener('change', notifyFilterChange);
-    document.getElementById('filterLock').addEventListener('change', notifyFilterChange);
-    document.getElementById('filterBinary').addEventListener('change', notifyFilterChange);
-
-    searchInput.addEventListener('input', (e) => {
-      currentSearchQuery = e.target.value.trim();
-      saveState();
-      updateClearSearchButtonVisibility();
-
-      if (!currentSearchQuery) {
-        btnSelectAll.innerText = '✅ Выбрать всё';
-      }
-
-      clearTimeout(searchDebounceTimer);
-      searchDebounceTimer = setTimeout(() => {
-        vscode.postMessage({
-          type: 'updateSearch',
-          query: currentSearchQuery
-        });
-      }, 300);
-    });
-
-    /**
-     * Renders numeric metrics and triggers dynamic token progress recalculation.
-     * @param {{ count: number, tokens: number, percentage: number }} stats - Calculated context statistics.
+     * Updates numeric file and token metrics in the stats card and refreshes progress bar.
+     *
+     * @param {{ count: number, tokens: number, percentage: number }} stats - Calculated context metrics.
      * @returns {void}
      */
     function updateStatsUI(stats) {
@@ -796,6 +877,7 @@ export function getScripts(): string {
       renderProgressIndicator();
     }
 
+    // Request initial synchronized data from the extension host on startup
     vscode.postMessage({ type: 'requestInitialData' });
   `;
 }

@@ -10,16 +10,6 @@ import { PathUtils } from '../utils/pathUtils';
  * Representation of an individual item within the project Context TreeView.
  */
 export class ContextTreeItem extends vscode.TreeItem {
-  /**
-   * Creates an instance of ContextTreeItem.
-   *
-   * @param uri - File system URI of the target item.
-   * @param isDirectory - Flag indicating whether the item is a folder.
-   * @param isChecked - Checkbox state (true = checked, false = unchecked, undefined = no checkbox).
-   * @param collapsibleState - Explicit collapsible state.
-   * @param descriptionText - Optional secondary description label displayed beside the item.
-   * @param version - Monotonic version used exclusively for directories to allow programmatic expansion.
-   */
   constructor(
     public readonly uri: vscode.Uri,
     public readonly isDirectory: boolean,
@@ -61,7 +51,7 @@ export class ContextTreeItem extends vscode.TreeItem {
 /**
  * Tree data provider managing hierarchical project file representation for the native VS Code TreeView.
  */
-export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextTreeItem> {
+export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextTreeItem>, vscode.Disposable {
   private readonly _onDidChangeTreeData: vscode.EventEmitter<ContextTreeItem | undefined | void> =
     new vscode.EventEmitter<ContextTreeItem | undefined | void>();
 
@@ -83,13 +73,6 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
   private gitStatuses: Map<string, GitFileStatus> = new Map<string, GitFileStatus>();
   private readonly selectionService: SelectionService;
 
-  /**
-   * Creates an instance of ContextTreeDataProvider.
-   *
-   * @param selectedFiles - Shared set containing normalized absolute paths of selected files.
-   * @param filters - Active file exclusion filter settings.
-   * @param onShowOnlySelectedChanged - Optional persistence callback.
-   */
   constructor(
     private readonly selectedFiles: Set<string>,
     private filters: FilterSettings,
@@ -98,21 +81,11 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     this.selectionService = new SelectionService(selectedFiles, this);
   }
 
-  /**
-   * Sets initial or restored show-only-selected state without re-persisting.
-   *
-   * @param value - Boolean flag.
-   */
   public setShowOnlySelected(value: boolean): void {
     this.showOnlySelected = value;
     vscode.commands.executeCommand('setContext', 'aiContextMerger.showOnlySelected', this.showOnlySelected);
   }
 
-  /**
-   * Toggles the filter mode to display exclusively selected files in the TreeView and persists state.
-   *
-   * @returns Updated state of the selected-only filter.
-   */
   public async toggleShowOnlySelected(): Promise<boolean> {
     this.showOnlySelected = !this.showOnlySelected;
     vscode.commands.executeCommand('setContext', 'aiContextMerger.showOnlySelected', this.showOnlySelected);
@@ -124,20 +97,10 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     return this.showOnlySelected;
   }
 
-  /**
-   * Returns whether the TreeView is currently filtering to only show selected files.
-   *
-   * @returns `true` if only selected files are displayed.
-   */
   public isShowOnlySelected(): boolean {
     return this.showOnlySelected;
   }
 
-  /**
-   * Assigns updated Git file change statuses and refreshes visual decorations.
-   *
-   * @param statuses - Map of file paths to Git statuses.
-   */
   public setGitStatuses(statuses: Map<string, GitFileStatus>): void {
     this.gitStatuses = statuses;
     this.folderTotalCountMap.clear();
@@ -145,22 +108,10 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     this.refresh();
   }
 
-  /**
-   * Computes the number of currently selected files located inside target directory in memory.
-   *
-   * @param folderPath - Absolute directory path.
-   * @returns Number of selected files contained within directory subtree.
-   */
   public getSelectedCountInFolder(folderPath: string): number {
     return ContextTreeStateResolver.getSelectedCountInFolder(folderPath, this.selectedFiles);
   }
 
-  /**
-   * Gets or calculates the total selectable file count in target directory.
-   *
-   * @param folderPath - Absolute directory path.
-   * @returns Total selectable file count.
-   */
   public async getFolderTotalCount(folderPath: string): Promise<number> {
     return ContextTreeStateResolver.getFolderTotalCount(
       folderPath,
@@ -170,20 +121,10 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     );
   }
 
-  /**
-   * Returns the count of unique files matching the active search query.
-   *
-   * @returns Number of matched files.
-   */
   public getMatchingFilesCount(): number {
     return this.matchingFilePaths.size;
   }
 
-  /**
-   * Updates active exclusion filters and refreshes the tree.
-   *
-   * @param filters - New filter settings.
-   */
   public setFilters(filters: FilterSettings): void {
     this.filters = filters;
     this.folderTotalCountMap.clear();
@@ -191,11 +132,6 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     this.refresh();
   }
 
-  /**
-   * Expands all ancestor directory paths containing target files and refreshes the view.
-   *
-   * @param filePaths - List of target file paths.
-   */
   public setExpandedFolders(filePaths: string[]): void {
     this.expandedFolderPaths.clear();
     const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -217,12 +153,6 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     this.refresh();
   }
 
-  /**
-   * Resolves parent item for an element to allow treeView.reveal navigation.
-   *
-   * @param element - Current node.
-   * @returns Parent tree item or undefined.
-   */
   public getParent(element: ContextTreeItem): ContextTreeItem | undefined {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
@@ -250,11 +180,6 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     return undefined;
   }
 
-  /**
-   * Sets current search filter query, pre-calculates matching hierarchies, and triggers view refresh.
-   *
-   * @param query - Search term.
-   */
   public async setSearchQuery(query: string): Promise<void> {
     this.searchQuery = query.trim().toLowerCase();
     this.matchingFilePaths.clear();
@@ -288,18 +213,12 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     this.refresh();
   }
 
-  /**
-   * Increments expansion level and updates tree view items.
-   */
   public expandLevel(): void {
     this.expansionLevel++;
     this.treeVersion++;
     this.refresh();
   }
 
-  /**
-   * Collapses all folder nodes in the TreeView and resets expansion depth.
-   */
   public collapseAll(): void {
     this.expansionLevel = 0;
     this.expandedFolderPaths.clear();
@@ -308,29 +227,14 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     this.refresh();
   }
 
-  /**
-   * Emits tree data change event to refresh UI rendering.
-   */
   public refresh(): void {
     this._onDidChangeTreeData.fire();
   }
 
-  /**
-   * Resolves the visual tree item representation.
-   *
-   * @param element - The tree node item.
-   * @returns Visual TreeItem descriptor.
-   */
   public getTreeItem(element: ContextTreeItem): vscode.TreeItem {
     return element;
   }
 
-  /**
-   * Resolves child items for a given directory node or workspace roots.
-   *
-   * @param element - Parent node, or undefined for root.
-   * @returns Array of child context tree items.
-   */
   public async getChildren(element?: ContextTreeItem): Promise<ContextTreeItem[]> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -421,12 +325,6 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     return [];
   }
 
-  /**
-   * Reads directory entries from filesystem, merging deleted Git changes and appending status badges.
-   *
-   * @param dirPath - Directory path to read.
-   * @returns List of child tree items.
-   */
   private async readDirectoryItems(dirPath: string): Promise<ContextTreeItem[]> {
     const normalizedDirPath = PathUtils.normalizePath(dirPath);
 
@@ -545,7 +443,6 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
 
     const treeItems = await Promise.all(itemPromises);
 
-    // Merge deleted Git items located directly inside this directory
     for (const [gitPath, status] of this.gitStatuses.entries()) {
       const isDirectChild = PathUtils.arePathsEqual(
         path.dirname(gitPath),
@@ -590,13 +487,6 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     return treeItems;
   }
 
-  /**
-   * Toggles selection state for an individual item or entire directory subtree.
-   *
-   * @param item - Target context tree item.
-   * @param newState - New checkbox state.
-   * @param refresh - Optional flag indicating whether to immediately trigger view refresh (default true).
-   */
   public async toggleItemSelection(
     item: ContextTreeItem,
     newState: vscode.TreeItemCheckboxState,
@@ -608,13 +498,12 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     }
   }
 
-  /**
-   * Inverts the selection state of a file when clicking on its tree item row.
-   *
-   * @param filePath - Normalized path of target file.
-   */
   public async toggleFileByPath(filePath: string): Promise<void> {
     this.selectionService.toggleFileByPath(filePath, this.filters);
     this.refresh();
+  }
+
+  public dispose(): void {
+    this._onDidChangeTreeData.dispose();
   }
 }

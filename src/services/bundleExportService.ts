@@ -13,6 +13,7 @@ import { BundleService } from './bundleService';
 
 /**
  * Service responsible for exporting context payloads to the clipboard, file system, or editor preview.
+ * Integrates VS Code progress reporting and notifications.
  */
 export class BundleExportService {
   /**
@@ -26,7 +27,8 @@ export class BundleExportService {
   }
 
   /**
-   * Assembles context bundle and writes it to the system clipboard.
+   * Assembles context bundle with progress reporting and writes it to the system clipboard.
+   * Notifies user if some files were replaced by error/binary placeholders.
    *
    * @param selectedFiles - Set of selected absolute file paths.
    * @param outputFormat - Current output format ('markdown' or 'xml').
@@ -36,6 +38,7 @@ export class BundleExportService {
    * @param filters - Active file exclusion filters.
    * @param cachedGitStatuses - Map of file paths to Git statuses.
    * @param onSuccess - Optional callback triggered upon successful copy.
+   * @param onError - Optional callback triggered if assembly or clipboard fails (used to reset Webview button).
    */
   public static async copyContextToClipboard(
     selectedFiles: Set<string>,
@@ -45,45 +48,64 @@ export class BundleExportService {
     diagnosticsSettings: DiagnosticsSettings,
     filters: FilterSettings,
     cachedGitStatuses: Map<string, GitFileStatus>,
-    onSuccess?: () => void
+    onSuccess?: () => void,
+    onError?: () => void
   ): Promise<void> {
     if (selectedFiles.size === 0) {
       vscode.window.showWarningMessage('Не выбрано ни одного файла для копирования.');
+      if (onError) {
+        onError();
+      }
       return;
     }
 
-    try {
-      const payload = await BundleService.buildContextPayload(
-        selectedFiles,
-        outputFormat,
-        promptSettings,
-        gitDiffSettings,
-        diagnosticsSettings,
-        filters,
-        cachedGitStatuses
-      );
-      await vscode.env.clipboard.writeText(payload);
-      if (onSuccess) {
-        onSuccess();
-      }
+    // Display native non-blocking progress notification in bottom-right corner of VS Code
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `AI Context Merger: сборка контекста (${selectedFiles.size} файлов)...`,
+        cancellable: false
+      },
+      async () => {
+        try {
+          const payload = await BundleService.buildContextPayload(
+            selectedFiles,
+            outputFormat,
+            promptSettings,
+            gitDiffSettings,
+            diagnosticsSettings,
+            filters,
+            cachedGitStatuses
+          );
 
-      const formatLabel = outputFormat.toUpperCase();
-      vscode.window.showInformationMessage(`Скопирован контекст (${formatLabel}): ${selectedFiles.size} файлов!`);
-    } catch (err: unknown) {
-      vscode.window.showErrorMessage(`Ошибка копирования в буфер обмена: ${this.extractErrorMessage(err)}`);
-    }
+          await vscode.env.clipboard.writeText(payload);
+
+          if (onSuccess) {
+            onSuccess();
+          }
+
+          const formatLabel = outputFormat.toUpperCase();
+          vscode.window.showInformationMessage(`Скопирован контекст (${formatLabel}): ${selectedFiles.size} файлов!`);
+
+          // Inspect payload for unreadable file placeholders to warn user
+          const placeholderMatches = payload.match(/\[(Ошибка чтения|Файл превышает лимит|Файл с нераспознанной)/g);
+          if (placeholderMatches && placeholderMatches.length > 0) {
+            vscode.window.showWarningMessage(
+              `Внимание: в ${placeholderMatches.length} файлах содержимое было заменено служебными заглушками.`
+            );
+          }
+        } catch (err: unknown) {
+          if (onError) {
+            onError();
+          }
+          vscode.window.showErrorMessage(`Ошибка копирования в буфер обмена: ${this.extractErrorMessage(err)}`);
+        }
+      }
+    );
   }
 
   /**
    * Prompts user for a save location and exports formatted bundle to disk.
-   *
-   * @param selectedFiles - Set of selected absolute file paths.
-   * @param outputFormat - Current output format ('markdown' or 'xml').
-   * @param promptSettings - AI instruction configuration.
-   * @param gitDiffSettings - Git diff settings.
-   * @param diagnosticsSettings - Compiler/linter diagnostics settings.
-   * @param filters - Active file exclusion filters.
-   * @param cachedGitStatuses - Map of file paths to Git statuses.
    */
   public static async exportContextToFile(
     selectedFiles: Set<string>,
@@ -133,14 +155,6 @@ export class BundleExportService {
 
   /**
    * Opens assembled context in an editor split beside current view with matching syntax highlighting.
-   *
-   * @param selectedFiles - Set of selected absolute file paths.
-   * @param outputFormat - Current output format ('markdown' or 'xml').
-   * @param promptSettings - AI instruction configuration.
-   * @param gitDiffSettings - Git diff settings.
-   * @param diagnosticsSettings - Compiler/linter diagnostics settings.
-   * @param filters - Active file exclusion filters.
-   * @param cachedGitStatuses - Map of file paths to Git statuses.
    */
   public static async previewContext(
     selectedFiles: Set<string>,

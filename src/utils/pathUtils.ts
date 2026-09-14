@@ -1,14 +1,29 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 
 /**
- * Utility class for cross-platform file path operations, comparisons, and hierarchy traversal.
+ * Utility functions for cross-platform file path operations and resolution.
  */
 export class PathUtils {
   /**
+   * Safely resolves the canonical real path of a directory to prevent symlink recursion.
+   *
+   * @param targetPath - File system path to resolve.
+   * @returns Canonical real path or original path on failure.
+   */
+  public static async getCanonicalPath(targetPath: string): Promise<string> {
+    try {
+      return await fs.promises.realpath(targetPath);
+    } catch {
+      return targetPath;
+    }
+  }
+
+  /**
    * Normalizes a file system path and standardizes Windows drive letter casing.
    *
-   * @param targetPath - The raw file system path.
+   * @param targetPath - Raw file system path.
    * @returns Normalized path with uppercase drive letter on Windows.
    */
   public static normalizePath(targetPath: string): string {
@@ -24,7 +39,7 @@ export class PathUtils {
    *
    * @param path1 - First path to compare.
    * @param path2 - Second path to compare.
-   * @returns `true` if both paths point to the same location.
+   * @returns True if both paths point to the same location.
    */
   public static arePathsEqual(path1: string, path2: string): boolean {
     const norm1 = this.normalizePath(path1);
@@ -36,12 +51,11 @@ export class PathUtils {
   }
 
   /**
-   * Determines whether a target path is equal to or located inside a parent directory.
-   * Handles case-insensitive comparison on Windows.
+   * Determines whether a candidate path is inside a parent directory.
    *
-   * @param candidatePath - The path to test.
-   * @param parentDirPath - The parent directory path.
-   * @returns `true` if candidatePath is equal to or within parentDirPath.
+   * @param candidatePath - Path to test.
+   * @param parentDirPath - Boundary parent directory path.
+   * @returns True if candidatePath is equal to or within parentDirPath.
    */
   public static isSubpath(candidatePath: string, parentDirPath: string): boolean {
     const normalizedTarget = this.normalizePath(candidatePath);
@@ -62,6 +76,7 @@ export class PathUtils {
    * Converts a path to POSIX-compliant relative format (using `/` as separator).
    *
    * @param from - Source directory path.
+   * @param to - Destination path.
    * @returns POSIX-formatted relative path.
    */
   public static toPosixRelative(from: string, to: string): string {
@@ -71,10 +86,10 @@ export class PathUtils {
   }
 
   /**
-   * Retrieves all ancestor directory paths starting from the parent of targetPath up to and including rootPath.
+   * Retrieves all ancestor directory paths starting from parent up to rootPath.
    *
-   * @param targetPath - The child file or directory path.
-   * @param rootPath - The boundary workspace root directory.
+   * @param targetPath - Child file or directory path.
+   * @param rootPath - Boundary workspace root directory.
    * @returns Array of normalized ancestor directory paths.
    */
   public static getAncestorPaths(targetPath: string, rootPath: string): string[] {

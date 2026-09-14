@@ -4,41 +4,68 @@ import * as path from 'path';
 import { FilterSettings } from '../types';
 import { WorkspaceScanner } from './workspaceScanner';
 import { GitService } from './gitService';
-import { ContextTreeDataProvider, ContextTreeItem } from './contextTreeDataProvider';
 import { PathUtils } from '../utils/pathUtils';
 
 /**
- * Service managing selection operations across workspace, editor tabs, search results, and Git.
+ * Interface decoupling tree provider actions from the concrete ContextTreeDataProvider class.
+ * Eliminates circular dependency between SelectionService and TreeView.
+ */
+export interface SelectionChangeHandler {
+  /**
+   * Triggers visual refresh of the TreeView.
+   */
+  refresh(): void;
+
+  /**
+   * Expands ancestor folder nodes in the TreeView for target file paths.
+   *
+   * @param filePaths - Target file paths whose parents should expand.
+   */
+  setExpandedFolders?(filePaths: string[]): void;
+
+  /**
+   * Shared cache of total selectable file counts per folder.
+   */
+  readonly folderTotalCountMap?: Map<string, number>;
+}
+
+/**
+ * Tree item representation interface expected by SelectionService.
+ * Uses index access on vscode.TreeItem['checkboxState'] to maintain 100% type compatibility
+ * with all recent versions of @types/vscode without build errors.
+ */
+export interface SelectableTreeItem {
+  readonly uri: vscode.Uri;
+  readonly isDirectory: boolean;
+  readonly contextValue?: string;
+  readonly checkboxState?: vscode.TreeItem['checkboxState'];
+}
+
+/**
+ * Service managing file selection state across editor tabs, workspace searches, and Git changes.
  */
 export class SelectionService {
+  /**
+   * Creates an instance of SelectionService.
+   *
+   * @param selectedFiles - Shared mutable Set storing normalized paths of selected files.
+   * @param handler - Decoupled callback interface for TreeView refreshes and expansions.
+   */
   constructor(
     private readonly selectedFiles: Set<string>,
-    private readonly treeDataProvider: ContextTreeDataProvider
+    private readonly handler: SelectionChangeHandler
   ) {}
 
   /**
-   * Resolves canonical real path of a directory safely to prevent recursive symlink loops.
+   * Recursively traverses a directory, adding non-filtered files to the selection set.
+   * Uses realpath checking to strictly prevent symlink recursion loops.
    *
-   * @param dirPath - Directory path.
-   * @returns Canonical real path.
-   */
-  private static async getCanonicalPath(dirPath: string): Promise<string> {
-    try {
-      return await fs.promises.realpath(dirPath);
-    } catch {
-      return dirPath;
-    }
-  }
-
-  /**
-   * Recursively traverses a folder, adding non-filtered files to the selection set and caching counts.
-   *
-   * @param dirPath - Root directory path.
-   * @param filters - Active exclusion filters.
-   * @param selectedFiles - Selection set to mutate.
-   * @param countMap - Optional map to store total file counts per folder.
-   * @param visitedDirs - Set of visited directory real paths to prevent symlink loops.
-   * @returns Total count of selectable files processed within directory.
+   * @param dirPath - Root directory path to traverse.
+   * @param filters - Active file exclusion filters.
+   * @param selectedFiles - Target set of selected files to mutate.
+   * @param countMap - Optional map caching total file counts per folder.
+   * @param visitedDirs - Set of canonical paths visited during current recursion to guard loops.
+   * @returns Total count of selectable files found in the directory subtree.
    */
   public static async selectFolderRecursive(
     dirPath: string,
@@ -48,8 +75,9 @@ export class SelectionService {
     visitedDirs: Set<string> = new Set<string>()
   ): Promise<number> {
     const normalizedDirPath = PathUtils.normalizePath(dirPath);
-    const realDir = await this.getCanonicalPath(normalizedDirPath);
+    const realDir = await PathUtils.getCanonicalPath(normalizedDirPath);
 
+    // Guard against circular symlink traversal
     if (visitedDirs.has(realDir)) {
       return 0;
     }
@@ -74,6 +102,7 @@ export class SelectionService {
       }
     }
 
+    // Cache computed count for intermediate folders
     if (countMap) {
       countMap.set(normalizedDirPath, affectedCount);
     }
@@ -82,14 +111,14 @@ export class SelectionService {
   }
 
   /**
-   * Toggles selection state for an individual tree item or entire directory subtree.
+   * Toggles selection state for an individual tree item or directory subtree.
    *
-   * @param item - Target context tree item.
-   * @param newState - New checkbox state.
-   * @param filters - Active filter settings.
+   * @param item - Target tree item clicked by user.
+   * @param newState - New checkbox state (Checked or Unchecked).
+   * @param filters - Active exclusion filters.
    */
   public async toggleTreeItemSelection(
-    item: ContextTreeItem,
+    item: SelectableTreeItem,
     newState: vscode.TreeItemCheckboxState,
     filters: FilterSettings
   ): Promise<void> {
@@ -102,13 +131,15 @@ export class SelectionService {
 
     if (item.isDirectory) {
       if (isChecked) {
+        // Recursively select all non-filtered children inside folder
         await SelectionService.selectFolderRecursive(
           targetPath,
           filters,
           this.selectedFiles,
-          this.treeDataProvider.folderTotalCountMap
+          this.handler.folderTotalCountMap
         );
       } else {
+        // Deselect folder and all children inside
         for (const file of Array.from(this.selectedFiles)) {
           if (file === targetPath || PathUtils.isSubpath(file, targetPath)) {
             this.selectedFiles.delete(file);
@@ -128,10 +159,10 @@ export class SelectionService {
   }
 
   /**
-   * Inverts the selection state of a file when clicking on its tree item row.
+   * Inverts selection state for a file by path when clicked directly in the tree row.
    *
-   * @param filePath - Normalized path of target file.
-   * @param filters - Active filter settings.
+   * @param filePath - Path of clicked file.
+   * @param filters - Active exclusion filters.
    */
   public toggleFileByPath(filePath: string, filters: FilterSettings): void {
     if (!filePath || filePath.startsWith('ai-context-merger:')) {
@@ -150,7 +181,7 @@ export class SelectionService {
   }
 
   /**
-   * Selects all non-filtered files across all workspace folders and updates folder count caches.
+   * Selects all non-filtered files across all workspace folders.
    *
    * @param filters - Active exclusion filters.
    */
@@ -167,18 +198,18 @@ export class SelectionService {
         rootPath,
         filters,
         this.selectedFiles,
-        this.treeDataProvider.folderTotalCountMap
+        this.handler.folderTotalCountMap
       );
     }
-    this.treeDataProvider.refresh();
+    this.handler.refresh();
   }
 
   /**
-   * Selects all active file URIs currently opened across editor tab groups that reside within the active workspace.
-   * Automatically expands ancestor directories and returns resolved file paths.
+   * Selects all files currently opened in editor tab groups that reside within the active workspace.
+   * Automatically expands ancestor directories in the TreeView.
    *
    * @param filters - Active exclusion filters.
-   * @returns Array of normalized absolute paths of selected files.
+   * @returns Array of selected file paths.
    */
   public async selectOpenTabs(filters: FilterSettings): Promise<string[]> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -189,15 +220,18 @@ export class SelectionService {
 
     const openUris: vscode.Uri[] = [];
 
+    // Inspect all active editor tab groups and extract file URIs
     for (const group of vscode.window.tabGroups.all) {
       for (const tab of group.tabs) {
         if (tab.input && typeof tab.input === 'object') {
+          // Standard text document tab
           if ('uri' in tab.input && (tab.input as { uri: unknown }).uri instanceof vscode.Uri) {
             const uri = (tab.input as { uri: vscode.Uri }).uri;
             if (uri.scheme === 'file') {
               openUris.push(uri);
             }
           }
+          // Side-by-side diff editor tab
           if ('modified' in tab.input && (tab.input as { modified: unknown }).modified instanceof vscode.Uri) {
             const uri = (tab.input as { modified: vscode.Uri }).modified;
             if (uri.scheme === 'file') {
@@ -213,8 +247,8 @@ export class SelectionService {
 
     for (const uri of openUris) {
       const fsPath = PathUtils.normalizePath(uri.fsPath);
-      const matchedFolder = workspaceFolders.find((f) =>
-        PathUtils.isSubpath(fsPath, PathUtils.normalizePath(f.uri.fsPath))
+      const matchedFolder = workspaceFolders.find((folder) =>
+        PathUtils.isSubpath(fsPath, PathUtils.normalizePath(folder.uri.fsPath))
       );
 
       if (!matchedFolder) {
@@ -241,8 +275,10 @@ export class SelectionService {
       }
     }
 
-    // Expand ancestor directories in TreeView
-    this.treeDataProvider.setExpandedFolders(newlyAddedPaths);
+    // Programmatically expand parent folders in TreeView so user sees the selected tabs
+    if (this.handler.setExpandedFolders) {
+      this.handler.setExpandedFolders(newlyAddedPaths);
+    }
 
     if (newlyAddedPaths.length > 0) {
       vscode.window.showInformationMessage(`Выбрано файлов из открытых вкладок: ${newlyAddedPaths.length}`);
@@ -266,8 +302,8 @@ export class SelectionService {
     const matchedModifiedPaths: string[] = [];
 
     for (const filePath of modifiedPaths) {
-      const matchedFolder = workspaceFolders?.find((f) =>
-        PathUtils.isSubpath(filePath, PathUtils.normalizePath(f.uri.fsPath))
+      const matchedFolder = workspaceFolders?.find((folder) =>
+        PathUtils.isSubpath(filePath, PathUtils.normalizePath(folder.uri.fsPath))
       );
       const rootPath = matchedFolder ? PathUtils.normalizePath(matchedFolder.uri.fsPath) : undefined;
       const isFiltered = await WorkspaceScanner.shouldFilterItem(filePath, false, filters, rootPath);
@@ -278,7 +314,9 @@ export class SelectionService {
       }
     }
 
-    this.treeDataProvider.setExpandedFolders(matchedModifiedPaths);
+    if (this.handler.setExpandedFolders) {
+      this.handler.setExpandedFolders(matchedModifiedPaths);
+    }
 
     if (this.selectedFiles.size === 0) {
       vscode.window.showWarningMessage('В Git нет измененных файлов (или они скрыты активными фильтрами).');
@@ -290,7 +328,7 @@ export class SelectionService {
   /**
    * Selects all files matching current search query across workspace.
    *
-   * @param query - Active search query.
+   * @param query - Search term.
    * @param filters - Active exclusion filters.
    */
   public async selectFoundFiles(query: string, filters: FilterSettings): Promise<void> {
@@ -306,14 +344,14 @@ export class SelectionService {
       }
     }
 
-    this.treeDataProvider.refresh();
+    this.handler.refresh();
   }
 
   /**
-   * Clears active selection set and refreshes tree.
+   * Clears selection set and refreshes TreeView.
    */
   public clearSelection(): void {
     this.selectedFiles.clear();
-    this.treeDataProvider.refresh();
+    this.handler.refresh();
   }
 }

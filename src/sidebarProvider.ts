@@ -23,9 +23,6 @@ import { DiagnosticsService } from './services/diagnosticsService';
 import { WebviewMessageHandler } from './services/webviewMessageHandler';
 import { getHtmlTemplate } from './ui/htmlTemplate';
 
-/**
- * Storage keys for workspace-scoped preferences (specific to the current project/workspace).
- */
 export const WORKSPACE_STORAGE_KEYS = {
   PROMPT_SETTINGS: 'aiContextMerger.promptSettings',
   GIT_DIFF_SETTINGS: 'aiContextMerger.gitDiffSettings',
@@ -36,13 +33,13 @@ export const WORKSPACE_STORAGE_KEYS = {
 
 /**
  * Webview View Provider for AI Context Merger controls panel.
- * Coordinates user interface lifecycle, state persistence, and statistics synchronization.
  */
 export class ContextMergerControlsProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewType = 'aiContextMergerControlsView';
   public static readonly WORKSPACE_STORAGE_KEYS = WORKSPACE_STORAGE_KEYS;
 
   private _view?: vscode.WebviewView;
+  private messageListenerDisposable?: vscode.Disposable;
 
   public filters: FilterSettings;
   public promptSettings: PromptSettings;
@@ -68,12 +65,10 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     this.presetService = new PresetService(context);
     this.selectionService = new SelectionService(selectedFiles, treeDataProvider);
 
-    // 1. Restore global settings (synchronized via Settings Sync)
     this.outputFormat = this.presetService.getOutputFormat();
     this.filters = this.presetService.getFilters();
     this.tokenLimit = this.presetService.getTokenLimit();
 
-    // 2. Restore workspace-scoped settings (current project session)
     this.promptSettings = this.context.workspaceState.get<PromptSettings>(
       WORKSPACE_STORAGE_KEYS.PROMPT_SETTINGS,
       { enabled: false, text: '' }
@@ -149,11 +144,6 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     );
   }
 
-  /**
-   * Internal reusable helper calculating token metrics and payloads uniformly.
-   *
-   * @returns Computed stats metrics.
-   */
   private async computeContextStats(): Promise<ContextStats> {
     let diffLength = 0;
     if (this.gitDiffSettings.includeGitDiff && this.selectedFiles.size > 0) {
@@ -194,9 +184,12 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
 
     webviewView.webview.html = getHtmlTemplate(webviewView.webview);
 
-    webviewView.webview.onDidReceiveMessage(async (message: WebviewToExtensionMessage) => {
-      await this.messageHandler.handleMessage(message);
-    });
+    this.messageListenerDisposable?.dispose();
+    this.messageListenerDisposable = webviewView.webview.onDidReceiveMessage(
+      async (message: WebviewToExtensionMessage) => {
+        await this.messageHandler.handleMessage(message);
+      }
+    );
   }
 
   public async updateStats(): Promise<void> {
@@ -255,6 +248,9 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       this.cachedGitStatuses,
       () => {
         this.postWebviewMessage({ type: 'copySuccess' });
+      },
+      () => {
+        this.postWebviewMessage({ type: 'copyError' });
       }
     );
   }
@@ -285,6 +281,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
 
   public dispose(): void {
     this.isDisposed = true;
+    this.messageListenerDisposable?.dispose();
     this.watcherService.dispose();
   }
 }

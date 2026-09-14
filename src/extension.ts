@@ -10,12 +10,27 @@ import { PresetService } from './services/presetService';
  *
  * @param context - Extension context provided by VS Code.
  */
-export function activate(context: vscode.ExtensionContext): void {
-  // 1. Restore persistent files selection from project workspaceState
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const savedFiles = context.workspaceState.get<string[]>(WORKSPACE_STORAGE_KEYS.SELECTED_FILES, []);
-  const selectedFiles = new Set<string>(savedFiles);
 
-  // 2. Restore global synchronized filter settings
+  // Filter out any files deleted from disk while VS Code was closed
+  const existingFiles: string[] = [];
+  for (const filePath of savedFiles) {
+    try {
+      const stat = await fs.promises.stat(filePath);
+      if (stat.isFile()) {
+        existingFiles.push(filePath);
+      }
+    } catch {
+      // Skip deleted or inaccessible file
+    }
+  }
+
+  const selectedFiles = new Set<string>(existingFiles);
+  if (existingFiles.length !== savedFiles.length) {
+    await context.workspaceState.update(WORKSPACE_STORAGE_KEYS.SELECTED_FILES, existingFiles);
+  }
+
   const presetService = new PresetService(context);
   const filters = presetService.getFilters();
 
@@ -27,7 +42,6 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
-  // Restore show-only-selected filter state
   const savedShowOnlySelected = context.workspaceState.get<boolean>(WORKSPACE_STORAGE_KEYS.SHOW_ONLY_SELECTED, false);
   treeDataProvider.setShowOnlySelected(savedShowOnlySelected);
 
@@ -52,7 +66,6 @@ export function activate(context: vscode.ExtensionContext): void {
     controlsProvider
   );
 
-  // Handle item selection toggle when clicking on a file row
   const toggleClickCommand = vscode.commands.registerCommand(
     'aiContextMerger.toggleFileByClick',
     async (filePath: string) => {
@@ -72,6 +85,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
+    treeDataProvider,
     controlsProvider,
     toggleClickCommand,
     ...contextMenuService.registerCommands(),

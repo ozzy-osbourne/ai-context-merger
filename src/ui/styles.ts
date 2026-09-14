@@ -1,7 +1,8 @@
 /**
- * Generates the complete categorized and documented CSS stylesheet string for the controls Webview.
+ * Generates the complete categorized and documented CSS stylesheet string for the controls Webview panel.
+ * Defines theme variables, interactive button states, progress bars, and narrow sidebar responsive rules.
  *
- * @returns CSS styles string.
+ * @returns Serialized CSS styles string.
  */
 export function getStyles(): string {
   return `
@@ -134,15 +135,20 @@ export function getStyles(): string {
       justify-content: center;
       gap: 8px;
       box-sizing: border-box;
-      transition: background-color 0.2s ease, transform 0.1s ease;
+      transition: background-color 0.2s ease, opacity 0.2s ease, transform 0.1s ease;
     }
 
-    .btn-primary:hover {
+    .btn-primary:hover:not(:disabled) {
       background-color: var(--vscode-button-hoverBackground);
     }
 
-    .btn-primary:active {
+    .btn-primary:active:not(:disabled) {
       transform: scale(0.98);
+    }
+
+    .btn-primary:disabled {
+      cursor: not-allowed;
+      filter: grayscale(15%);
     }
 
     .btn-primary.btn-copied {
@@ -277,16 +283,13 @@ export function getStyles(): string {
       border-radius: 12px;
       padding: 2px 7px;
       font-size: 10px;
+      font-family: inherit;
       cursor: pointer;
       user-select: none;
       display: inline-flex;
       align-items: center;
       gap: 4px;
       transition: background-color 0.15s ease, border-color 0.15s ease;
-    }
-
-    button.preset-chip {
-      font-family: inherit;
     }
 
     .preset-chip:hover {

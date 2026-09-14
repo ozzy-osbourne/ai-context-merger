@@ -71,4 +71,7 @@ export type ExtensionToWebviewMessage =
   }
   | {
     type: 'copySuccess';
+  }
+  | {
+    type: 'copyError';
   };
