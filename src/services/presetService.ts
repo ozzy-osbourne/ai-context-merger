@@ -23,6 +23,17 @@ const DEFAULT_FILTERS: FilterSettings = {
 };
 
 /**
+ * Result descriptor for preset mutation actions.
+ */
+export interface PresetOperationResult {
+  readonly success: boolean;
+  readonly warning?: string;
+  readonly error?: string;
+  readonly preset?: CustomPreset;
+  readonly updatedPresets?: CustomPreset[];
+}
+
+/**
  * Service managing user presets, filters, formats, and token limits with VS Code Settings Sync.
  */
 export class PresetService {
@@ -48,6 +59,123 @@ export class PresetService {
    */
   public async saveCustomPresets(presets: CustomPreset[]): Promise<void> {
     await this.context.globalState.update(STORAGE_KEYS.CUSTOM_PRESETS, presets);
+  }
+
+  /**
+   * Validates custom preset attributes.
+   *
+   * @param name - Raw preset name.
+   * @param text - Raw preset prompt body.
+   * @returns Validation outcome with trimmed values or warning/error.
+   */
+  public validatePreset(
+    name: string,
+    text: string
+  ): { isValid: boolean; trimmedName: string; trimmedText: string; warning?: string } {
+    if (typeof name !== 'string' || typeof text !== 'string') {
+      return { isValid: false, trimmedName: '', trimmedText: '', warning: 'Название и текст пресета не могут быть пустыми.' };
+    }
+    const trimmedName = name.trim();
+    const trimmedText = text.trim();
+
+    if (!trimmedName || !trimmedText) {
+      return { isValid: false, trimmedName, trimmedText, warning: 'Название и текст пресета не могут быть пустыми.' };
+    }
+    if (trimmedName.length > 32) {
+      return { isValid: false, trimmedName, trimmedText, warning: 'Название пресета не должно превышать 32 символа.' };
+    }
+    if (trimmedText.length > 10000) {
+      return { isValid: false, trimmedName, trimmedText, warning: 'Текст пресета слишком длинный (максимум 10 000 символов).' };
+    }
+
+    return { isValid: true, trimmedName, trimmedText };
+  }
+
+  /**
+   * Adds a new custom preset to persistent storage.
+   *
+   * @param name - Preset name.
+   * @param text - Preset prompt text.
+   * @returns Operation outcome.
+   */
+  public async addCustomPreset(name: string, text: string): Promise<PresetOperationResult> {
+    const validation = this.validatePreset(name, text);
+    if (!validation.isValid) {
+      return { success: false, warning: validation.warning };
+    }
+
+    const currentPresets = this.getCustomPresets();
+    if (currentPresets.length >= 50) {
+      return { success: false, error: 'Достигнут лимит сохраненных пресетов (максимум 50).' };
+    }
+
+    const newPreset: CustomPreset = {
+      id: `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      name: validation.trimmedName,
+      text: validation.trimmedText
+    };
+
+    currentPresets.push(newPreset);
+    await this.saveCustomPresets(currentPresets);
+
+    return { success: true, preset: newPreset, updatedPresets: currentPresets };
+  }
+
+  /**
+   * Updates an existing custom preset in persistent storage.
+   *
+   * @param id - Unique identifier of preset.
+   * @param name - Updated preset name.
+   * @param text - Updated preset prompt body.
+   * @returns Operation outcome.
+   */
+  public async editCustomPreset(id: string, name: string, text: string): Promise<PresetOperationResult> {
+    if (typeof id !== 'string') {
+      return { success: false, error: 'Идентификатор пресета некорректен.' };
+    }
+
+    const validation = this.validatePreset(name, text);
+    if (!validation.isValid) {
+      return { success: false, warning: validation.warning };
+    }
+
+    const currentPresets = this.getCustomPresets();
+    const targetIndex = currentPresets.findIndex((p) => p.id === id);
+
+    if (targetIndex === -1) {
+      return { success: false, error: 'Пресет не найден или уже был удален.', updatedPresets: currentPresets };
+    }
+
+    currentPresets[targetIndex] = {
+      ...currentPresets[targetIndex],
+      name: validation.trimmedName,
+      text: validation.trimmedText
+    };
+
+    await this.saveCustomPresets(currentPresets);
+
+    return { success: true, preset: currentPresets[targetIndex], updatedPresets: currentPresets };
+  }
+
+  /**
+   * Deletes an existing custom preset from persistent storage.
+   *
+   * @param id - Unique identifier of preset.
+   * @returns Operation outcome with updated presets list.
+   */
+  public async deleteCustomPreset(id: string): Promise<PresetOperationResult> {
+    if (typeof id !== 'string') {
+      return { success: false, error: 'Идентификатор пресета некорректен.' };
+    }
+
+    const currentPresets = this.getCustomPresets();
+    const filteredPresets = currentPresets.filter((p) => p.id !== id);
+
+    if (filteredPresets.length !== currentPresets.length) {
+      await this.saveCustomPresets(filteredPresets);
+    }
+
+    return { success: true, updatedPresets: filteredPresets };
   }
 
   /**

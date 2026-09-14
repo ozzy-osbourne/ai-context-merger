@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as path from 'path';
 import { FilterSettings } from '../types';
 import { WorkspaceScanner } from './workspaceScanner';
 import { GitService } from './gitService';
-import { ContextTreeDataProvider } from './contextTreeDataProvider';
+import { ContextTreeDataProvider, ContextTreeItem } from './contextTreeDataProvider';
 import { PathUtils } from '../utils/pathUtils';
 
 /**
@@ -14,6 +15,139 @@ export class SelectionService {
     private readonly selectedFiles: Set<string>,
     private readonly treeDataProvider: ContextTreeDataProvider
   ) {}
+
+  /**
+   * Resolves canonical real path of a directory safely to prevent recursive symlink loops.
+   *
+   * @param dirPath - Directory path.
+   * @returns Canonical real path.
+   */
+  private static async getCanonicalPath(dirPath: string): Promise<string> {
+    try {
+      return await fs.promises.realpath(dirPath);
+    } catch {
+      return dirPath;
+    }
+  }
+
+  /**
+   * Recursively traverses a folder, adding non-filtered files to the selection set and caching counts.
+   *
+   * @param dirPath - Root directory path.
+   * @param filters - Active exclusion filters.
+   * @param selectedFiles - Selection set to mutate.
+   * @param countMap - Optional map to store total file counts per folder.
+   * @param visitedDirs - Set of visited directory real paths to prevent symlink loops.
+   * @returns Total count of selectable files processed within directory.
+   */
+  public static async selectFolderRecursive(
+    dirPath: string,
+    filters: FilterSettings,
+    selectedFiles: Set<string>,
+    countMap?: Map<string, number>,
+    visitedDirs: Set<string> = new Set<string>()
+  ): Promise<number> {
+    const normalizedDirPath = PathUtils.normalizePath(dirPath);
+    const realDir = await this.getCanonicalPath(normalizedDirPath);
+
+    if (visitedDirs.has(realDir)) {
+      return 0;
+    }
+    visitedDirs.add(realDir);
+
+    let affectedCount = 0;
+    const validEntries = await WorkspaceScanner.readValidDirectoryEntries(normalizedDirPath, filters);
+
+    for (const { entry, fullPath } of validEntries) {
+      if (entry.isDirectory()) {
+        const childCount = await this.selectFolderRecursive(
+          fullPath,
+          filters,
+          selectedFiles,
+          countMap,
+          visitedDirs
+        );
+        affectedCount += childCount;
+      } else {
+        affectedCount++;
+        selectedFiles.add(fullPath);
+      }
+    }
+
+    if (countMap) {
+      countMap.set(normalizedDirPath, affectedCount);
+    }
+
+    return affectedCount;
+  }
+
+  /**
+   * Toggles selection state for an individual tree item or entire directory subtree.
+   *
+   * @param item - Target context tree item.
+   * @param newState - New checkbox state.
+   * @param filters - Active filter settings.
+   */
+  public async toggleTreeItemSelection(
+    item: ContextTreeItem,
+    newState: vscode.TreeItemCheckboxState,
+    filters: FilterSettings
+  ): Promise<void> {
+    if (item.contextValue === 'emptyState' || item.checkboxState === undefined) {
+      return;
+    }
+
+    const isChecked = newState === vscode.TreeItemCheckboxState.Checked;
+    const targetPath = PathUtils.normalizePath(item.uri.fsPath);
+
+    if (item.isDirectory) {
+      if (isChecked) {
+        await SelectionService.selectFolderRecursive(
+          targetPath,
+          filters,
+          this.selectedFiles,
+          this.treeDataProvider.folderTotalCountMap
+        );
+      } else {
+        for (const file of Array.from(this.selectedFiles)) {
+          if (file === targetPath || PathUtils.isSubpath(file, targetPath)) {
+            this.selectedFiles.delete(file);
+          }
+        }
+      }
+    } else {
+      if (isChecked) {
+        const fileName = path.basename(targetPath);
+        if (!WorkspaceScanner.isFilteredByType(fileName, false, filters)) {
+          this.selectedFiles.add(targetPath);
+        }
+      } else {
+        this.selectedFiles.delete(targetPath);
+      }
+    }
+  }
+
+  /**
+   * Inverts the selection state of a file when clicking on its tree item row.
+   *
+   * @param filePath - Normalized path of target file.
+   * @param filters - Active filter settings.
+   */
+  public toggleFileByPath(filePath: string, filters: FilterSettings): void {
+    if (!filePath || filePath.startsWith('ai-context-merger:')) {
+      return;
+    }
+    const norm = PathUtils.normalizePath(filePath);
+
+    if (this.selectedFiles.has(norm)) {
+      this.selectedFiles.delete(norm);
+    } else {
+      const fileName = path.basename(norm);
+      if (!WorkspaceScanner.isFilteredByType(fileName, false, filters)) {
+        this.selectedFiles.add(norm);
+      }
+    }
+  }
 
   /**
    * Selects all non-filtered files across all workspace folders and updates folder count caches.
@@ -29,7 +163,7 @@ export class SelectionService {
     this.selectedFiles.clear();
     for (const folder of workspaceFolders) {
       const rootPath = PathUtils.normalizePath(folder.uri.fsPath);
-      await WorkspaceScanner.selectFolderRecursive(
+      await SelectionService.selectFolderRecursive(
         rootPath,
         filters,
         this.selectedFiles,
@@ -145,7 +279,12 @@ export class SelectionService {
     }
 
     this.treeDataProvider.setExpandedFolders(matchedModifiedPaths);
-    vscode.window.showInformationMessage(`Выбрано файлов Git: ${this.selectedFiles.size}`);
+
+    if (this.selectedFiles.size === 0) {
+      vscode.window.showWarningMessage('В Git нет измененных файлов (или они скрыты активными фильтрами).');
+    } else {
+      vscode.window.showInformationMessage(`Выбрано файлов Git: ${this.selectedFiles.size}`);
+    }
   }
 
   /**

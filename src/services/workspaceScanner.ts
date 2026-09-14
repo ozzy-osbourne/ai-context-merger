@@ -4,6 +4,7 @@ import { FilterSettings } from '../types';
 import { ALWAYS_IGNORED, LOCK_FILE_NAMES, BINARY_EXTENSIONS, isSecretFile, isMinifiedOrSourceMap } from '../constants';
 import { GitService } from './gitService';
 import { PathUtils } from '../utils/pathUtils';
+import { SelectionService } from './selectionService';
 
 /**
  * Scanned directory entry containing the filesystem descriptor and its normalized path.
@@ -14,9 +15,23 @@ export interface ScannedDirectoryEntry {
 }
 
 /**
- * Service for scanning workspace directories and managing hierarchical selections.
+ * Service for scanning workspace directories, checking exclusion rules, and calculating file metrics.
  */
 export class WorkspaceScanner {
+  /**
+   * Resolves canonical real path of a directory safely to prevent recursive symlink loops.
+   *
+   * @param dirPath - Directory path.
+   * @returns Canonical real path.
+   */
+  private static async getCanonicalPath(dirPath: string): Promise<string> {
+    try {
+      return await fs.promises.realpath(dirPath);
+    } catch {
+      return dirPath;
+    }
+  }
+
   /**
    * Checks if a path belongs to unconditionally ignored system directories.
    *
@@ -201,13 +216,7 @@ export class WorkspaceScanner {
     visitedDirs: Set<string> = new Set<string>()
   ): Promise<number> {
     const normalizedDirPath = PathUtils.normalizePath(dirPath);
-
-    let realDir: string;
-    try {
-      realDir = await fs.promises.realpath(normalizedDirPath);
-    } catch {
-      realDir = normalizedDirPath;
-    }
+    const realDir = await this.getCanonicalPath(normalizedDirPath);
 
     if (visitedDirs.has(realDir)) {
       return 0;
@@ -238,14 +247,7 @@ export class WorkspaceScanner {
   }
 
   /**
-   * Recursively selects all eligible files in directory and populates folder counts.
-   *
-   * @param dirPath - Root directory path.
-   * @param filters - Active filter settings.
-   * @param selectedFiles - Selection set to mutate.
-   * @param countMap - Optional map to store total file counts per folder.
-   * @param visitedDirs - Set of visited directory real paths to prevent symlink loops.
-   * @returns Total count of selectable files processed within directory.
+   * Delegates recursive folder file selection to SelectionService.
    */
   public static async selectFolderRecursive(
     dirPath: string,
@@ -254,45 +256,13 @@ export class WorkspaceScanner {
     countMap?: Map<string, number>,
     visitedDirs: Set<string> = new Set<string>()
   ): Promise<number> {
-    const normalizedDirPath = PathUtils.normalizePath(dirPath);
-
-    let realDir: string;
-    try {
-      realDir = await fs.promises.realpath(normalizedDirPath);
-    } catch {
-      realDir = normalizedDirPath;
-    }
-
-    if (visitedDirs.has(realDir)) {
-      return 0;
-    }
-    visitedDirs.add(realDir);
-
-    let affectedCount = 0;
-
-    const validEntries = await this.readValidDirectoryEntries(normalizedDirPath, filters);
-
-    for (const { entry, fullPath } of validEntries) {
-      if (entry.isDirectory()) {
-        const childCount = await this.selectFolderRecursive(
-          fullPath,
-          filters,
-          selectedFiles,
-          countMap,
-          visitedDirs
-        );
-        affectedCount += childCount;
-      } else {
-        affectedCount++;
-        selectedFiles.add(fullPath);
-      }
-    }
-
-    if (countMap) {
-      countMap.set(normalizedDirPath, affectedCount);
-    }
-
-    return affectedCount;
+    return SelectionService.selectFolderRecursive(
+      dirPath,
+      filters,
+      selectedFiles,
+      countMap,
+      visitedDirs
+    );
   }
 
   /**
@@ -313,13 +283,7 @@ export class WorkspaceScanner {
     const results: string[] = [];
     const normalizedDirPath = PathUtils.normalizePath(dirPath);
     const lowerQuery = query.toLowerCase();
-
-    let realDir: string;
-    try {
-      realDir = await fs.promises.realpath(normalizedDirPath);
-    } catch {
-      realDir = normalizedDirPath;
-    }
+    const realDir = await this.getCanonicalPath(normalizedDirPath);
 
     if (visitedDirs.has(realDir)) {
       return results;

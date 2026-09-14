@@ -5,11 +5,10 @@ import { ContextTreeDataProvider, ContextTreeItem } from './contextTreeDataProvi
 import { ContextMergerControlsProvider } from '../sidebarProvider';
 import { WorkspaceScanner } from './workspaceScanner';
 import { GitService } from './gitService';
-import { MarkdownBuilder } from './markdownBuilder';
-import { XmlBuilder } from './xmlBuilder';
+import { BundleService } from './bundleService';
 import { FileReaderService } from './fileReaderService';
-import { DiagnosticsService } from './diagnosticsService';
 import { PathUtils } from '../utils/pathUtils';
+import { SelectionService } from './selectionService';
 
 /**
  * Service providing Explorer, Editor, Tab, and TreeView actions and context menus.
@@ -28,6 +27,16 @@ export class ContextMenuService {
     private readonly treeDataProvider: ContextTreeDataProvider,
     private readonly controlsProvider: ContextMergerControlsProvider
   ) {}
+
+  /**
+   * Helper safely extracting a human-readable message from an unknown error.
+   *
+   * @param err - Unknown caught error.
+   * @returns String error representation.
+   */
+  private extractErrorMessage(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
+  }
 
   /**
    * Helper extracting a raw vscode.Uri from either a ContextTreeItem, an existing Uri, or an active editor.
@@ -110,8 +119,8 @@ export class ContextMenuService {
         this.controlsProvider.clearSelection();
       }),
 
-      vscode.commands.registerCommand('aiContextMerger.treeToggleSelectedOnly', () => {
-        this.treeDataProvider.toggleShowOnlySelected();
+      vscode.commands.registerCommand('aiContextMerger.treeToggleSelectedOnly', async () => {
+        await this.treeDataProvider.toggleShowOnlySelected();
       }),
 
       vscode.commands.registerCommand('aiContextMerger.treeCopyContext', async () => {
@@ -184,7 +193,7 @@ export class ContextMenuService {
       const rootPath = matchedFolder ? PathUtils.normalizePath(matchedFolder.uri.fsPath) : undefined;
 
       if (stat.isDirectory()) {
-        await WorkspaceScanner.selectFolderRecursive(
+        await SelectionService.selectFolderRecursive(
           fsPath,
           filters,
           resolvedFiles,
@@ -227,6 +236,7 @@ export class ContextMenuService {
     }
 
     this.treeDataProvider.refresh();
+    await this.controlsProvider.persistSelectedFiles();
     await this.controlsProvider.updateStats();
 
     const pluralLabel = newlyAdded === 1 ? 'файл добавлен' : `${newlyAdded} файлов добавлено`;
@@ -270,7 +280,13 @@ export class ContextMenuService {
       }
     }
 
+    if (removedCount === 0) {
+      vscode.window.showInformationMessage('Ни один из выбранных файлов не находился в контексте.');
+      return;
+    }
+
     this.treeDataProvider.refresh();
+    await this.controlsProvider.persistSelectedFiles();
     await this.controlsProvider.updateStats();
 
     vscode.window.showInformationMessage(`AI Context Merger: ${removedCount} файлов убрано из контекста.`);
@@ -294,59 +310,25 @@ export class ContextMenuService {
     }
 
     const isolatedSelection = new Set<string>(files);
-    const filters = this.controlsProvider.filters;
-    const outputFormat = this.controlsProvider.outputFormat;
-    const promptSettings = this.controlsProvider.promptSettings;
-    const gitDiffSettings = this.controlsProvider.gitDiffSettings;
-    const diagnosticsSettings = this.controlsProvider.diagnosticsSettings;
-
-    let gitDiffContent = '';
-    if (gitDiffSettings.includeGitDiff) {
-      gitDiffContent = await GitService.getFilesDiff(
-        files,
-        gitDiffSettings.unlimitedDiff,
-        filters
-      );
-    }
-
-    let diagnosticsContent = '';
-    if (diagnosticsSettings.enabled && (diagnosticsSettings.includeCompiler || diagnosticsSettings.includeLinter)) {
-      const items = DiagnosticsService.getDiagnosticsForFiles(
-        isolatedSelection,
-        diagnosticsSettings,
-        vscode.workspace.workspaceFolders
-      );
-      diagnosticsContent = DiagnosticsService.formatDiagnosticsText(items);
-    }
-
     const gitStatuses = await GitService.getFileStatuses();
 
-    let payload = '';
-    if (outputFormat === 'xml') {
-      payload = await XmlBuilder.buildBundleXml(
+    try {
+      const payload = await BundleService.buildContextPayload(
         isolatedSelection,
-        promptSettings,
-        gitDiffSettings,
-        gitDiffContent,
-        gitStatuses,
-        diagnosticsSettings,
-        diagnosticsContent
+        this.controlsProvider.outputFormat,
+        this.controlsProvider.promptSettings,
+        this.controlsProvider.gitDiffSettings,
+        this.controlsProvider.diagnosticsSettings,
+        this.controlsProvider.filters,
+        gitStatuses
       );
-    } else {
-      payload = await MarkdownBuilder.buildBundleMarkdown(
-        isolatedSelection,
-        promptSettings,
-        gitDiffSettings,
-        gitDiffContent,
-        gitStatuses,
-        diagnosticsSettings,
-        diagnosticsContent
-      );
-    }
 
-    await vscode.env.clipboard.writeText(payload);
-    const formatLabel = outputFormat.toUpperCase();
-    vscode.window.showInformationMessage(`Скопирован контекст (${formatLabel}): ${isolatedSelection.size} файлов!`);
+      await vscode.env.clipboard.writeText(payload);
+      const formatLabel = this.controlsProvider.outputFormat.toUpperCase();
+      vscode.window.showInformationMessage(`Скопирован контекст (${formatLabel}): ${isolatedSelection.size} файлов!`);
+    } catch (err: unknown) {
+      vscode.window.showErrorMessage(`Ошибка копирования в буфер обмена: ${this.extractErrorMessage(err)}`);
+    }
   }
 
   /**
@@ -366,19 +348,23 @@ export class ContextMenuService {
       return;
     }
 
-    const diffContent = await GitService.getFilesDiff(
-      files,
-      true,
-      this.controlsProvider.filters
-    );
+    try {
+      const diffContent = await GitService.getFilesDiff(
+        files,
+        true,
+        this.controlsProvider.filters
+      );
 
-    if (!diffContent || diffContent.trim().length === 0) {
-      vscode.window.showInformationMessage('Для выбранных файлов нет изменений в Git.');
-      return;
+      if (!diffContent || diffContent.trim().length === 0) {
+        vscode.window.showInformationMessage('Для выбранных файлов нет изменений в Git.');
+        return;
+      }
+
+      await vscode.env.clipboard.writeText(diffContent);
+      vscode.window.showInformationMessage(`Скопирован Git Diff для ${files.length} файлов!`);
+    } catch (err: unknown) {
+      vscode.window.showErrorMessage(`Ошибка копирования Git Diff: ${this.extractErrorMessage(err)}`);
     }
-
-    await vscode.env.clipboard.writeText(diffContent);
-    vscode.window.showInformationMessage(`Скопирован Git Diff для ${files.length} файлов!`);
   }
 
   /**
@@ -394,22 +380,27 @@ export class ContextMenuService {
 
     const filePath = PathUtils.normalizePath(targetUri.fsPath);
     const fileName = path.basename(filePath);
-    const readResult = await FileReaderService.safeReadFile(filePath);
 
-    let contentToCopy = '';
-    if (readResult.placeholder) {
-      contentToCopy = readResult.placeholder;
-    } else if (readResult.text !== undefined) {
-      contentToCopy = readResult.text;
+    try {
+      const readResult = await FileReaderService.safeReadFile(filePath);
+
+      let contentToCopy = '';
+      if (readResult.placeholder) {
+        contentToCopy = readResult.placeholder;
+      } else if (readResult.text !== undefined) {
+        contentToCopy = readResult.text;
+      }
+
+      if (!contentToCopy) {
+        vscode.window.showWarningMessage(`Файл ${fileName} пуст или недоступен для чтения.`);
+        return;
+      }
+
+      await vscode.env.clipboard.writeText(contentToCopy);
+      vscode.window.showInformationMessage(`Скопирован файл: ${fileName}`);
+    } catch (err: unknown) {
+      vscode.window.showErrorMessage(`Ошибка копирования файла: ${this.extractErrorMessage(err)}`);
     }
-
-    if (!contentToCopy) {
-      vscode.window.showWarningMessage(`Файл ${fileName} пуст или недоступен для чтения.`);
-      return;
-    }
-
-    await vscode.env.clipboard.writeText(contentToCopy);
-    vscode.window.showInformationMessage(`Скопирован файл: ${fileName}`);
   }
 
   /**

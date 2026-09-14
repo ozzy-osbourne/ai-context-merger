@@ -30,6 +30,7 @@ export class StatsCalculator {
    * @param outputFormat - Current output format ('markdown' or 'xml').
    * @param diagnosticsSettings - Optional compiler/linter diagnostics configuration.
    * @param diagnosticsLength - Character length of formatted diagnostics.
+   * @param tokenLimit - User-configured token limit (e.g. 32000, 200000, 1000000).
    * @returns Aggregated statistics for the selection.
    */
   public static async calculateStats(
@@ -40,7 +41,8 @@ export class StatsCalculator {
     gitStatuses?: Map<string, GitFileStatus>,
     outputFormat: OutputFormat = 'markdown',
     diagnosticsSettings?: DiagnosticsSettings,
-    diagnosticsLength: number = 0
+    diagnosticsLength: number = 0,
+    tokenLimit?: number | string
   ): Promise<ContextStats> {
     if (selectedFiles.size === 0) {
       return { count: 0, tokens: 0, percentage: 0 };
@@ -68,7 +70,7 @@ export class StatsCalculator {
       }
 
       // 2. Structure
-      totalChars += `  <project_structure>\n${asciiTree}\n  </project_structure>\n\n`.length;
+      totalChars += `  <project_structure>\n<![CDATA[\n${asciiTree}\n]]>\n  </project_structure>\n\n`.length;
 
       // 3. Git Diff
       if (gitDiffSettings?.includeGitDiff && gitDiffLength > 0) {
@@ -188,8 +190,12 @@ export class StatsCalculator {
       }
     }
 
+    const maxBudget = tokenLimit
+      ? (typeof tokenLimit === 'string' ? parseInt(tokenLimit, 10) || MAX_CONTEXT_TOKENS : tokenLimit)
+      : MAX_CONTEXT_TOKENS;
+
     const estimatedTokens = Math.ceil(totalChars / 4);
-    const percentage = Math.min(100, Math.round((estimatedTokens / MAX_CONTEXT_TOKENS) * 100));
+    const percentage = Math.min(100, Math.round((estimatedTokens / maxBudget) * 100));
 
     return {
       count: selectedFiles.size,

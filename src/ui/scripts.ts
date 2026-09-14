@@ -147,10 +147,11 @@ export function getScripts(): string {
     }
 
     /**
-     * Active search query string.
+     * Active search query string restored from previous state.
      * @type {string}
      */
-    let currentSearchQuery = '';
+    let currentSearchQuery = previousState.searchQuery || '';
+    searchInput.value = currentSearchQuery;
 
     /**
      * Timer handle for debouncing search input events.
@@ -231,7 +232,8 @@ export function getScripts(): string {
         diagnosticsEnabled: diagnosticsToggle.checked,
         diagnosticsIncludeCompiler: diagnosticsCompilerToggle.checked,
         diagnosticsIncludeLinter: diagnosticsLinterToggle.checked,
-        outputFormat: currentFormat
+        outputFormat: currentFormat,
+        searchQuery: currentSearchQuery
       });
     }
 
@@ -480,6 +482,13 @@ export function getScripts(): string {
     updateClearSearchButtonVisibility();
     saveState();
 
+    if (currentSearchQuery) {
+      vscode.postMessage({
+        type: 'updateSearch',
+        query: currentSearchQuery
+      });
+    }
+
     formatMarkdown.addEventListener('change', () => {
       if (formatMarkdown.checked) syncFormatWithExtension('markdown');
     });
@@ -546,6 +555,7 @@ export function getScripts(): string {
       e.stopPropagation();
       searchInput.value = '';
       currentSearchQuery = '';
+      saveState();
       updateClearSearchButtonVisibility();
       btnSelectAll.innerText = '✅ Выбрать всё';
       searchInput.focus();
@@ -758,6 +768,7 @@ export function getScripts(): string {
 
     searchInput.addEventListener('input', (e) => {
       currentSearchQuery = e.target.value.trim();
+      saveState();
       updateClearSearchButtonVisibility();
 
       if (!currentSearchQuery) {

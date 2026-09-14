@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import { ContextMergerControlsProvider } from './sidebarProvider';
+import { ContextMergerControlsProvider, WORKSPACE_STORAGE_KEYS } from './sidebarProvider';
 import { ContextTreeDataProvider, ContextTreeItem } from './services/contextTreeDataProvider';
 import { ContextMenuService } from './services/contextMenuService';
 import { PresetService } from './services/presetService';
@@ -12,14 +12,24 @@ import { PresetService } from './services/presetService';
  */
 export function activate(context: vscode.ExtensionContext): void {
   // 1. Restore persistent files selection from project workspaceState
-  const savedFiles = context.workspaceState.get<string[]>('aiContextMerger.selectedFiles', []);
+  const savedFiles = context.workspaceState.get<string[]>(WORKSPACE_STORAGE_KEYS.SELECTED_FILES, []);
   const selectedFiles = new Set<string>(savedFiles);
 
   // 2. Restore global synchronized filter settings
   const presetService = new PresetService(context);
   const filters = presetService.getFilters();
 
-  const treeDataProvider = new ContextTreeDataProvider(selectedFiles, filters);
+  const treeDataProvider = new ContextTreeDataProvider(
+    selectedFiles,
+    filters,
+    async (showOnly) => {
+      await context.workspaceState.update(WORKSPACE_STORAGE_KEYS.SHOW_ONLY_SELECTED, showOnly);
+    }
+  );
+
+  // Restore show-only-selected filter state
+  const savedShowOnlySelected = context.workspaceState.get<boolean>(WORKSPACE_STORAGE_KEYS.SHOW_ONLY_SELECTED, false);
+  treeDataProvider.setShowOnlySelected(savedShowOnlySelected);
 
   const treeView = vscode.window.createTreeView('aiContextMergerTreeView', {
     treeDataProvider,
@@ -42,18 +52,13 @@ export function activate(context: vscode.ExtensionContext): void {
     controlsProvider
   );
 
-  // Initialize selected-only context flag
-  vscode.commands.executeCommand('setContext', 'aiContextMerger.showOnlySelected', false);
-
   // Handle item selection toggle when clicking on a file row
   const toggleClickCommand = vscode.commands.registerCommand(
     'aiContextMerger.toggleFileByClick',
     async (filePath: string) => {
       await treeDataProvider.toggleFileByPath(filePath);
+      await controlsProvider.persistSelectedFiles();
       await controlsProvider.updateStats();
-
-      // Persist active selection to workspaceState
-      await context.workspaceState.update('aiContextMerger.selectedFiles', Array.from(selectedFiles));
 
       try {
         const stat = await fs.promises.stat(filePath).catch(() => null);
@@ -76,8 +81,8 @@ export function activate(context: vscode.ExtensionContext): void {
         await treeDataProvider.toggleItemSelection(item as ContextTreeItem, state, false);
       }
       treeDataProvider.refresh();
+      await controlsProvider.persistSelectedFiles();
       await controlsProvider.updateStats();
-      await context.workspaceState.update('aiContextMerger.selectedFiles', Array.from(selectedFiles));
     }),
 
     vscode.window.registerWebviewViewProvider(

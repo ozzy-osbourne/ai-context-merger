@@ -1,6 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
-import * as fs from 'fs';
 import {
   DiagnosticsSettings,
   FilterSettings,
@@ -13,9 +11,10 @@ import { GitService } from './gitService';
 import { DiagnosticsService } from './diagnosticsService';
 import { MarkdownBuilder } from './markdownBuilder';
 import { XmlBuilder } from './xmlBuilder';
+import { BundleExportService } from './bundleExportService';
 
 /**
- * Service responsible for assembling context bundles, clipboard copying, disk exporting, and previewing.
+ * Service responsible for assembling context bundles into structured Markdown or XML text payloads.
  */
 export class BundleService {
   /**
@@ -48,6 +47,15 @@ export class BundleService {
 
   /**
    * Assembles the complete context payload based on active settings and output format.
+   *
+   * @param selectedFiles - Set of selected absolute file paths.
+   * @param outputFormat - Selected output format ('markdown' or 'xml').
+   * @param promptSettings - AI instruction configuration.
+   * @param gitDiffSettings - Git diff settings.
+   * @param diagnosticsSettings - Compiler/linter diagnostics settings.
+   * @param filters - Active file exclusion filters.
+   * @param cachedGitStatuses - Map of file paths to Git statuses.
+   * @returns Assembled payload string ready for LLM consumption.
    */
   public static async buildContextPayload(
     selectedFiles: Set<string>,
@@ -93,7 +101,7 @@ export class BundleService {
   }
 
   /**
-   * Assembles context bundle and writes it to the system clipboard.
+   * Delegates context clipboard copying to BundleExportService.
    */
   public static async copyContextToClipboard(
     selectedFiles: Set<string>,
@@ -105,35 +113,20 @@ export class BundleService {
     cachedGitStatuses: Map<string, GitFileStatus>,
     onSuccess?: () => void
   ): Promise<void> {
-    if (selectedFiles.size === 0) {
-      vscode.window.showWarningMessage('Не выбрано ни одного файла для копирования.');
-      return;
-    }
-
-    try {
-      const payload = await this.buildContextPayload(
-        selectedFiles,
-        outputFormat,
-        promptSettings,
-        gitDiffSettings,
-        diagnosticsSettings,
-        filters,
-        cachedGitStatuses
-      );
-      await vscode.env.clipboard.writeText(payload);
-      if (onSuccess) {
-        onSuccess();
-      }
-
-      const formatLabel = outputFormat.toUpperCase();
-      vscode.window.showInformationMessage(`Скопирован контекст (${formatLabel}): ${selectedFiles.size} файлов!`);
-    } catch (err: any) {
-      vscode.window.showErrorMessage(`Ошибка копирования в буфер обмена: ${err?.message || err}`);
-    }
+    return BundleExportService.copyContextToClipboard(
+      selectedFiles,
+      outputFormat,
+      promptSettings,
+      gitDiffSettings,
+      diagnosticsSettings,
+      filters,
+      cachedGitStatuses,
+      onSuccess
+    );
   }
 
   /**
-   * Prompts user for a save location and exports formatted bundle to file.
+   * Delegates context disk export to BundleExportService.
    */
   public static async exportContextToFile(
     selectedFiles: Set<string>,
@@ -144,45 +137,19 @@ export class BundleService {
     filters: FilterSettings,
     cachedGitStatuses: Map<string, GitFileStatus>
   ): Promise<void> {
-    if (selectedFiles.size === 0) {
-      vscode.window.showWarningMessage('Не выбрано ни одного файла для экспорта.');
-      return;
-    }
-
-    const isXml = outputFormat === 'xml';
-    const defaultUri = vscode.Uri.file(isXml ? 'project-context.xml' : 'project-context.md');
-    const dialogFilters: Record<string, string[]> = isXml
-      ? { XML: ['xml'], 'All Files': ['*'] }
-      : { Markdown: ['md'], 'All Files': ['*'] };
-
-    const uri = await vscode.window.showSaveDialog({
-      defaultUri,
-      filters: dialogFilters
-    });
-
-    if (!uri) {
-      return;
-    }
-
-    try {
-      const payload = await this.buildContextPayload(
-        selectedFiles,
-        outputFormat,
-        promptSettings,
-        gitDiffSettings,
-        diagnosticsSettings,
-        filters,
-        cachedGitStatuses
-      );
-      await fs.promises.writeFile(uri.fsPath, payload, 'utf-8');
-      vscode.window.showInformationMessage(`Файл сохранен: ${path.basename(uri.fsPath)}`);
-    } catch (err: any) {
-      vscode.window.showErrorMessage(`Ошибка сохранения файла: ${err?.message || err}`);
-    }
+    return BundleExportService.exportContextToFile(
+      selectedFiles,
+      outputFormat,
+      promptSettings,
+      gitDiffSettings,
+      diagnosticsSettings,
+      filters,
+      cachedGitStatuses
+    );
   }
 
   /**
-   * Opens assembled context in an editor split beside current view with matching syntax highlighting.
+   * Delegates context preview editor opening to BundleExportService.
    */
   public static async previewContext(
     selectedFiles: Set<string>,
@@ -193,28 +160,14 @@ export class BundleService {
     filters: FilterSettings,
     cachedGitStatuses: Map<string, GitFileStatus>
   ): Promise<void> {
-    if (selectedFiles.size === 0) {
-      vscode.window.showWarningMessage('Сначала выберите файлы для предпросмотра.');
-      return;
-    }
-
-    try {
-      const payload = await this.buildContextPayload(
-        selectedFiles,
-        outputFormat,
-        promptSettings,
-        gitDiffSettings,
-        diagnosticsSettings,
-        filters,
-        cachedGitStatuses
-      );
-      const doc = await vscode.workspace.openTextDocument({
-        content: payload,
-        language: outputFormat === 'xml' ? 'xml' : 'markdown'
-      });
-      await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
-    } catch (err: any) {
-      vscode.window.showErrorMessage(`Ошибка предварительного просмотра: ${err?.message || err}`);
-    }
+    return BundleExportService.previewContext(
+      selectedFiles,
+      outputFormat,
+      promptSettings,
+      gitDiffSettings,
+      diagnosticsSettings,
+      filters,
+      cachedGitStatuses
+    );
   }
 }

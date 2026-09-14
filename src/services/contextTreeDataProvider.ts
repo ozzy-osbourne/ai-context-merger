@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import * as fs from 'fs';
-import { ALWAYS_IGNORED } from '../constants';
 import { FilterSettings, GitFileStatus } from '../types';
 import { WorkspaceScanner } from './workspaceScanner';
+import { SelectionService } from './selectionService';
+import { ContextTreeStateResolver } from './contextTreeStateResolver';
 import { PathUtils } from '../utils/pathUtils';
 
 /**
@@ -81,26 +81,44 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
   private readonly pendingCountPromises: Map<string, Promise<number>> = new Map<string, Promise<number>>();
 
   private gitStatuses: Map<string, GitFileStatus> = new Map<string, GitFileStatus>();
+  private readonly selectionService: SelectionService;
 
   /**
    * Creates an instance of ContextTreeDataProvider.
    *
    * @param selectedFiles - Shared set containing normalized absolute paths of selected files.
    * @param filters - Active file exclusion filter settings.
+   * @param onShowOnlySelectedChanged - Optional persistence callback.
    */
   constructor(
     private readonly selectedFiles: Set<string>,
-    private filters: FilterSettings
-  ) { }
+    private filters: FilterSettings,
+    private readonly onShowOnlySelectedChanged?: (value: boolean) => Promise<void>
+  ) {
+    this.selectionService = new SelectionService(selectedFiles, this);
+  }
 
   /**
-   * Toggles the filter mode to display exclusively selected files in the TreeView.
+   * Sets initial or restored show-only-selected state without re-persisting.
+   *
+   * @param value - Boolean flag.
+   */
+  public setShowOnlySelected(value: boolean): void {
+    this.showOnlySelected = value;
+    vscode.commands.executeCommand('setContext', 'aiContextMerger.showOnlySelected', this.showOnlySelected);
+  }
+
+  /**
+   * Toggles the filter mode to display exclusively selected files in the TreeView and persists state.
    *
    * @returns Updated state of the selected-only filter.
    */
-  public toggleShowOnlySelected(): boolean {
+  public async toggleShowOnlySelected(): Promise<boolean> {
     this.showOnlySelected = !this.showOnlySelected;
     vscode.commands.executeCommand('setContext', 'aiContextMerger.showOnlySelected', this.showOnlySelected);
+    if (this.onShowOnlySelectedChanged) {
+      await this.onShowOnlySelectedChanged(this.showOnlySelected);
+    }
     this.treeVersion++;
     this.refresh();
     return this.showOnlySelected;
@@ -128,160 +146,28 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
   }
 
   /**
-   * Formats file quantity with Russian pluralization rules.
-   *
-   * @param count - Total number of selected files.
-   * @returns Formatted label string.
-   */
-  private formatFilePlural(count: number): string {
-    const mod10 = count % 10;
-    const mod100 = count % 100;
-    if (mod100 >= 11 && mod100 <= 19) {
-      return `${count} файлов выбрано`;
-    }
-    if (mod10 === 1) {
-      return `${count} файл выбран`;
-    }
-    if (mod10 >= 2 && mod10 <= 4) {
-      return `${count} файла выбрано`;
-    }
-    return `${count} файлов выбрано`;
-  }
-
-  /**
-   * Resolves the checkbox state, disabled status, and formatted description label for a directory node.
-   *
-   * @param folderPath - Absolute directory path.
-   * @returns Resolved selection state, disabled flag, and optional description.
-   */
-  private async resolveFolderState(
-    folderPath: string
-  ): Promise<{ isChecked: boolean | undefined; description?: string; isDisabled: boolean }> {
-    const totalCount = await this.getFolderTotalCount(folderPath);
-
-    if (totalCount === 0) {
-      let isPhysicallyEmpty = false;
-      try {
-        const rawEntries = await fs.promises.readdir(folderPath, { withFileTypes: true });
-        const visibleEntries = rawEntries.filter((e) => !ALWAYS_IGNORED.has(e.name));
-
-        if (visibleEntries.length === 0) {
-          isPhysicallyEmpty = true;
-        } else {
-          const hasFiles = visibleEntries.some((e) => !e.isDirectory());
-          if (!hasFiles) {
-            isPhysicallyEmpty = true;
-            for (const dirEntry of visibleEntries) {
-              const subPath = path.join(folderPath, dirEntry.name);
-              const subCount = await this.getFolderTotalCount(subPath);
-              if (subCount > 0) {
-                isPhysicallyEmpty = false;
-                break;
-              }
-              try {
-                const subRaw = await fs.promises.readdir(subPath);
-                if (subRaw.some((name) => !ALWAYS_IGNORED.has(name))) {
-                  isPhysicallyEmpty = false;
-                  break;
-                }
-              } catch {
-                // Ignore subfolder read failure
-              }
-            }
-          }
-        }
-      } catch {
-        isPhysicallyEmpty = true;
-      }
-
-      return {
-        isChecked: undefined,
-        description: isPhysicallyEmpty ? '(пусто)' : '(скрыто фильтрами)',
-        isDisabled: true
-      };
-    }
-
-    const selectedCount = this.getSelectedCountInFolder(folderPath);
-    if (selectedCount === 0) {
-      return { isChecked: false, description: undefined, isDisabled: false };
-    }
-
-    const isAllSelected = selectedCount >= totalCount;
-    const pluralText = this.formatFilePlural(selectedCount);
-    const description = `${selectedCount}/${totalCount} (${pluralText})`;
-
-    return { isChecked: isAllSelected, description, isDisabled: false };
-  }
-
-  /**
-   * Computes the depth of a folder relative to its workspace root.
-   *
-   * @param folderPath - Absolute folder path.
-   * @returns Relative folder depth.
-   */
-  private getFolderDepth(folderPath: string): number {
-    const norm = PathUtils.normalizePath(folderPath);
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders) {
-      return 0;
-    }
-
-    for (const wf of workspaceFolders) {
-      const root = PathUtils.normalizePath(wf.uri.fsPath);
-      if (norm === root) {
-        return 0;
-      }
-      if (PathUtils.isSubpath(norm, root)) {
-        const rel = path.relative(root, norm);
-        return rel.split(path.sep).length;
-      }
-    }
-    return 0;
-  }
-
-  /**
    * Computes the number of currently selected files located inside target directory in memory.
    *
    * @param folderPath - Absolute directory path.
    * @returns Number of selected files contained within directory subtree.
    */
   public getSelectedCountInFolder(folderPath: string): number {
-    const normFolder = PathUtils.normalizePath(folderPath);
-    let count = 0;
-    for (const file of this.selectedFiles) {
-      if (PathUtils.isSubpath(file, normFolder)) {
-        count++;
-      }
-    }
-    return count;
+    return ContextTreeStateResolver.getSelectedCountInFolder(folderPath, this.selectedFiles);
   }
 
   /**
-   * Gets or calculates the total selectable file count in target directory with concurrent request deduplication.
+   * Gets or calculates the total selectable file count in target directory.
    *
    * @param folderPath - Absolute directory path.
    * @returns Total selectable file count.
    */
   public async getFolderTotalCount(folderPath: string): Promise<number> {
-    const norm = PathUtils.normalizePath(folderPath);
-    if (this.folderTotalCountMap.has(norm)) {
-      return this.folderTotalCountMap.get(norm)!;
-    }
-
-    if (this.pendingCountPromises.has(norm)) {
-      return await this.pendingCountPromises.get(norm)!;
-    }
-
-    const countPromise = WorkspaceScanner.countSelectableFiles(
-      norm,
+    return ContextTreeStateResolver.getFolderTotalCount(
+      folderPath,
       this.filters,
-      this.folderTotalCountMap
-    ).finally(() => {
-      this.pendingCountPromises.delete(norm);
-    });
-
-    this.pendingCountPromises.set(norm, countPromise);
-    return await countPromise;
+      this.folderTotalCountMap,
+      this.pendingCountPromises
+    );
   }
 
   /**
@@ -489,7 +375,13 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
 
       const folderPromises = activeFolders.map(async (folder) => {
         const folderPath = PathUtils.normalizePath(folder.uri.fsPath);
-        const { isChecked, description, isDisabled } = await this.resolveFolderState(folderPath);
+        const { isChecked, description, isDisabled } = await ContextTreeStateResolver.resolveFolderState(
+          folderPath,
+          this.selectedFiles,
+          this.filters,
+          this.folderTotalCountMap,
+          this.pendingCountPromises
+        );
 
         let collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
         if (isDisabled) {
@@ -571,8 +463,14 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
 
     const itemPromises = sortedEntries.map(async ({ entry, fullPath }) => {
       if (entry.isDirectory()) {
-        const { isChecked, description, isDisabled } = await this.resolveFolderState(fullPath);
-        const depth = this.getFolderDepth(fullPath);
+        const { isChecked, description, isDisabled } = await ContextTreeStateResolver.resolveFolderState(
+          fullPath,
+          this.selectedFiles,
+          this.filters,
+          this.folderTotalCountMap,
+          this.pendingCountPromises
+        );
+        const depth = ContextTreeStateResolver.getFolderDepth(fullPath);
         let collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
 
         if (isDisabled) {
@@ -704,39 +602,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     newState: vscode.TreeItemCheckboxState,
     refresh: boolean = true
   ): Promise<void> {
-    if (item.contextValue === 'emptyState' || item.checkboxState === undefined) {
-      return;
-    }
-
-    const isChecked = newState === vscode.TreeItemCheckboxState.Checked;
-    const targetPath = PathUtils.normalizePath(item.uri.fsPath);
-
-    if (item.isDirectory) {
-      if (isChecked) {
-        await WorkspaceScanner.selectFolderRecursive(
-          targetPath,
-          this.filters,
-          this.selectedFiles,
-          this.folderTotalCountMap
-        );
-      } else {
-        for (const file of Array.from(this.selectedFiles)) {
-          if (file === targetPath || PathUtils.isSubpath(file, targetPath)) {
-            this.selectedFiles.delete(file);
-          }
-        }
-      }
-    } else {
-      if (isChecked) {
-        const fileName = path.basename(targetPath);
-        if (!WorkspaceScanner.isFilteredByType(fileName, false, this.filters)) {
-          this.selectedFiles.add(targetPath);
-        }
-      } else {
-        this.selectedFiles.delete(targetPath);
-      }
-    }
-
+    await this.selectionService.toggleTreeItemSelection(item, newState, this.filters);
     if (refresh) {
       this.refresh();
     }
@@ -748,19 +614,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
    * @param filePath - Normalized path of target file.
    */
   public async toggleFileByPath(filePath: string): Promise<void> {
-    if (!filePath || filePath.startsWith('ai-context-merger:')) {
-      return;
-    }
-    const norm = PathUtils.normalizePath(filePath);
-
-    if (this.selectedFiles.has(norm)) {
-      this.selectedFiles.delete(norm);
-    } else {
-      const fileName = path.basename(norm);
-      if (!WorkspaceScanner.isFilteredByType(fileName, false, this.filters)) {
-        this.selectedFiles.add(norm);
-      }
-    }
+    this.selectionService.toggleFileByPath(filePath, this.filters);
     this.refresh();
   }
 }
