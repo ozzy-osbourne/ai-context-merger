@@ -2,7 +2,9 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { LANGUAGE_MAP } from '../constants';
 import { DiagnosticsSettings, GitDiffSettings, GitFileStatus, PromptSettings } from '../types';
-import { ContextUtils } from '../utils/contextUtils';
+import { AsciiTreeService } from './asciiTreeService';
+import { FileReaderService } from './fileReaderService';
+import { PathUtils } from '../utils/pathUtils';
 
 /**
  * Service responsible for bundling selected source files into structured Markdown.
@@ -62,7 +64,7 @@ export class MarkdownBuilder {
   ): Promise<string> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     const sortedFiles = Array.from(selectedFiles).sort();
-    const relativePaths = sortedFiles.map((file) => ContextUtils.getRelativePath(file, workspaceFolders));
+    const relativePaths = sortedFiles.map((file) => PathUtils.getRelativePath(file, workspaceFolders));
 
     const outputBlocks: string[] = [];
 
@@ -73,10 +75,9 @@ export class MarkdownBuilder {
       }
     }
 
-    const asciiTree = ContextUtils.generateAsciiTree(relativePaths, gitStatuses, sortedFiles);
+    const asciiTree = AsciiTreeService.generateAsciiTree(relativePaths, gitStatuses, sortedFiles);
     outputBlocks.push(asciiTree);
 
-    // Append Git Diff section if enabled
     if (gitDiffSettings?.includeGitDiff && gitDiffContent && gitDiffContent.trim().length > 0) {
       const fence = this.getFenceSequence(gitDiffContent);
       outputBlocks.push(`## Git Diff:\n${fence}diff\n${gitDiffContent.trim()}\n${fence}`);
@@ -100,7 +101,7 @@ export class MarkdownBuilder {
           continue;
         }
 
-        const readResult = await ContextUtils.safeReadFile(filePath);
+        const readResult = await FileReaderService.safeReadFile(filePath);
         let contentBlock = '';
 
         if (readResult.placeholder) {

@@ -22,6 +22,7 @@ export function getStyles(): string {
       background-color: var(--vscode-sideBar-background);
       margin: 0;
       user-select: none;
+      box-sizing: border-box;
     }
 
     /* ==========================================================================
@@ -35,6 +36,7 @@ export function getStyles(): string {
       margin-bottom: 10px;
       padding-bottom: 6px;
       border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+      flex-wrap: wrap;
     }
 
     .header-title {
@@ -93,6 +95,7 @@ export function getStyles(): string {
       display: flex;
       align-items: center;
       gap: 12px;
+      flex-wrap: wrap;
     }
 
     .format-option {
@@ -166,7 +169,11 @@ export function getStyles(): string {
       align-items: center;
       justify-content: center;
       gap: 5px;
-      white-space: nowrap;
+      white-space: normal;
+      text-align: center;
+      word-break: normal;
+      min-height: 28px;
+      box-sizing: border-box;
     }
 
     .btn-secondary:hover {
@@ -507,8 +514,33 @@ export function getStyles(): string {
     .stats-header {
       display: flex;
       justify-content: space-between;
+      align-items: flex-start;
       font-size: 11px;
       margin-bottom: 6px;
+      gap: 8px;
+    }
+
+    .stats-title {
+      font-weight: 600;
+      color: var(--vscode-foreground);
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .stats-values {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      text-align: right;
+      gap: 2px;
+    }
+
+    .stats-value-row {
+      white-space: nowrap;
+      color: var(--vscode-descriptionForeground);
+      font-size: 11px;
     }
 
     .stats-metric {
@@ -538,6 +570,7 @@ export function getStyles(): string {
       justify-content: space-between;
       font-size: 11px;
       color: var(--vscode-descriptionForeground);
+      gap: 6px;
     }
 
     .warning-overflow {
@@ -548,6 +581,7 @@ export function getStyles(): string {
       align-items: center;
       gap: 3px;
       white-space: nowrap;
+      order: 1;
     }
 
     .progress-footer-right {
@@ -555,6 +589,7 @@ export function getStyles(): string {
       align-items: center;
       gap: 5px;
       margin-left: auto;
+      order: 2;
     }
 
     .progress-percent {
@@ -618,7 +653,7 @@ export function getStyles(): string {
     }
 
     /* ==========================================================================
-       8. Exclusion Filters (с рамкой и оформлением в едином стиле)
+       8. Exclusion Filters
        ========================================================================== */
     .filter-section {
       margin-top: 8px;
@@ -717,6 +752,62 @@ export function getStyles(): string {
 
     .hidden {
       display: none !important;
+    }
+
+    /* ==========================================================================
+       10. Responsive Media Queries (Узкий сайдбар)
+       ========================================================================== */
+    @media (max-width: 280px) {
+      body {
+        padding: 6px;
+      }
+
+      /* Перенос кнопок в 1 столбик при узком сайдбаре */
+      .btn-grid-2 {
+        grid-template-columns: 1fr;
+        gap: 5px;
+      }
+
+      .btn-secondary {
+        padding: 7px 10px;
+        font-size: 11px;
+      }
+
+      /* Опции формата вывода в столбик */
+      .format-options {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+      }
+
+      /* Статистика: заголовок и значения в столбик по левому краю */
+      .stats-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 3px;
+      }
+
+      .stats-values {
+        align-items: flex-start;
+        text-align: left;
+      }
+
+      /* Подвал прогресс-бара: 100% сверху, предупреждение ПОД ним, все по левому краю */
+      .progress-footer {
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 5px;
+      }
+
+      .progress-footer-right {
+        order: 1;
+        margin-left: auto;
+      }
+
+      .warning-overflow {
+        order: 2;
+        align-self: flex-end;
+      }
     }
   `;
 }

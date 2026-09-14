@@ -73,7 +73,7 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
           </button>
 
           <div class="inline-add-form hidden" id="inlineAddForm">
-            <div class="inline-add-title" id="inlineFormTitle">▼ Сохранить текущий текст как пресет:</div>
+            <div class="inline-add-title" id="inlineFormTitle">💾 Сохранить текущий текст как пресет:</div>
             <div class="inline-add-row">
               <input type="text" id="customPresetNameInput" class="inline-add-input" placeholder="Иконка + Название" maxlength="32" />
               <button type="button" class="btn-inline-save" id="btnSavePreset">Сохранить</button>
@@ -183,9 +183,11 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
 
       <div class="stats-card">
         <div class="stats-header">
-          <span>📊 Статистика:</span>
-          <span><strong id="statCount" class="stats-metric">0</strong> файлов | <strong id="statTokens"
-              class="stats-metric">~0</strong> токенов</span>
+          <span class="stats-title">📊 Статистика:</span>
+          <div class="stats-values">
+            <span class="stats-value-row"><strong id="statCount" class="stats-metric">0</strong> файлов</span>
+            <span class="stats-value-row"><strong id="statTokens" class="stats-metric">~0</strong> токенов</span>
+          </div>
         </div>
         <div class="progress-bar-container">
           <div class="progress-bar-fill" id="progressBar"></div>

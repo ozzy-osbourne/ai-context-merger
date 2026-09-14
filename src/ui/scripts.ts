@@ -409,7 +409,7 @@ export function getScripts(): string {
       inlineAddForm.classList.add('hidden');
       btnShowAddPreset.classList.remove('hidden');
       customPresetNameInput.value = '';
-      inlineFormTitle.innerText = '▼ Сохранить текущий текст как пресет:';
+      inlineFormTitle.innerText = '💾 Сохранить текущий текст как пресет:';
       renderCustomChips(customPresets);
     }
 
@@ -587,7 +587,7 @@ export function getScripts(): string {
     // Custom Preset Inline Form Listeners
     btnShowAddPreset.addEventListener('click', () => {
       editingPresetId = null;
-      inlineFormTitle.innerText = '▼ Сохранить текущий текст как пресет:';
+      inlineFormTitle.innerText = '💾 Сохранить текущий текст как пресет:';
       btnShowAddPreset.classList.add('hidden');
       inlineAddForm.classList.remove('hidden');
       customPresetNameInput.value = '';

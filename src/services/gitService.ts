@@ -2,10 +2,12 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { FilterSettings, GitAPI, GitChange, GitExtensionExports, GitFileStatus, GitRepository, GitStatus } from '../types';
 import { WorkspaceScanner } from './workspaceScanner';
+import { FileReaderService } from './fileReaderService';
 import { PathUtils } from '../utils/pathUtils';
 
 /**
  * Service providing integration with the built-in VS Code Git extension.
+ * Supports single repositories, multi-root workspaces, and nested git submodules.
  */
 export class GitService {
   private static cachedGitApi: GitAPI | null = null;
@@ -45,7 +47,40 @@ export class GitService {
   }
 
   /**
+   * Returns active Git repositories sorted in descending order of their root path length.
+   * This guarantees that nested repositories (such as Git submodules) take precedence over parent repositories.
+   *
+   * @param gitApi - Active Git API instance.
+   * @returns Array of Git repositories ordered from deepest to shallowest root.
+   */
+  public static getSortedRepositories(gitApi: GitAPI): GitRepository[] {
+    return [...gitApi.repositories].sort((a, b) => {
+      const pathA = PathUtils.normalizePath(a.rootUri.fsPath);
+      const pathB = PathUtils.normalizePath(b.rootUri.fsPath);
+      return pathB.length - pathA.length;
+    });
+  }
+
+  /**
+   * Resolves the closest (deepest) enclosing Git repository for a given target path.
+   *
+   * @param gitApi - Active Git API instance.
+   * @param targetPath - Normalized absolute file or folder path.
+   * @returns Closest matching Git repository, or undefined if outside version control.
+   */
+  public static getRepositoryForPath(gitApi: GitAPI, targetPath: string): GitRepository | undefined {
+    const normPath = PathUtils.normalizePath(targetPath);
+    const sortedRepos = this.getSortedRepositories(gitApi);
+
+    return sortedRepos.find((repo) => {
+      const repoRoot = PathUtils.normalizePath(repo.rootUri.fsPath);
+      return PathUtils.isSubpath(normPath, repoRoot);
+    });
+  }
+
+  /**
    * Checks an array of absolute file paths against repository `.gitignore` rules.
+   * Correctly routes paths exclusively to their respective nested repositories.
    *
    * @param paths - Absolute file paths to check.
    * @returns Set of normalized paths that are ignored by Git.
@@ -62,22 +97,42 @@ export class GitService {
         return ignoredPaths;
       }
 
-      for (const repo of gitApi.repositories) {
+      const sortedRepos = this.getSortedRepositories(gitApi);
+      const remainingPaths = new Set(paths.map((p) => PathUtils.normalizePath(p)));
+
+      for (const repo of sortedRepos) {
+        if (remainingPaths.size === 0) {
+          break;
+        }
+
         const repoRoot = PathUtils.normalizePath(repo.rootUri.fsPath);
-        const repoPaths = paths.filter((p) => PathUtils.isSubpath(p, repoRoot));
-        if (repoPaths.length > 0 && typeof repo.checkIgnore === 'function') {
-          try {
-            const result: Set<string> = await repo.checkIgnore(repoPaths);
-            for (const item of result) {
-              ignoredPaths.add(PathUtils.normalizePath(item));
+        const repoPaths: string[] = [];
+
+        for (const p of remainingPaths) {
+          if (PathUtils.isSubpath(p, repoRoot)) {
+            repoPaths.push(p);
+          }
+        }
+
+        if (repoPaths.length > 0) {
+          for (const p of repoPaths) {
+            remainingPaths.delete(p);
+          }
+
+          if (typeof repo.checkIgnore === 'function') {
+            try {
+              const result: Set<string> = await repo.checkIgnore(repoPaths);
+              for (const item of result) {
+                ignoredPaths.add(PathUtils.normalizePath(item));
+              }
+            } catch {
+              // Ignore check failure on individual repository
             }
-          } catch {
-            // Ignore check failure on individual repo
           }
         }
       }
     } catch {
-      // Return empty set on overall check error
+      // Return accumulated ignored paths on error
     }
 
     return ignoredPaths;
@@ -85,9 +140,10 @@ export class GitService {
 
   /**
    * Resolves the Git status of a change object using Git change status enum and non-blocking I/O.
+   * Skips directory-level changes (such as submodule pointer commits in a parent repo).
    *
    * @param change - Target Git change descriptor.
-   * @returns Resolved status or undefined if skipped.
+   * @returns Resolved status or null if skipped.
    */
   private static async resolveChangeStatus(change: GitChange): Promise<{ path: string; status: GitFileStatus } | null> {
     if (!change || !change.uri) {
@@ -97,7 +153,15 @@ export class GitService {
     const fsPath = PathUtils.normalizePath(change.uri.fsPath);
     const gitStatusCode = change.status;
 
-    // Check for renamed status via Git status code or original URI difference
+    try {
+      const stat = await fs.promises.stat(fsPath);
+      if (stat.isDirectory()) {
+        return null;
+      }
+    } catch {
+      // File may be deleted
+    }
+
     if (
       gitStatusCode === GitStatus.INDEX_RENAMED ||
       gitStatusCode === GitStatus.INTENT_TO_RENAME ||
@@ -106,12 +170,10 @@ export class GitService {
       return { path: fsPath, status: 'renamed' };
     }
 
-    // Check deleted flag via Git API enum status
     if (gitStatusCode === GitStatus.DELETED || gitStatusCode === GitStatus.INDEX_DELETED) {
       return { path: fsPath, status: 'deleted' };
     }
 
-    // Non-blocking file existence check
     let fileExists = true;
     try {
       await fs.promises.access(fsPath, fs.constants.F_OK);
@@ -123,7 +185,7 @@ export class GitService {
   }
 
   /**
-   * Collects detailed Git status indicators for all changed, untracked, and deleted repository files.
+   * Collects detailed Git status indicators for all changed, untracked, and deleted repository files across all repositories.
    *
    * @returns Map of normalized file paths to their Git file statuses.
    */
@@ -155,7 +217,14 @@ export class GitService {
         for (const change of untrackedChanges) {
           if (change && change.uri) {
             const fsPath = PathUtils.normalizePath(change.uri.fsPath);
-            statusMap.set(fsPath, 'untracked');
+            try {
+              const stat = await fs.promises.stat(fsPath);
+              if (!stat.isDirectory()) {
+                statusMap.set(fsPath, 'untracked');
+              }
+            } catch {
+              // Skip if inaccessible
+            }
           }
         }
       }
@@ -177,29 +246,24 @@ export class GitService {
   }
 
   /**
-   * Synthesizes a valid Git unified diff representation for untracked newly created files.
+   * Synthesizes a valid Git unified diff representation for untracked newly created files using rock-solid decoding.
    *
-   * @param relPath - POSIX relative path of the file.
+   * @param relPath - POSIX relative path of the file to the repository root.
    * @param absPath - Normalized absolute path to file on disk.
    * @returns Formatted unified diff string, or empty string on binary/unreadable file.
    */
   private static async synthesizeUntrackedDiff(relPath: string, absPath: string): Promise<string> {
     try {
-      const stat = await fs.promises.stat(absPath);
-      if (stat.isDirectory() || stat.size > this.MAX_DIFF_BYTES) {
+      const readResult = await FileReaderService.safeReadFile(absPath);
+      if (!readResult.text || readResult.placeholder) {
         return '';
       }
-      const buffer = await fs.promises.readFile(absPath);
-      // Skip binary inspection if null byte present in first 8000 bytes
-      const checkLength = Math.min(buffer.length, 8000);
-      for (let i = 0; i < checkLength; i++) {
-        if (buffer[i] === 0) {
-          return '';
-        }
+
+      if (readResult.text.length > this.MAX_DIFF_BYTES) {
+        return '';
       }
 
-      const text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
-      const lines = text.split(/\r?\n/);
+      const lines = readResult.text.split(/\r?\n/);
 
       return [
         `diff --git a/${relPath} b/${relPath}`,
@@ -216,6 +280,7 @@ export class GitService {
 
   /**
    * Collects unified Git diffs for selected file paths with truncation limits and untracked file support.
+   * Properly routes files to their corresponding closest repository root.
    *
    * @param filePaths - Array of selected absolute file paths.
    * @param unlimitedDiff - Flag indicating whether to bypass the size truncation limit.
@@ -241,15 +306,7 @@ export class GitService {
 
     for (const filePath of filePaths) {
       const normPath = PathUtils.normalizePath(filePath);
-
-      let matchedRepo: GitRepository | undefined;
-      for (const repo of gitApi.repositories) {
-        const repoRoot = PathUtils.normalizePath(repo.rootUri.fsPath);
-        if (PathUtils.isSubpath(normPath, repoRoot)) {
-          matchedRepo = repo;
-          break;
-        }
-      }
+      const matchedRepo = this.getRepositoryForPath(gitApi, normPath);
 
       if (!matchedRepo) {
         continue;
@@ -270,7 +327,6 @@ export class GitService {
         rawDiff = await this.synthesizeUntrackedDiff(relPath, normPath);
       } else {
         try {
-          // diffWithHEAD produces diff against working tree + staged index
           let headDiff = '';
           if (typeof matchedRepo.diffWithHEAD === 'function') {
             headDiff = (await matchedRepo.diffWithHEAD(relPath)) || '';
@@ -283,7 +339,6 @@ export class GitService {
 
           if (headDiff.trim().length > 0) {
             rawDiff = headDiff;
-            // If staged diff has unique content not captured by working tree diff, append it
             if (indexDiff.trim().length > 0 && !headDiff.includes(indexDiff.trim())) {
               rawDiff = `${indexDiff}\n\n${headDiff}`;
             }
@@ -299,7 +354,6 @@ export class GitService {
         continue;
       }
 
-      // Check size threshold
       if (!unlimitedDiff && rawDiff.length > this.MAX_DIFF_BYTES) {
         const truncated = rawDiff.slice(0, this.MAX_DIFF_BYTES);
         rawDiff = `${truncated}\n\n... [Diff превышает лимит 100 KB и был обрезан. Включите «Безлимитный Diff» для полного вывода] ...`;

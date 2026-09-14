@@ -1,3 +1,4 @@
+import * as vscode from 'vscode';
 import * as path from 'path';
 
 /**
@@ -96,5 +97,34 @@ export class PathUtils {
     }
 
     return ancestors;
+  }
+
+  /**
+   * Computes workspace-relative POSIX path with Multi-Root workspace support.
+   *
+   * @param filePath - Absolute path to the file.
+   * @param workspaceFolders - Active workspace folders list.
+   * @returns Relative path suitable for headers and references.
+   */
+  public static getRelativePath(
+    filePath: string,
+    workspaceFolders?: readonly vscode.WorkspaceFolder[]
+  ): string {
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      return path.basename(filePath);
+    }
+
+    const normFilePath = this.normalizePath(filePath);
+
+    for (const folder of workspaceFolders) {
+      const folderPath = this.normalizePath(folder.uri.fsPath);
+
+      if (this.isSubpath(normFilePath, folderPath)) {
+        const rel = this.toPosixRelative(folderPath, normFilePath);
+        return workspaceFolders.length > 1 ? `${folder.name}/${rel}` : rel;
+      }
+    }
+
+    return path.basename(filePath);
   }
 }

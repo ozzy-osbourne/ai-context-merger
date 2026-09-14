@@ -10,8 +10,10 @@ import {
   PromptSettings
 } from '../types';
 import { MAX_CONTEXT_TOKENS, BINARY_EXTENSIONS, MAX_FILE_SIZE_BYTES } from '../constants';
-import { ContextUtils } from '../utils/contextUtils';
+import { AsciiTreeService } from './asciiTreeService';
+import { FileReaderService } from './fileReaderService';
 import { MarkdownBuilder } from './markdownBuilder';
+import { PathUtils } from '../utils/pathUtils';
 
 /**
  * Service calculating character budgets, token estimates, and usage percentages.
@@ -49,9 +51,9 @@ export class StatsCalculator {
     const workspaceFolders = vscode.workspace.workspaceFolders;
 
     const relativePaths = sortedFiles.map((filePath) =>
-      ContextUtils.getRelativePath(filePath, workspaceFolders)
+      PathUtils.getRelativePath(filePath, workspaceFolders)
     );
-    const asciiTree = ContextUtils.generateAsciiTree(relativePaths, gitStatuses, sortedFiles);
+    const asciiTree = AsciiTreeService.generateAsciiTree(relativePaths, gitStatuses, sortedFiles);
 
     if (outputFormat === 'xml') {
       // Root context tags: <context>\n\n</context>
@@ -110,9 +112,9 @@ export class StatsCalculator {
             if (stat.isDirectory()) {
               bodyLength = 0;
             } else if (stat.size > MAX_FILE_SIZE_BYTES) {
-              bodyLength = ContextUtils.getSizeExceededPlaceholder(stat.size).length;
+              bodyLength = FileReaderService.getSizeExceededPlaceholder(stat.size).length;
             } else if (BINARY_EXTENSIONS.has(ext)) {
-              bodyLength = ContextUtils.getBinaryPlaceholder(ext, stat.size).length;
+              bodyLength = FileReaderService.getBinaryPlaceholder(ext, stat.size).length;
             } else {
               bodyLength = stat.size;
             }
@@ -165,15 +167,15 @@ export class StatsCalculator {
             if (stat.isDirectory()) {
               bodyLength = 0;
             } else if (stat.size > MAX_FILE_SIZE_BYTES) {
-              bodyLength = ContextUtils.getSizeExceededPlaceholder(stat.size).length;
+              bodyLength = FileReaderService.getSizeExceededPlaceholder(stat.size).length;
             } else if (BINARY_EXTENSIONS.has(ext)) {
-              bodyLength = ContextUtils.getBinaryPlaceholder(ext, stat.size).length;
+              bodyLength = FileReaderService.getBinaryPlaceholder(ext, stat.size).length;
             } else {
               const langTag = MarkdownBuilder.getLanguageTag(filePath);
               bodyLength = stat.size + langTag.length + 8;
             }
           } catch {
-            bodyLength = 40; // Deleted or inaccessible file placeholder length
+            bodyLength = 40;
           }
 
           return headerLength + bodyLength + 6;

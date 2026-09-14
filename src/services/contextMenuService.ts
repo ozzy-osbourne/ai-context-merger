@@ -7,7 +7,8 @@ import { WorkspaceScanner } from './workspaceScanner';
 import { GitService } from './gitService';
 import { MarkdownBuilder } from './markdownBuilder';
 import { XmlBuilder } from './xmlBuilder';
-import { ContextUtils } from '../utils/contextUtils';
+import { FileReaderService } from './fileReaderService';
+import { DiagnosticsService } from './diagnosticsService';
 import { PathUtils } from '../utils/pathUtils';
 
 /**
@@ -309,12 +310,12 @@ export class ContextMenuService {
 
     let diagnosticsContent = '';
     if (diagnosticsSettings.enabled && (diagnosticsSettings.includeCompiler || diagnosticsSettings.includeLinter)) {
-      const items = ContextUtils.getDiagnosticsForFiles(
+      const items = DiagnosticsService.getDiagnosticsForFiles(
         isolatedSelection,
         diagnosticsSettings,
         vscode.workspace.workspaceFolders
       );
-      diagnosticsContent = ContextUtils.formatDiagnosticsText(items);
+      diagnosticsContent = DiagnosticsService.formatDiagnosticsText(items);
     }
 
     const gitStatuses = await GitService.getFileStatuses();
@@ -392,7 +393,7 @@ export class ContextMenuService {
 
     const filePath = PathUtils.normalizePath(targetUri.fsPath);
     const fileName = path.basename(filePath);
-    const readResult = await ContextUtils.safeReadFile(filePath);
+    const readResult = await FileReaderService.safeReadFile(filePath);
 
     let contentToCopy = '';
     if (readResult.placeholder) {
