@@ -5,6 +5,7 @@ import { SelectionService } from './selectionService';
 import { ContextTreeDataProvider, ContextTreeItem } from './contextTreeDataProvider';
 import { PresetService } from './presetService';
 import { WorkspaceScanner } from './workspaceScanner';
+import { GitService } from './gitService';
 import { PathUtils } from '../utils/pathUtils';
 
 /**
@@ -149,10 +150,20 @@ export class WebviewMessageHandler {
 
           await this.presetService.saveFilters(this.provider.filters);
 
+          const gitStatuses = await GitService.getFileStatuses();
           let removedByFilter = 0;
+
           for (const filePath of Array.from(this.selectedFiles)) {
             const root = PathUtils.getWorkspaceRoot(filePath);
-            const isFiltered = await WorkspaceScanner.shouldFilterItem(filePath, false, this.provider.filters, root);
+            const isDeleted = gitStatuses.get(filePath) === 'deleted';
+            const isFiltered = await WorkspaceScanner.shouldFilterItem(
+              filePath,
+              false,
+              this.provider.filters,
+              root,
+              isDeleted
+            );
+
             if (isFiltered) {
               this.selectedFiles.delete(filePath);
               removedByFilter++;
@@ -194,6 +205,7 @@ export class WebviewMessageHandler {
             type: 'updateCustomPresets',
             customPresets: res.updatedPresets
           });
+          this.provider.postWebviewMessage({ type: 'presetOperationSuccess' });
           vscode.window.showInformationMessage(`Пресет "${res.preset.name}" сохранен!`);
         }
         break;
@@ -216,6 +228,7 @@ export class WebviewMessageHandler {
             type: 'updateCustomPresets',
             customPresets: res.updatedPresets
           });
+          this.provider.postWebviewMessage({ type: 'presetOperationSuccess' });
           vscode.window.showInformationMessage(`Пресет "${res.preset.name}" обновлен!`);
         }
         break;

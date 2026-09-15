@@ -53,7 +53,7 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
           <button type="button" class="btn-clear-prompt hidden" id="btnClearPrompt" title="Очистить текст инструкции">✕ Стереть</button>
         </div>
         <div class="prompt-body hidden" id="promptBody">
-          <textarea id="promptInput" class="prompt-textarea" placeholder="Опишите вашу задачу здесь"></textarea>
+          <textarea id="promptInput" class="prompt-textarea" placeholder="Опишите вашу задачу здесь" maxlength="10000"></textarea>
           
           <div class="preset-section-label">Базовые:</div>
           <div class="preset-chips">
@@ -121,7 +121,6 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
         <button class="btn-secondary" id="btnCollapse" title="Свернуть все папки дерева файлов проекта">📁 Свернуть всё</button>
       </div>
 
-      <!-- Unified Addons Container: Git Diff & Diagnostics (Compiler & Linter Issues) -->
       <div class="addons-card">
         <div class="addon-block">
           <label class="addon-header-label" title="Прикрепить блок git diff изменений выбранных файлов в итоговый контекст">

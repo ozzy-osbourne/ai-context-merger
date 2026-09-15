@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { FilterSettings } from '../types';
+import { FilterSettings, GitFileStatus } from '../types';
 import { WorkspaceScanner } from './workspaceScanner';
 import { GitService } from './gitService';
 import { PathUtils } from '../utils/pathUtils';
@@ -27,6 +27,11 @@ export interface SelectionChangeHandler {
    * Shared cache of total selectable file counts per folder.
    */
   readonly folderTotalCountMap?: Map<string, number>;
+
+  /**
+   * Optional provider for active Git file statuses.
+   */
+  readonly getGitStatuses?: () => Map<string, GitFileStatus>;
 }
 
 /**
@@ -59,12 +64,14 @@ export class SelectionService {
   /**
    * Recursively traverses a directory, adding non-filtered files to the selection set.
    * Uses realpath checking to strictly prevent symlink recursion loops.
+   * Also selects deleted Git files located inside the subtree.
    *
    * @param dirPath - Root directory path to traverse.
    * @param filters - Active file exclusion filters.
    * @param selectedFiles - Target set of selected files to mutate.
    * @param countMap - Optional map caching total file counts per folder.
    * @param visitedDirs - Set of canonical paths visited during current recursion to guard loops.
+   * @param gitStatuses - Optional map of current Git file statuses.
    * @returns Total count of selectable files found in the directory subtree.
    */
   public static async selectFolderRecursive(
@@ -72,7 +79,8 @@ export class SelectionService {
     filters: FilterSettings,
     selectedFiles: Set<string>,
     countMap?: Map<string, number>,
-    visitedDirs: Set<string> = new Set<string>()
+    visitedDirs: Set<string> = new Set<string>(),
+    gitStatuses?: Map<string, GitFileStatus>
   ): Promise<number> {
     const normalizedDirPath = PathUtils.normalizePath(dirPath);
     const realDir = await PathUtils.getCanonicalPath(normalizedDirPath);
@@ -92,12 +100,28 @@ export class SelectionService {
           filters,
           selectedFiles,
           countMap,
-          visitedDirs
+          visitedDirs,
+          gitStatuses
         );
         affectedCount += childCount;
       } else {
         affectedCount++;
         selectedFiles.add(fullPath);
+      }
+    }
+
+    // Also select tracked Git deleted files inside this directory
+    if (gitStatuses) {
+      for (const [gitPath, status] of gitStatuses.entries()) {
+        if (status === 'deleted' && PathUtils.isSubpath(gitPath, normalizedDirPath)) {
+          const fileName = path.basename(gitPath);
+          if (!WorkspaceScanner.isFilteredByType(fileName, false, filters)) {
+            if (!selectedFiles.has(gitPath)) {
+              selectedFiles.add(gitPath);
+              affectedCount++;
+            }
+          }
+        }
       }
     }
 
@@ -129,11 +153,14 @@ export class SelectionService {
 
     if (item.isDirectory) {
       if (isChecked) {
+        const gitStatuses = this.handler.getGitStatuses ? this.handler.getGitStatuses() : undefined;
         await SelectionService.selectFolderRecursive(
           targetPath,
           filters,
           this.selectedFiles,
-          this.handler.folderTotalCountMap
+          this.handler.folderTotalCountMap,
+          new Set<string>(),
+          gitStatuses
         );
       } else {
         for (const file of Array.from(this.selectedFiles)) {
@@ -188,13 +215,17 @@ export class SelectionService {
     }
 
     this.selectedFiles.clear();
+    const gitStatuses = this.handler.getGitStatuses ? this.handler.getGitStatuses() : undefined;
+
     for (const folder of workspaceFolders) {
       const rootPath = PathUtils.normalizePath(folder.uri.fsPath);
       await SelectionService.selectFolderRecursive(
         rootPath,
         filters,
         this.selectedFiles,
-        this.handler.folderTotalCountMap
+        this.handler.folderTotalCountMap,
+        new Set<string>(),
+        gitStatuses
       );
     }
     this.handler.refresh();
@@ -267,7 +298,12 @@ export class SelectionService {
 
     if (this.handler.setExpandedFolders) {
       this.handler.setExpandedFolders(newlyAddedPaths);
+    } else {
+      this.handler.refresh();
     }
+
+    // Refresh tree data to ensure checkbox states render immediately
+    this.handler.refresh();
 
     if (newlyAddedPaths.length > 0) {
       vscode.window.showInformationMessage(`Выбрано файлов из открытых вкладок: ${newlyAddedPaths.length}`);
@@ -285,13 +321,15 @@ export class SelectionService {
    */
   public async selectModifiedGitFiles(filters: FilterSettings): Promise<void> {
     const modifiedPaths = await GitService.getModifiedFilePaths();
+    const statuses = await GitService.getFileStatuses();
 
     this.selectedFiles.clear();
     const matchedModifiedPaths: string[] = [];
 
     for (const filePath of modifiedPaths) {
+      const isDeleted = statuses.get(filePath) === 'deleted';
       const rootPath = PathUtils.getWorkspaceRoot(filePath);
-      const isFiltered = await WorkspaceScanner.shouldFilterItem(filePath, false, filters, rootPath);
+      const isFiltered = await WorkspaceScanner.shouldFilterItem(filePath, false, filters, rootPath, isDeleted);
 
       if (!isFiltered) {
         this.selectedFiles.add(filePath);
@@ -301,6 +339,8 @@ export class SelectionService {
 
     if (this.handler.setExpandedFolders) {
       this.handler.setExpandedFolders(matchedModifiedPaths);
+    } else {
+      this.handler.refresh();
     }
 
     if (this.selectedFiles.size === 0) {

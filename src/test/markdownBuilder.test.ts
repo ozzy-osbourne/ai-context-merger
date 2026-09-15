@@ -1,0 +1,42 @@
+import * as assert from 'assert';
+import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs';
+import { MarkdownBuilder } from '../services/markdownBuilder';
+
+/**
+ * Test suite for Markdown fence collisions and syntax highlighting resolution.
+ */
+suite('MarkdownBuilder: Dynamic Code Fences & Formatting Tests', () => {
+  let tempDir: string;
+
+  suiteSetup(async () => {
+    tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'ai-context-md-test-'));
+  });
+
+  suiteTeardown(async () => {
+    try {
+      await fs.promises.rm(tempDir, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup error
+    }
+  });
+
+  test('Generates 4+ backtick fence when file contains inner triple backticks', async () => {
+    const fileWithCodeBlocks = new Set<string>();
+    const testFile = path.join(tempDir, 'sample.md');
+    await fs.promises.writeFile(testFile, 'Inside code:\n```typescript\nconst x = 10;\n```', 'utf-8');
+    fileWithCodeBlocks.add(testFile);
+
+    const bundleMarkdown = await MarkdownBuilder.buildBundleMarkdown(fileWithCodeBlocks);
+    // Outer fence must be at least ```` to avoid markdown collision with inner ```
+    assert.strictEqual(bundleMarkdown.includes('````markdown'), true);
+  });
+
+  test('Resolves correct syntax highlighting tags by extension', () => {
+    assert.strictEqual(MarkdownBuilder.getLanguageTag('src/app.ts'), 'typescript');
+    assert.strictEqual(MarkdownBuilder.getLanguageTag('src/index.tsx'), 'tsx');
+    assert.strictEqual(MarkdownBuilder.getLanguageTag('scripts/run.py'), 'python');
+    assert.strictEqual(MarkdownBuilder.getLanguageTag('unknown.custom'), 'text');
+  });
+});

@@ -115,6 +115,8 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     this.treeDataProvider.folderTotalCountMap.clear();
     this.cachedGitStatuses = await GitService.getFileStatuses();
     this.treeDataProvider.setGitStatuses(this.cachedGitStatuses);
+    // Reapply active search query to pick up newly added or removed files
+    await this.treeDataProvider.reapplySearch();
     await this.updateStats();
   }
 

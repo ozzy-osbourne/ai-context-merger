@@ -45,8 +45,12 @@ export class StatsCalculator {
     diagnosticsLength: number = 0,
     tokenLimit?: number | string
   ): Promise<ContextStats> {
-    // Return zeros immediately when no files are selected
-    if (selectedFiles.size === 0) {
+    const hasPrompt = Boolean(promptSettings && promptSettings.enabled && promptSettings.text.trim().length > 0);
+    const hasDiff = Boolean(gitDiffSettings?.includeGitDiff && gitDiffLength > 0);
+    const hasDiagnostics = Boolean(diagnosticsSettings?.enabled && diagnosticsLength > 0);
+
+    // Return zeros immediately when no files are selected and no addons or instructions are active
+    if (selectedFiles.size === 0 && !hasPrompt && !hasDiff && !hasDiagnostics) {
       return { count: 0, tokens: 0, percentage: 0 };
     }
 
@@ -57,13 +61,15 @@ export class StatsCalculator {
     const relativePaths = sortedFiles.map((filePath) =>
       PathUtils.getRelativePath(filePath, workspaceFolders)
     );
-    const asciiTree = AsciiTreeService.generateAsciiTree(relativePaths, gitStatuses, sortedFiles);
+
+    const asciiTree = selectedFiles.size > 0
+      ? AsciiTreeService.generateAsciiTree(relativePaths, gitStatuses, sortedFiles)
+      : '';
 
     // =========================================================================
     // Format Branch A: XML Payload Character Estimation
     // =========================================================================
     if (outputFormat === 'xml') {
-      // Base XML declaration and root tags: <?xml version="1.0" encoding="UTF-8"?>\n<context>\n\n</context>
       totalChars += '<?xml version="1.0" encoding="UTF-8"?>\n<context>\n\n</context>'.length;
 
       // 1. Task Instructions
@@ -74,8 +80,10 @@ export class StatsCalculator {
         }
       }
 
-      // 2. ASCII Project Structure
-      totalChars += `  <project_structure>\n<![CDATA[\n${asciiTree}\n]]>\n  </project_structure>\n\n`.length;
+      // 2. ASCII Project Structure (only included when files are present)
+      if (asciiTree.length > 0) {
+        totalChars += `  <project_structure>\n<![CDATA[\n${asciiTree}\n]]>\n  </project_structure>\n\n`.length;
+      }
 
       // 3. Git Diff section
       if (gitDiffSettings?.includeGitDiff && gitDiffLength > 0) {
@@ -88,7 +96,7 @@ export class StatsCalculator {
       }
 
       // 5. Documents container and file entries
-      if (!gitDiffSettings?.diffOnly) {
+      if (!gitDiffSettings?.diffOnly && sortedFiles.length > 0) {
         totalChars += '  <documents>\n  </documents>\n\n'.length;
 
         const fileStatPromises = sortedFiles.map(async (filePath, index) => {
@@ -144,29 +152,31 @@ export class StatsCalculator {
       // Format Branch B: Markdown Payload Character Estimation
       // =========================================================================
 
-      // 1. Task Instructions
+      // 1. Task Instructions (delimiter: \n\n---\n\n is exactly 7 chars)
       if (promptSettings && promptSettings.enabled) {
         const trimmedPrompt = promptSettings.text.trim();
         if (trimmedPrompt.length > 0) {
-          totalChars += `## Instruction:\n${trimmedPrompt}`.length + 6; // Delimiter: \n\n---\n\n
+          totalChars += `## Instruction:\n${trimmedPrompt}`.length + 7;
         }
       }
 
       // 2. ASCII Project Structure
-      totalChars += asciiTree.length + 6;
+      if (asciiTree.length > 0) {
+        totalChars += asciiTree.length + 7;
+      }
 
       // 3. Git Diff section
       if (gitDiffSettings?.includeGitDiff && gitDiffLength > 0) {
-        totalChars += `## Git Diff:\n\`\`\`diff\n\n\`\`\``.length + gitDiffLength + 6;
+        totalChars += `## Git Diff:\n\`\`\`diff\n\n\`\`\``.length + gitDiffLength + 7;
       }
 
       // 4. Diagnostics section
       if (diagnosticsSettings?.enabled && diagnosticsLength > 0) {
-        totalChars += `## Problems & Diagnostics:\n`.length + diagnosticsLength + 6;
+        totalChars += `## Problems & Diagnostics:\n`.length + diagnosticsLength + 7;
       }
 
       // 5. File sections
-      if (!gitDiffSettings?.diffOnly) {
+      if (!gitDiffSettings?.diffOnly && sortedFiles.length > 0) {
         const fileStatPromises = sortedFiles.map(async (filePath, index) => {
           const relPath = relativePaths[index];
           const fileName = path.basename(filePath);
@@ -191,7 +201,7 @@ export class StatsCalculator {
             bodyLength = 40;
           }
 
-          return headerLength + bodyLength + 6;
+          return headerLength + bodyLength + 7;
         });
 
         const fileLengths = await Promise.all(fileStatPromises);
@@ -201,12 +211,10 @@ export class StatsCalculator {
       }
     }
 
-    // Parse active max budget threshold
     const maxBudget = tokenLimit
       ? (typeof tokenLimit === 'string' ? parseInt(tokenLimit, 10) || MAX_CONTEXT_TOKENS : tokenLimit)
       : MAX_CONTEXT_TOKENS;
 
-    // Standard LLM heuristic: ~4 characters per token
     const estimatedTokens = Math.ceil(totalChars / 4);
     const percentage = Math.min(100, Math.round((estimatedTokens / maxBudget) * 100));
 

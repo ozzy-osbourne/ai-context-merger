@@ -65,6 +65,9 @@ export type ExtensionToWebviewMessage =
     customPresets: CustomPreset[];
   }
   | {
+    type: 'presetOperationSuccess';
+  }
+  | {
     type: 'searchResults';
     count: number;
     query: string;

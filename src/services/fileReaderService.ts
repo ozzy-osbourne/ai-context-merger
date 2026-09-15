@@ -52,7 +52,7 @@ export class FileReaderService {
   private static readonly CYRILLIC_VOWELS_REGEX = /[аеёиоуыэюя]/gi;
 
   /**
-   * Regex matching classic double-encoded UTF-8 mojibake patterns (e.g., "РџСЂРёРІРµС‚", "Ã©Ã¨", "â€™").
+   * Regex matching classic double-encoded UTF-8 mojibake patterns.
    */
   private static readonly MOJIBAKE_PATTERNS = [
     // Cyrillic double-encoded as Windows-1251 (UTF-8 bytes 0xD0..0xD1 decoded as 'Р', 'С')

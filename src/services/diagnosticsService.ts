@@ -57,6 +57,7 @@ export class DiagnosticsService {
 
   /**
    * Calculates aggregated count of compiler issues and linter issues across specified files.
+   * Excludes Information and Hint severities to avoid inflating metrics.
    *
    * @param files - Set of file paths to inspect.
    * @returns Diagnostics summary object with compiler and linter counters.
@@ -70,6 +71,14 @@ export class DiagnosticsService {
         const uri = vscode.Uri.file(filePath);
         const diags = vscode.languages.getDiagnostics(uri);
         for (const d of diags) {
+          // Strictly ignore Information and Hint severities
+          if (
+            d.severity !== vscode.DiagnosticSeverity.Error &&
+            d.severity !== vscode.DiagnosticSeverity.Warning
+          ) {
+            continue;
+          }
+
           const cat = this.classifyDiagnostic(d);
           if (cat === 'compiler') {
             compilerCount++;
@@ -111,6 +120,14 @@ export class DiagnosticsService {
         const relativePath = PathUtils.getRelativePath(filePath, workspaceFolders);
 
         for (const diag of diags) {
+          // Exclude Information and Hint diagnostics to avoid mislabeling suggestions as warnings
+          if (
+            diag.severity !== vscode.DiagnosticSeverity.Error &&
+            diag.severity !== vscode.DiagnosticSeverity.Warning
+          ) {
+            continue;
+          }
+
           const category = this.classifyDiagnostic(diag);
 
           if (category === 'compiler' && !settings.includeCompiler) {

@@ -19,6 +19,7 @@ export interface ScannedDirectoryEntry {
 export class WorkspaceScanner {
   /**
    * Checks if a path belongs to unconditionally ignored system directories.
+   * Restricts segment evaluation to workspace boundaries when a root path is provided.
    *
    * @param fullPath - Absolute target path.
    * @param workspaceRootPath - Optional workspace root path for relative segment extraction.
@@ -29,10 +30,16 @@ export class WorkspaceScanner {
     let relative = normalized;
 
     if (workspaceRootPath) {
-      relative = path.relative(PathUtils.normalizePath(workspaceRootPath), normalized);
+      const normRoot = PathUtils.normalizePath(workspaceRootPath);
+      if (PathUtils.arePathsEqual(normalized, normRoot)) {
+        return false;
+      }
+      if (PathUtils.isSubpath(normalized, normRoot)) {
+        relative = path.relative(normRoot, normalized);
+      }
     }
 
-    const segments = relative.split(path.sep);
+    const segments = relative.split(path.sep).filter(Boolean);
     const startIndex = (!workspaceRootPath && path.isAbsolute(normalized)) ? 1 : 0;
 
     for (let i = startIndex; i < segments.length; i++) {
@@ -77,19 +84,35 @@ export class WorkspaceScanner {
 
   /**
    * Evaluates all exclusion rules for a given file or directory item, including Git repository ignore rules.
+   * Strictly forbids following symbolic links for security and isolation.
+   * Bypasses lstat check when inspecting a known deleted Git file.
    *
    * @param fullPath - Absolute path to item.
    * @param isDirectory - Directory flag.
    * @param filters - Active filter settings.
    * @param workspaceRootPath - Optional workspace root directory.
+   * @param isGitDeleted - Flag indicating that the file is physically absent because it was deleted in Git.
    * @returns `true` if item should be filtered out.
    */
   public static async shouldFilterItem(
     fullPath: string,
     isDirectory: boolean,
     filters: FilterSettings,
-    workspaceRootPath?: string
+    workspaceRootPath?: string,
+    isGitDeleted: boolean = false
   ): Promise<boolean> {
+    if (!isGitDeleted) {
+      try {
+        const lstat = await fs.promises.lstat(fullPath);
+        // Strictly forbid symbolic links to avoid directory traversal and symlink loops
+        if (lstat.isSymbolicLink()) {
+          return true;
+        }
+      } catch {
+        return true;
+      }
+    }
+
     const fileName = path.basename(fullPath);
 
     if (this.isIgnoredByPathSegments(fullPath, workspaceRootPath)) {
@@ -100,7 +123,7 @@ export class WorkspaceScanner {
       return true;
     }
 
-    if (filters.hideGitIgnored) {
+    if (!isGitDeleted && filters.hideGitIgnored) {
       const isIgnored = await GitService.isPathIgnored(fullPath, isDirectory);
       if (isIgnored) {
         return true;
@@ -111,7 +134,8 @@ export class WorkspaceScanner {
   }
 
   /**
-   * Reads a directory and filters out items matching system ignores, Git ignores, and active file filters.
+   * Reads a directory and filters out items matching system ignores, Git ignores, active file filters,
+   * and strictly rejects all symbolic links.
    *
    * @param dirPath - Absolute directory path to read.
    * @param filters - Active exclusion filters.
@@ -124,39 +148,22 @@ export class WorkspaceScanner {
     const normalizedDirPath = PathUtils.normalizePath(dirPath);
 
     try {
-      const stat = await fs.promises.stat(normalizedDirPath);
-      if (!stat.isDirectory()) {
+      const lstat = await fs.promises.lstat(normalizedDirPath);
+      if (lstat.isSymbolicLink() || !lstat.isDirectory()) {
         return [];
       }
 
       const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
-      const primaryFiltered = entries.filter((entry) => !ALWAYS_IGNORED.has(entry.name));
+      // Filter out system ignores and strictly ignore all symbolic links
+      const primaryFiltered = entries.filter((entry) => !ALWAYS_IGNORED.has(entry.name) && !entry.isSymbolicLink());
 
-      const resolvedEntries: Array<{ entry: fs.Dirent; fullPath: string; isDir: boolean }> = [];
-
-      for (const entry of primaryFiltered) {
-        const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
-        let isDir = entry.isDirectory();
-
-        if (entry.isSymbolicLink()) {
-          try {
-            const targetStat = await fs.promises.stat(fullPath);
-            isDir = targetStat.isDirectory();
-          } catch {
-            continue;
-          }
-        }
-
-        let resolvedEntry = entry;
-        if (entry.isSymbolicLink()) {
-          resolvedEntry = Object.create(entry, {
-            isDirectory: { value: () => isDir },
-            isFile: { value: () => !isDir }
-          });
-        }
-
-        resolvedEntries.push({ entry: resolvedEntry, fullPath, isDir });
-      }
+      const resolvedEntries: Array<{ entry: fs.Dirent; fullPath: string; isDir: boolean }> = primaryFiltered.map(
+        (entry) => ({
+          entry,
+          fullPath: PathUtils.normalizePath(path.join(normalizedDirPath, entry.name)),
+          isDir: entry.isDirectory()
+        })
+      );
 
       let gitIgnoredPaths = new Set<string>();
       if (filters.hideGitIgnored) {
@@ -191,7 +198,7 @@ export class WorkspaceScanner {
    * @param dirPath - Root directory path.
    * @param filters - Active filter settings.
    * @param countMap - Map cache to store counts for intermediate folders.
-   * @param visitedDirs - Set of visited directory real paths to prevent symlink loops.
+   * @param visitedDirs - Set of visited directory real paths to prevent recursion loops.
    * @returns Total number of selectable files.
    */
   public static async countSelectableFiles(
@@ -237,7 +244,7 @@ export class WorkspaceScanner {
    * @param dirPath - Root directory path to search.
    * @param query - Substring to match against file name.
    * @param filters - Active filter settings.
-   * @param visitedDirs - Set of visited directory real paths to prevent symlink loops.
+   * @param visitedDirs - Set of visited directory real paths to prevent recursion loops.
    * @returns Array of matching file paths.
    */
   public static async findMatchingFiles(

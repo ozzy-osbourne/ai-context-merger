@@ -179,7 +179,6 @@ export class GitService {
               for (const item of result) {
                 const normalizedItem = PathUtils.normalizePath(item);
                 ignoredPaths.add(normalizedItem);
-                // Also store without trailing slash if present
                 if (normalizedItem.endsWith('/') || normalizedItem.endsWith('\\')) {
                   ignoredPaths.add(normalizedItem.slice(0, -1));
                 }
@@ -306,20 +305,36 @@ export class GitService {
 
   /**
    * Synthesizes a valid Git unified diff representation for untracked newly created files using safe decoding.
+   * Supports unlimited diff output when configured.
    *
    * @param relPath - POSIX relative path of the file to the repository root.
    * @param absPath - Normalized absolute path to file on disk.
+   * @param unlimitedDiff - Flag indicating whether to bypass the size truncation limit.
    * @returns Formatted unified diff string, or empty string on binary/unreadable file.
    */
-  private static async synthesizeUntrackedDiff(relPath: string, absPath: string): Promise<string> {
+  private static async synthesizeUntrackedDiff(
+    relPath: string,
+    absPath: string,
+    unlimitedDiff: boolean = false
+  ): Promise<string> {
     try {
       const readResult = await FileReaderService.safeReadFile(absPath);
       if (!readResult.text || readResult.placeholder) {
         return '';
       }
 
-      if (readResult.text.length > this.MAX_DIFF_BYTES) {
-        return '';
+      if (!unlimitedDiff && readResult.text.length > this.MAX_DIFF_BYTES) {
+        const truncated = readResult.text.slice(0, this.MAX_DIFF_BYTES);
+        const lines = truncated.split(/\r?\n/);
+        return [
+          `diff --git a/${relPath} b/${relPath}`,
+          'new file mode 100644',
+          '--- /dev/null',
+          `+++ b/${relPath}`,
+          `@@ -0,0 +1,${lines.length} @@`,
+          ...lines.map((l) => `+${l}`),
+          '... [Diff превышает лимит 100 KB и был обрезан. Включите «Безлимитный Diff» для полного вывода] ...'
+        ].join('\n');
       }
 
       const lines = readResult.text.split(/\r?\n/);
@@ -372,37 +387,30 @@ export class GitService {
       }
 
       const repoRoot = PathUtils.normalizePath(matchedRepo.rootUri.fsPath);
-      const isFiltered = await WorkspaceScanner.shouldFilterItem(normPath, false, filters, repoRoot);
+      const status = statuses.get(normPath);
+      const isDeleted = status === 'deleted';
+
+      // Pass isDeleted = true to prevent lstat from filtering out deleted files
+      const isFiltered = await WorkspaceScanner.shouldFilterItem(normPath, false, filters, repoRoot, isDeleted);
       if (isFiltered) {
         continue;
       }
 
       const relPath = PathUtils.toPosixRelative(repoRoot, normPath);
-      const status = statuses.get(normPath);
-
       let rawDiff = '';
 
       if (status === 'untracked') {
-        rawDiff = await this.synthesizeUntrackedDiff(relPath, normPath);
+        rawDiff = await this.synthesizeUntrackedDiff(relPath, normPath, unlimitedDiff);
       } else {
         try {
-          let headDiff = '';
+          // diffWithHEAD outputs the complete diff of HEAD vs working tree (both staged and unstaged)
           if (typeof matchedRepo.diffWithHEAD === 'function') {
-            headDiff = (await matchedRepo.diffWithHEAD(relPath)) || '';
+            rawDiff = (await matchedRepo.diffWithHEAD(relPath)) || '';
           }
 
-          let indexDiff = '';
-          if (typeof matchedRepo.diffIndexWithHEAD === 'function') {
-            indexDiff = (await matchedRepo.diffIndexWithHEAD(relPath)) || '';
-          }
-
-          if (headDiff.trim().length > 0) {
-            rawDiff = headDiff;
-            if (indexDiff.trim().length > 0 && !headDiff.includes(indexDiff.trim())) {
-              rawDiff = `${indexDiff}\n\n${headDiff}`;
-            }
-          } else if (indexDiff.trim().length > 0) {
-            rawDiff = indexDiff;
+          // Fallback to diffIndexWithHEAD only if diffWithHEAD is unavailable or empty
+          if (!rawDiff && typeof matchedRepo.diffIndexWithHEAD === 'function') {
+            rawDiff = (await matchedRepo.diffIndexWithHEAD(relPath)) || '';
           }
         } catch {
           // Ignore retrieval failure on individual path

@@ -707,7 +707,6 @@ export function getScripts(): string {
           name,
           text
         });
-        backupPromptText = null;
       } else {
         vscode.postMessage({
           type: 'addCustomPreset',
@@ -715,15 +714,21 @@ export function getScripts(): string {
           text
         });
       }
-
-      cancelEditingPreset();
+      // Form is kept open until presetOperationSuccess confirms persistence
     });
 
-    // Primary Action Buttons
-    btnRefreshTop.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
+    btnRefreshTop.addEventListener('click', () => {
+      if (btnRefreshTop.disabled) return;
+      btnRefreshTop.disabled = true;
+      btnRefreshTop.style.opacity = '0.7';
+      setTimeout(() => {
+        btnRefreshTop.disabled = false;
+        btnRefreshTop.style.opacity = '1';
+      }, 500);
+      vscode.postMessage({ type: 'refresh' });
+    });
 
     btnCopy.addEventListener('click', () => {
-      // Guard against duplicate concurrent assembly requests
       if (btnCopy.disabled) {
         return;
       }
@@ -851,6 +856,9 @@ export function getScripts(): string {
         if (message.customPresets) {
           renderCustomChips(message.customPresets);
         }
+      } else if (message.type === 'presetOperationSuccess') {
+        backupPromptText = null;
+        cancelEditingPreset();
       } else if (message.type === 'searchResults') {
         if (message.query) {
           btnSelectAll.innerText = '✅ Выбрать найденное (' + message.count + ')';

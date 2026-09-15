@@ -78,7 +78,12 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     private filters: FilterSettings,
     private readonly onShowOnlySelectedChanged?: (value: boolean) => Promise<void>
   ) {
-    this.selectionService = new SelectionService(selectedFiles, this);
+    this.selectionService = new SelectionService(selectedFiles, {
+      refresh: () => this.refresh(),
+      setExpandedFolders: (paths) => this.setExpandedFolders(paths),
+      folderTotalCountMap: this.folderTotalCountMap,
+      getGitStatuses: () => this.gitStatuses
+    });
   }
 
   public setShowOnlySelected(value: boolean): void {
@@ -113,7 +118,8 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
       folderPath,
       this.filters,
       this.folderTotalCountMap,
-      this.pendingCountPromises
+      this.pendingCountPromises,
+      this.gitStatuses
     );
   }
 
@@ -176,6 +182,12 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     return undefined;
   }
 
+  public async reapplySearch(): Promise<void> {
+    if (this.searchQuery) {
+      await this.setSearchQuery(this.searchQuery);
+    }
+  }
+
   public async setSearchQuery(query: string): Promise<void> {
     this.searchQuery = query.trim().toLowerCase();
     this.matchingFilePaths.clear();
@@ -199,6 +211,24 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
             const ancestors = PathUtils.getAncestorPaths(normMatch, root);
             for (const ancestor of ancestors) {
               this.matchingFolderPaths.add(ancestor);
+            }
+          }
+
+          // Search deleted Git files matching the search query
+          for (const [gitPath, status] of this.gitStatuses.entries()) {
+            if (status === 'deleted' && PathUtils.isSubpath(gitPath, root)) {
+              const fileName = path.basename(gitPath);
+              if (!WorkspaceScanner.isFilteredByType(fileName, false, this.filters)) {
+                if (fileName.toLowerCase().includes(this.searchQuery)) {
+                  const normGitPath = PathUtils.normalizePath(gitPath);
+                  this.matchingFilePaths.add(normGitPath);
+
+                  const ancestors = PathUtils.getAncestorPaths(normGitPath, root);
+                  for (const ancestor of ancestors) {
+                    this.matchingFolderPaths.add(ancestor);
+                  }
+                }
+              }
             }
           }
         }
@@ -280,7 +310,8 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
           this.selectedFiles,
           this.filters,
           this.folderTotalCountMap,
-          this.pendingCountPromises
+          this.pendingCountPromises,
+          this.gitStatuses
         );
 
         let collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
@@ -362,7 +393,8 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
           this.selectedFiles,
           this.filters,
           this.folderTotalCountMap,
-          this.pendingCountPromises
+          this.pendingCountPromises,
+          this.gitStatuses
         );
         const depth = ContextTreeStateResolver.getFolderDepth(fullPath);
         let collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;

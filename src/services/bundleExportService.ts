@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import * as fs from 'fs';
 import {
   DiagnosticsSettings,
   FilterSettings,
@@ -50,7 +49,6 @@ export class BundleExportService {
       return;
     }
 
-    // Display native non-blocking progress notification in bottom-right corner of VS Code
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
@@ -78,7 +76,6 @@ export class BundleExportService {
           const formatLabel = outputFormat.toUpperCase();
           vscode.window.showInformationMessage(`Скопирован контекст (${formatLabel}): ${selectedFiles.size} файлов!`);
 
-          // Inspect payload for unreadable file placeholders to warn user
           const placeholderMatches = payload.match(/\[(Ошибка чтения|Файл превышает лимит|Файл с нераспознанной)/g);
           if (placeholderMatches && placeholderMatches.length > 0) {
             vscode.window.showWarningMessage(
@@ -96,7 +93,7 @@ export class BundleExportService {
   }
 
   /**
-   * Prompts user for a save location and exports formatted bundle to disk.
+   * Prompts user for a save location and exports formatted bundle to disk using VS Code Workspace FS.
    */
   public static async exportContextToFile(
     selectedFiles: Set<string>,
@@ -113,7 +110,13 @@ export class BundleExportService {
     }
 
     const isXml = outputFormat === 'xml';
-    const defaultUri = vscode.Uri.file(isXml ? 'project-context.xml' : 'project-context.md');
+    const defaultFilename = isXml ? 'project-context.xml' : 'project-context.md';
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+
+    const defaultUri = workspaceFolders && workspaceFolders.length > 0
+      ? vscode.Uri.joinPath(workspaceFolders[0].uri, defaultFilename)
+      : vscode.Uri.file(defaultFilename);
+
     const dialogFilters: Record<string, string[]> = isXml
       ? { XML: ['xml'], 'All Files': ['*'] }
       : { Markdown: ['md'], 'All Files': ['*'] };
@@ -137,7 +140,8 @@ export class BundleExportService {
         filters,
         cachedGitStatuses
       );
-      await fs.promises.writeFile(uri.fsPath, payload, 'utf-8');
+      // Use VS Code workspace FS API to support WSL, Remote SSH, and Virtual File Systems
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(payload, 'utf-8'));
       vscode.window.showInformationMessage(`Файл сохранен: ${path.basename(uri.fsPath)}`);
     } catch (err: unknown) {
       vscode.window.showErrorMessage(`Ошибка сохранения файла: ${ErrorUtils.extractErrorMessage(err)}`);
@@ -145,7 +149,7 @@ export class BundleExportService {
   }
 
   /**
-   * Opens assembled context in an editor split beside current view with matching syntax highlighting.
+   * Opens assembled context in an editor split beside current view, reusing preview document tab to prevent tab spam.
    */
   public static async previewContext(
     selectedFiles: Set<string>,
@@ -171,11 +175,28 @@ export class BundleExportService {
         filters,
         cachedGitStatuses
       );
-      const doc = await vscode.workspace.openTextDocument({
-        content: payload,
-        language: outputFormat === 'xml' ? 'xml' : 'markdown'
-      });
-      await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+
+      const isXml = outputFormat === 'xml';
+      const fileName = `AI-Context-Preview.${isXml ? 'xml' : 'md'}`;
+      const previewUri = vscode.Uri.parse(`untitled:${fileName}`);
+
+      try {
+        const doc = await vscode.workspace.openTextDocument(previewUri);
+        const edit = new vscode.WorkspaceEdit();
+        const fullRange = new vscode.Range(
+          doc.positionAt(0),
+          doc.positionAt(doc.getText().length)
+        );
+        edit.replace(previewUri, fullRange, payload);
+        await vscode.workspace.applyEdit(edit);
+        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+      } catch {
+        const doc = await vscode.workspace.openTextDocument({
+          content: payload,
+          language: isXml ? 'xml' : 'markdown'
+        });
+        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+      }
     } catch (err: unknown) {
       vscode.window.showErrorMessage(`Ошибка предварительного просмотра: ${ErrorUtils.extractErrorMessage(err)}`);
     }
