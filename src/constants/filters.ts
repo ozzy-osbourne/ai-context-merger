@@ -1,5 +1,7 @@
+import * as vscode from 'vscode';
+
 /**
- * Directories and metadata files that are unconditionally excluded from scanning.
+ * Default fallback directories and metadata files that are unconditionally excluded from scanning.
  */
 export const ALWAYS_IGNORED: ReadonlySet<string> = new Set([
   // VCS and IDE metadata
@@ -61,6 +63,24 @@ export const ALWAYS_IGNORED: ReadonlySet<string> = new Set([
   'Thumbs.db',
   'desktop.ini'
 ]);
+
+/**
+ * Resolves active ignored directory set, taking user-configured patterns from settings into account.
+ *
+ * @returns Set of ignored directory and metadata names.
+ */
+export function getIgnoredDirectoriesSet(): ReadonlySet<string> {
+  try {
+    const config = vscode.workspace.getConfiguration('aiContextMerger');
+    const configuredPatterns = config.get<string[]>('ignoredDirectoryPatterns');
+    if (Array.isArray(configuredPatterns) && configuredPatterns.length > 0) {
+      return new Set(configuredPatterns);
+    }
+  } catch {
+    // Fall back to built-in default if settings are not available in test runner
+  }
+  return ALWAYS_IGNORED;
+}
 
 /**
  * Known package manager lockfile names.
@@ -181,11 +201,47 @@ export const BINARY_EXTENSIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Maximum token budget threshold for context estimation.
+ * Default fallback maximum token budget threshold for context estimation.
  */
 export const MAX_CONTEXT_TOKENS = 200000;
 
 /**
- * Maximum allowable file size in bytes (5 MB). Files exceeding this limit are skipped to preserve context and memory.
+ * Default maximum allowable file size in bytes (5 MB).
  */
-export const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+export const DEFAULT_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Resolves maximum allowable file size in bytes from user configuration or falls back to default.
+ *
+ * @returns Max file size threshold in bytes.
+ */
+export function getMaxFileSizeBytes(): number {
+  try {
+    const config = vscode.workspace.getConfiguration('aiContextMerger');
+    const customMb = config.get<number>('maxFileSizeMB');
+    if (typeof customMb === 'number' && customMb > 0) {
+      return customMb * 1024 * 1024;
+    }
+  } catch {
+    // Ignore configuration read error in isolated tests
+  }
+  return DEFAULT_MAX_FILE_SIZE_BYTES;
+}
+
+/**
+ * Resolves maximum diff size in characters from user configuration or falls back to default (100 KB).
+ *
+ * @returns Max diff characters threshold.
+ */
+export function getMaxDiffBytes(): number {
+  try {
+    const config = vscode.workspace.getConfiguration('aiContextMerger');
+    const customKb = config.get<number>('maxDiffSizeKB');
+    if (typeof customKb === 'number' && customKb > 0) {
+      return customKb * 1024;
+    }
+  } catch {
+    // Ignore configuration read error in isolated tests
+  }
+  return 100 * 1024;
+}

@@ -70,10 +70,12 @@ export function getScripts(): string {
     const btnCancelPreset = document.getElementById('btnCancelPreset');
 
     // =========================================================================
-    // 3. Format & Context Addons (Git Diff & Diagnostics) DOM Elements
+    // 3. Format & Context Addons (Project Structure, Git Diff & Diagnostics) DOM Elements
     // =========================================================================
     const formatMarkdown = document.getElementById('formatMarkdown');
     const formatXml = document.getElementById('formatXml');
+
+    const projectStructureToggle = document.getElementById('projectStructureToggle');
 
     const gitDiffToggle = document.getElementById('gitDiffToggle');
     const gitDiffSuboptions = document.getElementById('gitDiffSuboptions');
@@ -150,6 +152,11 @@ export function getScripts(): string {
       promptBody.classList.remove('hidden');
     }
 
+    // Restore Project Structure toggle (defaults to true)
+    projectStructureToggle.checked = previousState.includeProjectStructure !== undefined
+      ? Boolean(previousState.includeProjectStructure)
+      : true;
+
     // Restore Git Diff toggles
     gitDiffToggle.checked = Boolean(previousState.gitDiffEnabled);
     diffOnlyToggle.checked = Boolean(previousState.diffOnly);
@@ -158,14 +165,14 @@ export function getScripts(): string {
       gitDiffSuboptions.classList.remove('hidden');
     }
 
-    // Restore Diagnostics toggles
+    // Restore Diagnostics toggles (Linter is disabled by default to eliminate log noise)
     diagnosticsToggle.checked = Boolean(previousState.diagnosticsEnabled);
     diagnosticsCompilerToggle.checked = previousState.diagnosticsIncludeCompiler !== undefined
       ? Boolean(previousState.diagnosticsIncludeCompiler)
       : true;
     diagnosticsLinterToggle.checked = previousState.diagnosticsIncludeLinter !== undefined
       ? Boolean(previousState.diagnosticsIncludeLinter)
-      : true;
+      : false;
 
     if (diagnosticsToggle.checked) {
       diagnosticsSuboptions.classList.remove('hidden');
@@ -272,6 +279,7 @@ export function getScripts(): string {
         promptEnabled: promptToggle.checked,
         promptText: promptInput.value,
         tokenLimit: activeLimit,
+        includeProjectStructure: projectStructureToggle.checked,
         gitDiffEnabled: gitDiffToggle.checked,
         diffOnly: diffOnlyToggle.checked,
         unlimitedDiff: unlimitedDiffToggle.checked,
@@ -341,6 +349,19 @@ export function getScripts(): string {
           });
         }, 300);
       }
+    }
+
+    /**
+     * Synchronizes active Project Structure inclusion setting with the extension host.
+     *
+     * @returns {void}
+     */
+    function syncProjectStructureWithExtension() {
+      saveState();
+      vscode.postMessage({
+        type: 'updateProjectStructure',
+        includeProjectStructure: projectStructureToggle.checked
+      });
     }
 
     /**
@@ -607,6 +628,11 @@ export function getScripts(): string {
       syncPromptWithExtension(true);
     });
 
+    // Project Structure Toggle
+    projectStructureToggle.addEventListener('change', () => {
+      syncProjectStructureWithExtension();
+    });
+
     // Git Diff Options
     gitDiffToggle.addEventListener('change', () => {
       if (gitDiffToggle.checked) {
@@ -827,6 +853,10 @@ export function getScripts(): string {
 
         if (message.tokenLimit && VALID_TOKEN_LIMITS.includes(String(message.tokenLimit))) {
           tokenLimitSelect.value = String(message.tokenLimit);
+        }
+
+        if (message.includeProjectStructure !== undefined) {
+          projectStructureToggle.checked = Boolean(message.includeProjectStructure);
         }
 
         if (message.filters) {

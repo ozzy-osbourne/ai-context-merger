@@ -246,6 +246,15 @@ export class WebviewMessageHandler {
         break;
       }
 
+      case 'updateProjectStructure':
+        this.provider.includeProjectStructure = Boolean(message.includeProjectStructure);
+        await this.provider.context.workspaceState.update(
+          ContextMergerControlsProvider.WORKSPACE_STORAGE_KEYS.PROJECT_STRUCTURE,
+          this.provider.includeProjectStructure
+        );
+        await this.provider.updateStats();
+        break;
+
       case 'updateGitDiff':
         if (message.settings && typeof message.settings === 'object') {
           this.provider.gitDiffSettings = {

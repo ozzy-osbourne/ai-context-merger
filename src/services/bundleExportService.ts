@@ -27,6 +27,7 @@ export class BundleExportService {
    * @param diagnosticsSettings - Compiler/linter diagnostics settings.
    * @param filters - Active file exclusion filters.
    * @param cachedGitStatuses - Map of file paths to Git statuses.
+   * @param includeProjectStructure - Flag indicating if project structure is included.
    * @param onSuccess - Optional callback triggered upon successful copy.
    * @param onError - Optional callback triggered if assembly or clipboard fails (used to reset Webview button).
    */
@@ -38,6 +39,7 @@ export class BundleExportService {
     diagnosticsSettings: DiagnosticsSettings,
     filters: FilterSettings,
     cachedGitStatuses: Map<string, GitFileStatus>,
+    includeProjectStructure: boolean = true,
     onSuccess?: () => void,
     onError?: () => void
   ): Promise<void> {
@@ -64,7 +66,8 @@ export class BundleExportService {
             gitDiffSettings,
             diagnosticsSettings,
             filters,
-            cachedGitStatuses
+            cachedGitStatuses,
+            includeProjectStructure
           );
 
           await vscode.env.clipboard.writeText(payload);
@@ -102,7 +105,8 @@ export class BundleExportService {
     gitDiffSettings: GitDiffSettings,
     diagnosticsSettings: DiagnosticsSettings,
     filters: FilterSettings,
-    cachedGitStatuses: Map<string, GitFileStatus>
+    cachedGitStatuses: Map<string, GitFileStatus>,
+    includeProjectStructure: boolean = true
   ): Promise<void> {
     if (selectedFiles.size === 0) {
       vscode.window.showWarningMessage('Не выбрано ни одного файла для экспорта.');
@@ -138,7 +142,8 @@ export class BundleExportService {
         gitDiffSettings,
         diagnosticsSettings,
         filters,
-        cachedGitStatuses
+        cachedGitStatuses,
+        includeProjectStructure
       );
       // Use VS Code workspace FS API to support WSL, Remote SSH, and Virtual File Systems
       await vscode.workspace.fs.writeFile(uri, Buffer.from(payload, 'utf-8'));
@@ -158,7 +163,8 @@ export class BundleExportService {
     gitDiffSettings: GitDiffSettings,
     diagnosticsSettings: DiagnosticsSettings,
     filters: FilterSettings,
-    cachedGitStatuses: Map<string, GitFileStatus>
+    cachedGitStatuses: Map<string, GitFileStatus>,
+    includeProjectStructure: boolean = true
   ): Promise<void> {
     if (selectedFiles.size === 0) {
       vscode.window.showWarningMessage('Сначала выберите файлы для предпросмотра.');
@@ -173,7 +179,8 @@ export class BundleExportService {
         gitDiffSettings,
         diagnosticsSettings,
         filters,
-        cachedGitStatuses
+        cachedGitStatuses,
+        includeProjectStructure
       );
 
       const isXml = outputFormat === 'xml';

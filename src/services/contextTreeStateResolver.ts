@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { ALWAYS_IGNORED } from '../constants';
+import { getIgnoredDirectoriesSet } from '../constants';
 import { FilterSettings, GitFileStatus } from '../types';
 import { WorkspaceScanner } from './workspaceScanner';
 import { PathUtils } from '../utils/pathUtils';
@@ -157,12 +157,13 @@ export class ContextTreeStateResolver {
     gitStatuses?: Map<string, GitFileStatus>
   ): Promise<ResolvedFolderPresentation> {
     const totalCount = await this.getFolderTotalCount(folderPath, filters, countMap, pendingPromises, gitStatuses);
+    const ignoredSet = getIgnoredDirectoriesSet();
 
     if (totalCount === 0) {
       let isPhysicallyEmpty = false;
       try {
         const rawEntries = await fs.promises.readdir(folderPath, { withFileTypes: true });
-        const visibleEntries = rawEntries.filter((e) => !ALWAYS_IGNORED.has(e.name) && !e.isSymbolicLink());
+        const visibleEntries = rawEntries.filter((e) => !ignoredSet.has(e.name) && !e.isSymbolicLink());
 
         if (visibleEntries.length === 0) {
           isPhysicallyEmpty = true;
@@ -179,7 +180,7 @@ export class ContextTreeStateResolver {
               }
               try {
                 const subRaw = await fs.promises.readdir(subPath);
-                if (subRaw.some((name) => !ALWAYS_IGNORED.has(name))) {
+                if (subRaw.some((name) => !ignoredSet.has(name))) {
                   isPhysicallyEmpty = false;
                   break;
                 }

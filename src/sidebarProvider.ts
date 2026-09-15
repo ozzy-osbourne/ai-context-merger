@@ -25,6 +25,7 @@ import { getHtmlTemplate } from './ui/htmlTemplate';
 
 export const WORKSPACE_STORAGE_KEYS = {
   PROMPT_SETTINGS: 'aiContextMerger.promptSettings',
+  PROJECT_STRUCTURE: 'aiContextMerger.includeProjectStructure',
   GIT_DIFF_SETTINGS: 'aiContextMerger.gitDiffSettings',
   DIAGNOSTICS_SETTINGS: 'aiContextMerger.diagnosticsSettings',
   SELECTED_FILES: 'aiContextMerger.selectedFiles',
@@ -43,6 +44,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
 
   public filters: FilterSettings;
   public promptSettings: PromptSettings;
+  public includeProjectStructure: boolean;
   public gitDiffSettings: GitDiffSettings;
   public diagnosticsSettings: DiagnosticsSettings;
   public outputFormat: OutputFormat;
@@ -74,14 +76,20 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       { enabled: false, text: '' }
     );
 
+    this.includeProjectStructure = this.context.workspaceState.get<boolean>(
+      WORKSPACE_STORAGE_KEYS.PROJECT_STRUCTURE,
+      true
+    );
+
     this.gitDiffSettings = this.context.workspaceState.get<GitDiffSettings>(
       WORKSPACE_STORAGE_KEYS.GIT_DIFF_SETTINGS,
       { includeGitDiff: false, diffOnly: false, unlimitedDiff: false }
     );
 
+    // Linter warnings disabled by default to prevent context flooding
     this.diagnosticsSettings = this.context.workspaceState.get<DiagnosticsSettings>(
       WORKSPACE_STORAGE_KEYS.DIAGNOSTICS_SETTINGS,
-      { enabled: false, includeCompiler: true, includeLinter: true }
+      { enabled: false, includeCompiler: true, includeLinter: false }
     );
 
     this.messageHandler = new WebviewMessageHandler(
@@ -168,7 +176,8 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       this.outputFormat,
       this.diagnosticsSettings,
       diagnosticsPayload.length,
-      this.tokenLimit
+      this.tokenLimit,
+      this.includeProjectStructure
     );
   }
 
@@ -224,6 +233,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       stats,
       filters: this.filters,
       promptSettings: this.promptSettings,
+      includeProjectStructure: this.includeProjectStructure,
       gitDiffSettings: this.gitDiffSettings,
       diagnosticsSettings: this.diagnosticsSettings,
       diagnosticsSummary: this.getDiagnosticsSummary(),
@@ -248,6 +258,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       this.diagnosticsSettings,
       this.filters,
       this.cachedGitStatuses,
+      this.includeProjectStructure,
       () => {
         this.postWebviewMessage({ type: 'copySuccess' });
       },
@@ -265,7 +276,8 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       this.gitDiffSettings,
       this.diagnosticsSettings,
       this.filters,
-      this.cachedGitStatuses
+      this.cachedGitStatuses,
+      this.includeProjectStructure
     );
   }
 
@@ -277,7 +289,8 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       this.gitDiffSettings,
       this.diagnosticsSettings,
       this.filters,
-      this.cachedGitStatuses
+      this.cachedGitStatuses,
+      this.includeProjectStructure
     );
   }
 

@@ -88,6 +88,19 @@ suite('MarkdownBuilder: Dynamic Code Fences & Formatting Tests', () => {
     assert.strictEqual(bundleMarkdown.includes('Project Structure:'), false);
   });
 
+  test('Omits Project Structure when includeProjectStructure is set to false even if files are selected', async () => {
+    const testFile = path.join(tempDir, 'sample_no_tree.ts');
+    await fs.promises.writeFile(testFile, 'export const val = 42;', 'utf-8');
+    const files = new Set<string>([testFile]);
+
+    const resultWithTree = await MarkdownBuilder.buildBundleMarkdown(files, undefined, undefined, undefined, undefined, undefined, undefined, true);
+    assert.strictEqual(resultWithTree.includes('Project Structure:'), true);
+
+    const resultWithoutTree = await MarkdownBuilder.buildBundleMarkdown(files, undefined, undefined, undefined, undefined, undefined, undefined, false);
+    assert.strictEqual(resultWithoutTree.includes('Project Structure:'), false);
+    assert.strictEqual(resultWithoutTree.includes('export const val = 42;'), true);
+  });
+
   test('Omits file content blocks in "diffOnly" mode while keeping project structure and Git diff', async () => {
     const testFile = path.join(tempDir, 'app.ts');
     await fs.promises.writeFile(testFile, 'export const a = 1;', 'utf-8');

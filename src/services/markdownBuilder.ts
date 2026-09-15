@@ -51,6 +51,7 @@ export class MarkdownBuilder {
    * @param gitStatuses - Optional map containing current Git file statuses.
    * @param diagnosticsSettings - Optional compiler/linter diagnostics configuration.
    * @param diagnosticsContent - Formatted diagnostics string.
+   * @param includeProjectStructure - Optional flag to include ASCII project tree (defaults to true).
    * @returns Formatted Markdown string.
    */
   public static async buildBundleMarkdown(
@@ -60,7 +61,8 @@ export class MarkdownBuilder {
     gitDiffContent?: string,
     gitStatuses?: Map<string, GitFileStatus>,
     diagnosticsSettings?: DiagnosticsSettings,
-    diagnosticsContent?: string
+    diagnosticsContent?: string,
+    includeProjectStructure: boolean = true
   ): Promise<string> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     const sortedFiles = Array.from(selectedFiles).sort();
@@ -75,7 +77,7 @@ export class MarkdownBuilder {
       }
     }
 
-    if (sortedFiles.length > 0) {
+    if (includeProjectStructure && sortedFiles.length > 0) {
       const asciiTree = AsciiTreeService.generateAsciiTree(relativePaths, gitStatuses, sortedFiles);
       outputBlocks.push(asciiTree);
     }

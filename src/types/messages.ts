@@ -30,6 +30,7 @@ export type WebviewToExtensionMessage =
   | { type: 'addCustomPreset'; name: string; text: string }
   | { type: 'editCustomPreset'; id: string; name: string; text: string }
   | { type: 'deleteCustomPreset'; id: string }
+  | { type: 'updateProjectStructure'; includeProjectStructure: boolean }
   | { type: 'updateGitDiff'; settings: GitDiffSettings }
   | { type: 'updateDiagnostics'; settings: DiagnosticsSettings }
   | { type: 'updateSearch'; query: string }
@@ -45,6 +46,7 @@ export type ExtensionToWebviewMessage =
     stats: ContextStats;
     filters: FilterSettings;
     promptSettings: PromptSettings;
+    includeProjectStructure: boolean;
     gitDiffSettings: GitDiffSettings;
     diagnosticsSettings: DiagnosticsSettings;
     diagnosticsSummary: DiagnosticsSummary;

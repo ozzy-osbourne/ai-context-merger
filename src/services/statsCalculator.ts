@@ -9,7 +9,7 @@ import {
   OutputFormat,
   PromptSettings
 } from '../types';
-import { MAX_CONTEXT_TOKENS, BINARY_EXTENSIONS, MAX_FILE_SIZE_BYTES } from '../constants';
+import { MAX_CONTEXT_TOKENS, BINARY_EXTENSIONS, getMaxFileSizeBytes } from '../constants';
 import { AsciiTreeService } from './asciiTreeService';
 import { FileReaderService } from './fileReaderService';
 import { MarkdownBuilder } from './markdownBuilder';
@@ -32,6 +32,7 @@ export class StatsCalculator {
    * @param diagnosticsSettings - Optional compiler/linter diagnostics configuration.
    * @param diagnosticsLength - Character length of formatted diagnostics.
    * @param tokenLimit - User-configured token limit threshold (e.g. 32000, 200000, 1000000).
+   * @param includeProjectStructure - Optional flag indicating if project structure tree is included (defaults to true).
    * @returns Aggregated statistics: file count, estimated tokens, and budget usage percentage.
    */
   public static async calculateStats(
@@ -43,7 +44,8 @@ export class StatsCalculator {
     outputFormat: OutputFormat = 'markdown',
     diagnosticsSettings?: DiagnosticsSettings,
     diagnosticsLength: number = 0,
-    tokenLimit?: number | string
+    tokenLimit?: number | string,
+    includeProjectStructure: boolean = true
   ): Promise<ContextStats> {
     const hasPrompt = Boolean(promptSettings && promptSettings.enabled && promptSettings.text.trim().length > 0);
     const hasDiff = Boolean(gitDiffSettings?.includeGitDiff && gitDiffLength > 0);
@@ -57,12 +59,13 @@ export class StatsCalculator {
     let totalChars = 0;
     const sortedFiles = Array.from(selectedFiles).sort();
     const workspaceFolders = vscode.workspace.workspaceFolders;
+    const maxLimitBytes = getMaxFileSizeBytes();
 
     const relativePaths = sortedFiles.map((filePath) =>
       PathUtils.getRelativePath(filePath, workspaceFolders)
     );
 
-    const asciiTree = selectedFiles.size > 0
+    const asciiTree = (includeProjectStructure && selectedFiles.size > 0)
       ? AsciiTreeService.generateAsciiTree(relativePaths, gitStatuses, sortedFiles)
       : '';
 
@@ -80,8 +83,8 @@ export class StatsCalculator {
         }
       }
 
-      // 2. ASCII Project Structure (only included when files are present)
-      if (asciiTree.length > 0) {
+      // 2. ASCII Project Structure (only included when files are present and toggle is enabled)
+      if (includeProjectStructure && asciiTree.length > 0) {
         totalChars += `  <project_structure>\n<![CDATA[\n${asciiTree}\n]]>\n  </project_structure>\n\n`.length;
       }
 
@@ -128,7 +131,7 @@ export class StatsCalculator {
             const stat = await fs.promises.stat(filePath);
             if (stat.isDirectory()) {
               bodyLength = 0;
-            } else if (stat.size > MAX_FILE_SIZE_BYTES) {
+            } else if (stat.size > maxLimitBytes) {
               bodyLength = FileReaderService.getSizeExceededPlaceholder(stat.size).length;
             } else if (BINARY_EXTENSIONS.has(ext)) {
               bodyLength = FileReaderService.getBinaryPlaceholder(ext, stat.size).length;
@@ -152,7 +155,7 @@ export class StatsCalculator {
       // Format Branch B: Markdown Payload Character Estimation
       // =========================================================================
 
-      // 1. Task Instructions (delimiter: \n\n---\n\n is exactly 7 chars)
+      // 1. Task Instructions
       if (promptSettings && promptSettings.enabled) {
         const trimmedPrompt = promptSettings.text.trim();
         if (trimmedPrompt.length > 0) {
@@ -160,8 +163,8 @@ export class StatsCalculator {
         }
       }
 
-      // 2. ASCII Project Structure
-      if (asciiTree.length > 0) {
+      // 2. ASCII Project Structure (only included if toggle is active)
+      if (includeProjectStructure && asciiTree.length > 0) {
         totalChars += asciiTree.length + 7;
       }
 
@@ -185,7 +188,6 @@ export class StatsCalculator {
 
           const headerLength = `## File path: ${relPath}\n## File name: ${fileName}\n## File content:\n`.length;
 
-          // Accurately estimate tracked Git deleted files without invoking fs.stat
           if (gitStatus === 'deleted') {
             const deletedContentLength = '[Файл удален в Git]'.length;
             return headerLength + deletedContentLength + 7;
@@ -196,7 +198,7 @@ export class StatsCalculator {
             const stat = await fs.promises.stat(filePath);
             if (stat.isDirectory()) {
               bodyLength = 0;
-            } else if (stat.size > MAX_FILE_SIZE_BYTES) {
+            } else if (stat.size > maxLimitBytes) {
               bodyLength = FileReaderService.getSizeExceededPlaceholder(stat.size).length;
             } else if (BINARY_EXTENSIONS.has(ext)) {
               bodyLength = FileReaderService.getBinaryPlaceholder(ext, stat.size).length;

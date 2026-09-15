@@ -57,10 +57,14 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
           
           <div class="preset-section-label">Базовые:</div>
           <div class="preset-chips">
-            <button type="button" class="preset-chip" data-preset="🔍 Баги" title="Вставить универсальный шаблон поиска ошибок и крайних случаев">🔍 Баги</button>
-            <button type="button" class="preset-chip" data-preset="⚡ Рефакторинг" title="Вставить универсальный шаблон рефакторинга и идиоматичности">⚡ Рефакторинг</button>
-            <button type="button" class="preset-chip" data-preset="📝 Тесты" title="Вставить универсальный шаблон модульных тестов">📝 Тесты</button>
-            <button type="button" class="preset-chip" data-preset="📖 Документация" title="Вставить универсальный шаблон документации к коду">📖 Документация</button>
+            <button type="button" class="preset-chip" data-preset="🔍 Баги" title="Вставить шаблон глубокого поиска багов и уязвимостей">🔍 Баги</button>
+            <button type="button" class="preset-chip" data-preset="⚡ Рефакторинг" title="Вставить шаблон оптимизации и рефакторинга без лишней перезаписи">⚡ Рефакторинг</button>
+            <button type="button" class="preset-chip" data-preset="📝 Тесты" title="Вставить шаблон написания комплексных unit-тестов">📝 Тесты</button>
+            <button type="button" class="preset-chip" data-preset="📖 Документация" title="Вставить шаблон составления исчерпывающей документации">📖 Документация</button>
+            <button type="button" class="preset-chip" data-preset="🛠️ Исправление" title="Вставить шаблон устранения ошибок компилятора и линтера">🛠️ Исправление</button>
+            <button type="button" class="preset-chip" data-preset="🌿 Ревью PR" title="Вставить шаблон Code Review изменений из Git Diff">🌿 Ревью PR</button>
+            <button type="button" class="preset-chip" data-preset="✨ Новая фича" title="Вставить шаблон реализации новой фичи по архитектуре">✨ Новая фича</button>
+            <button type="button" class="preset-chip" data-preset="🧠 Объяснение" title="Вставить шаблон архитектурного анализа и онбординга">🧠 Объяснение</button>
           </div>
 
           <div class="preset-section-label custom-preset-label">Пользовательские:</div>
@@ -123,6 +127,15 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
 
       <div class="addons-card">
         <div class="addon-block">
+          <label class="addon-header-label" title="Прикрепить ASCII-дерево структуры проекта в итоговый контекст">
+            <input type="checkbox" id="projectStructureToggle" checked>
+            <span>📁 Прикрепить структуру проекта</span>
+          </label>
+        </div>
+
+        <div class="addons-card-divider"></div>
+
+        <div class="addon-block">
           <label class="addon-header-label" title="Прикрепить блок git diff изменений выбранных файлов в итоговый контекст">
             <input type="checkbox" id="gitDiffToggle">
             <span>🌿 Прикрепить Git Diff</span>
@@ -152,7 +165,7 @@ export function getHtmlTemplate(webview: vscode.Webview): string {
               <span id="diagnosticsCompilerLabel">Ошибки компилятора (0)</span>
             </label>
             <label class="addon-suboption" title="Включать замечания линтера и статических анализаторов (ESLint, Ruff, Clippy, Biome и др.)">
-              <input type="checkbox" id="diagnosticsLinterToggle" checked>
+              <input type="checkbox" id="diagnosticsLinterToggle">
               <span id="diagnosticsLinterLabel">Ошибки линтера (0)</span>
             </label>
           </div>

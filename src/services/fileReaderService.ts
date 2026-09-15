@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
-import { BINARY_EXTENSIONS, MAX_FILE_SIZE_BYTES } from '../constants';
+import { BINARY_EXTENSIONS, getMaxFileSizeBytes } from '../constants';
 
 /**
  * Result descriptor for safe file reading operations.
@@ -71,7 +71,8 @@ export class FileReaderService {
    */
   public static getSizeExceededPlaceholder(sizeInBytes: number): string {
     const sizeMb = (sizeInBytes / (1024 * 1024)).toFixed(2);
-    return `[Файл превышает лимит размера 5 MB (${sizeMb} MB) - содержимое пропущено во избежание переполнения контекста ИИ]`;
+    const limitMb = (getMaxFileSizeBytes() / (1024 * 1024)).toFixed(0);
+    return `[Файл превышает лимит размера ${limitMb} MB (${sizeMb} MB) - содержимое пропущено во избежание переполнения контекста ИИ]`;
   }
 
   /**
@@ -291,6 +292,7 @@ export class FileReaderService {
    */
   public static async safeReadFile(filePath: string): Promise<SafeFileReadResult> {
     const ext = path.extname(filePath).toLowerCase();
+    const maxLimitBytes = getMaxFileSizeBytes();
 
     let stat: fs.Stats;
     try {
@@ -301,7 +303,7 @@ export class FileReaderService {
       };
     }
 
-    if (stat.size > MAX_FILE_SIZE_BYTES) {
+    if (stat.size > maxLimitBytes) {
       return {
         placeholder: this.getSizeExceededPlaceholder(stat.size)
       };

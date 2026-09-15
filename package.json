@@ -19,6 +19,104 @@
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "AI Context Merger",
+      "properties": {
+        "aiContextMerger.ignoredDirectoryPatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            ".git",
+            ".vscode",
+            ".idea",
+            "node_modules",
+            "dist",
+            "out",
+            "build",
+            ".next",
+            ".nuxt",
+            ".svelte-kit",
+            ".astro",
+            ".turbo",
+            ".parcel-cache",
+            ".docusaurus",
+            ".vite",
+            ".swc",
+            ".terraform",
+            "__pycache__",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+            ".tox",
+            ".venv",
+            "venv",
+            "env",
+            "target",
+            "vendor",
+            ".gradle",
+            ".dart_tool",
+            "Library",
+            "Temp",
+            "Obj",
+            "Build",
+            "Builds",
+            "Logs",
+            "UserSettings",
+            "MemoryCaptures",
+            "coverage",
+            ".nyc_output",
+            ".cache",
+            ".DS_Store",
+            "Thumbs.db",
+            "desktop.ini"
+          ],
+          "description": "Список безусловно исключаемых системных папок и файлов сборщика/IDE (ALWAYS_IGNORED). Вы можете убрать отсюда папки, если вам нужен их код, или добавить свои.",
+          "scope": "resource"
+        },
+        "aiContextMerger.maxFileSizeMB": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Максимальный допустимый размер читаемого файла в мегабайтах (MB). Файлы больше этого размера заменяются заглушкой во избежание переполнения памяти и контекста.",
+          "scope": "window"
+        },
+        "aiContextMerger.maxDiffSizeKB": {
+          "type": "number",
+          "default": 100,
+          "minimum": 10,
+          "maximum": 5000,
+          "description": "Максимальный размер Git Diff для одного файла в килобайтах (KB) до обрезки. Может быть обойден опцией «Безлимитный Diff».",
+          "scope": "window"
+        },
+        "aiContextMerger.defaultOutputFormat": {
+          "type": "string",
+          "enum": [
+            "markdown",
+            "xml"
+          ],
+          "default": "markdown",
+          "description": "Формат вывода контекста по умолчанию при создании нового сеанса.",
+          "scope": "window"
+        },
+        "aiContextMerger.defaultTokenLimit": {
+          "type": "string",
+          "enum": [
+            "32000",
+            "64000",
+            "128000",
+            "200000",
+            "1000000",
+            "2000000"
+          ],
+          "default": "200000",
+          "description": "Лимит контекстного окна модели по умолчанию для расчета шкалы заполнения.",
+          "scope": "window"
+        }
+      }
+    },
     "viewsContainers": {
       "activitybar": [
         {

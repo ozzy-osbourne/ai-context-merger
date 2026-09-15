@@ -22,6 +22,7 @@ export class XmlBuilder {
    * @param gitStatuses - Optional map containing current Git statuses for visual decorations.
    * @param diagnosticsSettings - Optional compiler/linter diagnostics configuration.
    * @param diagnosticsContent - Pre-formatted diagnostics error and warning lines.
+   * @param includeProjectStructure - Optional flag to include ASCII project tree (defaults to true).
    * @returns Fully formatted and valid XML document string with declaration.
    */
   public static async buildBundleXml(
@@ -31,7 +32,8 @@ export class XmlBuilder {
     gitDiffContent?: string,
     gitStatuses?: Map<string, GitFileStatus>,
     diagnosticsSettings?: DiagnosticsSettings,
-    diagnosticsContent?: string
+    diagnosticsContent?: string,
+    includeProjectStructure: boolean = true
   ): Promise<string> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     const sortedFiles = Array.from(selectedFiles).sort();
@@ -54,7 +56,7 @@ export class XmlBuilder {
     }
 
     // Section 2: ASCII Project Structure Tree (isolated in CDATA to protect branch symbols and brackets)
-    if (sortedFiles.length > 0) {
+    if (includeProjectStructure && sortedFiles.length > 0) {
       const asciiTree = AsciiTreeService.generateAsciiTree(relativePaths, gitStatuses, sortedFiles);
       const sanitizedAsciiTree = XmlUtils.sanitizeXmlChars(asciiTree);
       const safeAsciiTree = XmlUtils.escapeCdata(sanitizedAsciiTree);

@@ -4,6 +4,7 @@ import { FilterSettings, GitAPI, GitChange, GitExtensionExports, GitFileStatus, 
 import { WorkspaceScanner } from './workspaceScanner';
 import { FileReaderService } from './fileReaderService';
 import { PathUtils } from '../utils/pathUtils';
+import { getMaxDiffBytes } from '../constants/filters';
 
 /**
  * Service providing integration with the built-in VS Code Git extension.
@@ -11,11 +12,6 @@ import { PathUtils } from '../utils/pathUtils';
  */
 export class GitService {
   private static cachedGitApi: GitAPI | null = null;
-
-  /**
-   * Maximum characters allowed for an individual file diff before truncation (100 KB).
-   */
-  public static readonly MAX_DIFF_BYTES = 100 * 1024;
 
   /**
    * Resolves and caches the API instance of the built-in vscode.git extension.
@@ -361,6 +357,7 @@ export class GitService {
 
     const statuses = await this.getFileStatuses();
     const diffBlocks: string[] = [];
+    const maxDiffLimit = getMaxDiffBytes();
 
     for (const filePath of filePaths) {
       const normPath = PathUtils.normalizePath(filePath);
@@ -405,9 +402,10 @@ export class GitService {
         continue;
       }
 
-      if (!unlimitedDiff && rawDiff.length > this.MAX_DIFF_BYTES) {
-        const truncated = rawDiff.slice(0, this.MAX_DIFF_BYTES);
-        rawDiff = `${truncated}\n\n... [Diff превышает лимит 100 KB и был обрезан. Включите «Безлимитный Diff» для полного вывода] ...`;
+      if (!unlimitedDiff && rawDiff.length > maxDiffLimit) {
+        const truncated = rawDiff.slice(0, maxDiffLimit);
+        const limitKb = (maxDiffLimit / 1024).toFixed(0);
+        rawDiff = `${truncated}\n\n... [Diff превышает лимит ${limitKb} KB и был обрезан. Включите «Безлимитный Diff» для полного вывода] ...`;
       }
 
       diffBlocks.push(rawDiff.trim());

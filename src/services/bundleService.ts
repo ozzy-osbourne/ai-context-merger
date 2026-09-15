@@ -54,6 +54,7 @@ export class BundleService {
    * @param diagnosticsSettings - Diagnostics settings.
    * @param filters - Exclusion filters.
    * @param cachedGitStatuses - Map of file paths to Git statuses.
+   * @param includeProjectStructure - Whether to include the ASCII project tree (defaults to true).
    * @returns Assembled payload string ready for LLM consumption.
    */
   public static async buildContextPayload(
@@ -63,7 +64,8 @@ export class BundleService {
     gitDiffSettings: GitDiffSettings,
     diagnosticsSettings: DiagnosticsSettings,
     filters: FilterSettings,
-    cachedGitStatuses: Map<string, GitFileStatus>
+    cachedGitStatuses: Map<string, GitFileStatus>,
+    includeProjectStructure: boolean = true
   ): Promise<string> {
     let diffContent = '';
     if (gitDiffSettings.includeGitDiff) {
@@ -84,7 +86,8 @@ export class BundleService {
         diffContent,
         cachedGitStatuses,
         diagnosticsSettings,
-        diagnosticsContent
+        diagnosticsContent,
+        includeProjectStructure
       );
     }
 
@@ -95,7 +98,8 @@ export class BundleService {
       diffContent,
       cachedGitStatuses,
       diagnosticsSettings,
-      diagnosticsContent
+      diagnosticsContent,
+      includeProjectStructure
     );
   }
 }

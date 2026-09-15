@@ -179,10 +179,11 @@ export class PresetService {
   }
 
   /**
-   * Retrieves stored output format from globalState.
+   * Retrieves stored output format from globalState or VS Code user settings default.
    */
   public getOutputFormat(): OutputFormat {
-    return this.context.globalState.get<OutputFormat>(STORAGE_KEYS.OUTPUT_FORMAT, 'markdown');
+    const configDefault = vscode.workspace.getConfiguration('aiContextMerger').get<OutputFormat>('defaultOutputFormat', 'markdown');
+    return this.context.globalState.get<OutputFormat>(STORAGE_KEYS.OUTPUT_FORMAT, configDefault);
   }
 
   /**
@@ -207,10 +208,11 @@ export class PresetService {
   }
 
   /**
-   * Retrieves globally synchronized token limit preference.
+   * Retrieves globally synchronized token limit preference or VS Code user settings default.
    */
   public getTokenLimit(): string {
-    return this.context.globalState.get<string>(STORAGE_KEYS.TOKEN_LIMIT, '200000');
+    const configDefault = vscode.workspace.getConfiguration('aiContextMerger').get<string>('defaultTokenLimit', '200000');
+    return this.context.globalState.get<string>(STORAGE_KEYS.TOKEN_LIMIT, configDefault);
   }
 
   /**
