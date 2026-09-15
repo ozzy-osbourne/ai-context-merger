@@ -56,11 +56,11 @@ export class FileReaderService {
    */
   private static readonly MOJIBAKE_PATTERNS = [
     // Cyrillic double-encoded as Windows-1251 (UTF-8 bytes 0xD0..0xD1 decoded as 'Р', 'С')
-    /(?:[РС][\u0080-\u00BF\u0400-\u044F]){4,}/,
+    /(?:[РС][\u0080-\u00BF\u0400-\u04FF\u2010-\u203A\u2122]){3,}/,
     // Cyrillic double-encoded as Windows-1252 / ISO-8859-1 (UTF-8 bytes 0xD0, 0xD1 decoded as 'Ð', 'Ñ')
-    /(?:[ÐÑ][\u0080-\u00BF\u00C0-\u00FF]){3,}/,
+    /(?:[ÐÑ][\u0080-\u00FF\u0100-\u017F\u2010-\u20AC]){3,}/,
     // Latin quotes & symbols double-encoded as Windows-1252 (UTF-8 byte 0xE2 decoded as 'â')
-    /â[\u0080-\u009F]{2}/
+    /â[\u0080-\u00FF\u2010-\u20AC]{2}/
   ];
 
   /**

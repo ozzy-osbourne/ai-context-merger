@@ -30,26 +30,40 @@ export class WebviewMessageHandler {
     }
 
     switch (message.type) {
-      case 'selectAll':
+      case 'selectAll': {
         await this.selectionService.selectAllFiles(this.provider.filters);
         await this.provider.persistSelectedFiles();
         await this.provider.updateStats();
-        vscode.window.showInformationMessage(`AI Context Merger: Выбрано файлов - ${this.selectedFiles.size}.`);
+        if (this.selectedFiles.size === 0) {
+          vscode.window.showWarningMessage('Не найдено доступных файлов для выбора (или они скрыты активными фильтрами).');
+        } else {
+          vscode.window.showInformationMessage(`AI Context Merger: Выбрано файлов - ${this.selectedFiles.size}.`);
+        }
         break;
+      }
 
-      case 'selectFound':
+      case 'selectFound': {
+        const countBefore = this.selectedFiles.size;
         await this.selectionService.selectFoundFiles(message.query, this.provider.filters);
         await this.provider.persistSelectedFiles();
         await this.provider.updateStats();
-        vscode.window.showInformationMessage(`AI Context Merger: Выбрано найденных файлов - ${this.selectedFiles.size}.`);
+
+        const countAfter = this.selectedFiles.size;
+        const newlyAdded = countAfter - countBefore;
+
+        if (countAfter === 0) {
+          vscode.window.showWarningMessage(`По запросу "${message.query}" не найдено подходящих файлов.`);
+        } else {
+          vscode.window.showInformationMessage(`AI Context Merger: Выбрано найденных файлов - ${newlyAdded} (всего: ${countAfter}).`);
+        }
         break;
+      }
 
       case 'selectOpenTabs': {
         const addedFiles = await this.selectionService.selectOpenTabs(this.provider.filters);
         await this.provider.persistSelectedFiles();
         await this.provider.updateStats();
 
-        // Smoothly scroll and reveal the active / first selected open tab in the TreeView
         if (this.provider.treeView && addedFiles.length > 0) {
           const activeUri = vscode.window.activeTextEditor?.document?.uri;
           const activeFsPath = activeUri && activeUri.scheme === 'file'
@@ -135,21 +149,25 @@ export class WebviewMessageHandler {
 
           await this.presetService.saveFilters(this.provider.filters);
 
-          const workspaceFolders = vscode.workspace.workspaceFolders;
+          let removedByFilter = 0;
           for (const filePath of Array.from(this.selectedFiles)) {
-            const matchedFolder = workspaceFolders?.find((f) =>
-              PathUtils.isSubpath(filePath, PathUtils.normalizePath(f.uri.fsPath))
-            );
-            const root = matchedFolder ? PathUtils.normalizePath(matchedFolder.uri.fsPath) : undefined;
+            const root = PathUtils.getWorkspaceRoot(filePath);
             const isFiltered = await WorkspaceScanner.shouldFilterItem(filePath, false, this.provider.filters, root);
             if (isFiltered) {
               this.selectedFiles.delete(filePath);
+              removedByFilter++;
             }
           }
 
           await this.provider.persistSelectedFiles();
           this.treeDataProvider.setFilters(this.provider.filters);
           await this.provider.updateStats();
+
+          if (removedByFilter > 0) {
+            vscode.window.showInformationMessage(
+              `AI Context Merger: ${removedByFilter} файлов исключено из выборки в соответствии с новыми фильтрами.`
+            );
+          }
         }
         break;
 
@@ -158,7 +176,6 @@ export class WebviewMessageHandler {
           enabled: Boolean(message.enabled),
           text: typeof message.text === 'string' ? message.text : ''
         };
-        // Persist prompt draft into project workspaceState immediately
         await this.provider.context.workspaceState.update(
           ContextMergerControlsProvider.WORKSPACE_STORAGE_KEYS.PROMPT_SETTINGS,
           this.provider.promptSettings

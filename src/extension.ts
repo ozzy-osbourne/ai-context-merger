@@ -4,6 +4,8 @@ import { ContextMergerControlsProvider, WORKSPACE_STORAGE_KEYS } from './sidebar
 import { ContextTreeDataProvider, ContextTreeItem } from './services/contextTreeDataProvider';
 import { ContextMenuService } from './services/contextMenuService';
 import { PresetService } from './services/presetService';
+import { GitService } from './services/gitService';
+import { PathUtils } from './utils/pathUtils';
 
 /**
  * Activates the AI Context Merger extension.
@@ -13,16 +15,22 @@ import { PresetService } from './services/presetService';
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const savedFiles = context.workspaceState.get<string[]>(WORKSPACE_STORAGE_KEYS.SELECTED_FILES, []);
 
-  // Filter out any files deleted from disk while VS Code was closed
+  // Retrieve git statuses to retain deleted git files [D] across VS Code restarts
+  const gitStatuses = await GitService.getFileStatuses();
+
   const existingFiles: string[] = [];
   for (const filePath of savedFiles) {
+    const normPath = PathUtils.normalizePath(filePath);
     try {
-      const stat = await fs.promises.stat(filePath);
+      const stat = await fs.promises.stat(normPath);
       if (stat.isFile()) {
-        existingFiles.push(filePath);
+        existingFiles.push(normPath);
       }
     } catch {
-      // Skip deleted or inaccessible file
+      // If file is physically absent from disk but tracked as deleted in Git, keep it in selection
+      if (gitStatuses.get(normPath) === 'deleted') {
+        existingFiles.push(normPath);
+      }
     }
   }
 
@@ -121,4 +129,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 }
 
-export function deactivate(): void { }
+export function deactivate(): void {
+  // Nothing to clean up; disposables handled via context.subscriptions
+}

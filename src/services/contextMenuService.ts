@@ -9,6 +9,7 @@ import { BundleService } from './bundleService';
 import { FileReaderService } from './fileReaderService';
 import { PathUtils } from '../utils/pathUtils';
 import { SelectionService } from './selectionService';
+import { ErrorUtils } from '../utils/errorUtils';
 
 /**
  * Service handling Explorer, Editor, and TreeView context menu actions.
@@ -19,10 +20,6 @@ export class ContextMenuService {
     private readonly treeDataProvider: ContextTreeDataProvider,
     private readonly controlsProvider: ContextMergerControlsProvider
   ) {}
-
-  private extractErrorMessage(err: unknown): string {
-    return err instanceof Error ? err.message : String(err);
-  }
 
   private extractUri(item?: ContextTreeItem | vscode.Uri): vscode.Uri | undefined {
     if (!item) {
@@ -128,7 +125,6 @@ export class ContextMenuService {
       return [];
     }
 
-    const workspaceFolders = vscode.workspace.workspaceFolders;
     const resolvedFiles = new Set<string>();
     const filters = this.controlsProvider.filters;
 
@@ -146,10 +142,7 @@ export class ContextMenuService {
         continue;
       }
 
-      const matchedFolder = workspaceFolders?.find((f) =>
-        PathUtils.isSubpath(fsPath, PathUtils.normalizePath(f.uri.fsPath))
-      );
-      const rootPath = matchedFolder ? PathUtils.normalizePath(matchedFolder.uri.fsPath) : undefined;
+      const rootPath = PathUtils.getWorkspaceRoot(fsPath);
 
       if (stat.isDirectory()) {
         await SelectionService.selectFolderRecursive(
@@ -268,7 +261,7 @@ export class ContextMenuService {
       const formatLabel = this.controlsProvider.outputFormat.toUpperCase();
       vscode.window.showInformationMessage(`Скопирован контекст (${formatLabel}): ${isolatedSelection.size} файлов!`);
     } catch (err: unknown) {
-      vscode.window.showErrorMessage(`Ошибка копирования в буфер обмена: ${this.extractErrorMessage(err)}`);
+      vscode.window.showErrorMessage(`Ошибка копирования в буфер обмена: ${ErrorUtils.extractErrorMessage(err)}`);
     }
   }
 
@@ -298,7 +291,7 @@ export class ContextMenuService {
       await vscode.env.clipboard.writeText(diffContent);
       vscode.window.showInformationMessage(`Скопирован Git Diff для ${files.length} файлов!`);
     } catch (err: unknown) {
-      vscode.window.showErrorMessage(`Ошибка копирования Git Diff: ${this.extractErrorMessage(err)}`);
+      vscode.window.showErrorMessage(`Ошибка копирования Git Diff: ${ErrorUtils.extractErrorMessage(err)}`);
     }
   }
 
@@ -329,7 +322,7 @@ export class ContextMenuService {
       await vscode.env.clipboard.writeText(contentToCopy);
       vscode.window.showInformationMessage(`Скопирован файл: ${fileName}`);
     } catch (err: unknown) {
-      vscode.window.showErrorMessage(`Ошибка копирования файла: ${this.extractErrorMessage(err)}`);
+      vscode.window.showErrorMessage(`Ошибка копирования файла: ${ErrorUtils.extractErrorMessage(err)}`);
     }
   }
 

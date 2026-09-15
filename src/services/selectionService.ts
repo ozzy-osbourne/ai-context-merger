@@ -77,7 +77,6 @@ export class SelectionService {
     const normalizedDirPath = PathUtils.normalizePath(dirPath);
     const realDir = await PathUtils.getCanonicalPath(normalizedDirPath);
 
-    // Guard against circular symlink traversal
     if (visitedDirs.has(realDir)) {
       return 0;
     }
@@ -102,7 +101,6 @@ export class SelectionService {
       }
     }
 
-    // Cache computed count for intermediate folders
     if (countMap) {
       countMap.set(normalizedDirPath, affectedCount);
     }
@@ -131,7 +129,6 @@ export class SelectionService {
 
     if (item.isDirectory) {
       if (isChecked) {
-        // Recursively select all non-filtered children inside folder
         await SelectionService.selectFolderRecursive(
           targetPath,
           filters,
@@ -139,7 +136,6 @@ export class SelectionService {
           this.handler.folderTotalCountMap
         );
       } else {
-        // Deselect folder and all children inside
         for (const file of Array.from(this.selectedFiles)) {
           if (file === targetPath || PathUtils.isSubpath(file, targetPath)) {
             this.selectedFiles.delete(file);
@@ -220,18 +216,15 @@ export class SelectionService {
 
     const openUris: vscode.Uri[] = [];
 
-    // Inspect all active editor tab groups and extract file URIs
     for (const group of vscode.window.tabGroups.all) {
       for (const tab of group.tabs) {
         if (tab.input && typeof tab.input === 'object') {
-          // Standard text document tab
           if ('uri' in tab.input && (tab.input as { uri: unknown }).uri instanceof vscode.Uri) {
             const uri = (tab.input as { uri: vscode.Uri }).uri;
             if (uri.scheme === 'file') {
               openUris.push(uri);
             }
           }
-          // Side-by-side diff editor tab
           if ('modified' in tab.input && (tab.input as { modified: unknown }).modified instanceof vscode.Uri) {
             const uri = (tab.input as { modified: vscode.Uri }).modified;
             if (uri.scheme === 'file') {
@@ -247,11 +240,9 @@ export class SelectionService {
 
     for (const uri of openUris) {
       const fsPath = PathUtils.normalizePath(uri.fsPath);
-      const matchedFolder = workspaceFolders.find((folder) =>
-        PathUtils.isSubpath(fsPath, PathUtils.normalizePath(folder.uri.fsPath))
-      );
+      const rootPath = PathUtils.getWorkspaceRoot(fsPath, workspaceFolders);
 
-      if (!matchedFolder) {
+      if (!rootPath) {
         continue;
       }
 
@@ -264,7 +255,6 @@ export class SelectionService {
         continue;
       }
 
-      const rootPath = PathUtils.normalizePath(matchedFolder.uri.fsPath);
       const isFiltered = await WorkspaceScanner.shouldFilterItem(fsPath, false, filters, rootPath);
 
       if (!isFiltered) {
@@ -275,7 +265,6 @@ export class SelectionService {
       }
     }
 
-    // Programmatically expand parent folders in TreeView so user sees the selected tabs
     if (this.handler.setExpandedFolders) {
       this.handler.setExpandedFolders(newlyAddedPaths);
     }
@@ -296,16 +285,12 @@ export class SelectionService {
    */
   public async selectModifiedGitFiles(filters: FilterSettings): Promise<void> {
     const modifiedPaths = await GitService.getModifiedFilePaths();
-    const workspaceFolders = vscode.workspace.workspaceFolders;
 
     this.selectedFiles.clear();
     const matchedModifiedPaths: string[] = [];
 
     for (const filePath of modifiedPaths) {
-      const matchedFolder = workspaceFolders?.find((folder) =>
-        PathUtils.isSubpath(filePath, PathUtils.normalizePath(folder.uri.fsPath))
-      );
-      const rootPath = matchedFolder ? PathUtils.normalizePath(matchedFolder.uri.fsPath) : undefined;
+      const rootPath = PathUtils.getWorkspaceRoot(filePath);
       const isFiltered = await WorkspaceScanner.shouldFilterItem(filePath, false, filters, rootPath);
 
       if (!isFiltered) {

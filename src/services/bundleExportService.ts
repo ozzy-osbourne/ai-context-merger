@@ -10,22 +10,13 @@ import {
   PromptSettings
 } from '../types';
 import { BundleService } from './bundleService';
+import { ErrorUtils } from '../utils/errorUtils';
 
 /**
  * Service responsible for exporting context payloads to the clipboard, file system, or editor preview.
  * Integrates VS Code progress reporting and notifications.
  */
 export class BundleExportService {
-  /**
-   * Helper safely extracting a human-readable message from an unknown error.
-   *
-   * @param err - Unknown caught error.
-   * @returns String error representation.
-   */
-  private static extractErrorMessage(err: unknown): string {
-    return err instanceof Error ? err.message : String(err);
-  }
-
   /**
    * Assembles context bundle with progress reporting and writes it to the system clipboard.
    * Notifies user if some files were replaced by error/binary placeholders.
@@ -98,7 +89,7 @@ export class BundleExportService {
           if (onError) {
             onError();
           }
-          vscode.window.showErrorMessage(`Ошибка копирования в буфер обмена: ${this.extractErrorMessage(err)}`);
+          vscode.window.showErrorMessage(`Ошибка копирования в буфер обмена: ${ErrorUtils.extractErrorMessage(err)}`);
         }
       }
     );
@@ -149,7 +140,7 @@ export class BundleExportService {
       await fs.promises.writeFile(uri.fsPath, payload, 'utf-8');
       vscode.window.showInformationMessage(`Файл сохранен: ${path.basename(uri.fsPath)}`);
     } catch (err: unknown) {
-      vscode.window.showErrorMessage(`Ошибка сохранения файла: ${this.extractErrorMessage(err)}`);
+      vscode.window.showErrorMessage(`Ошибка сохранения файла: ${ErrorUtils.extractErrorMessage(err)}`);
     }
   }
 
@@ -186,7 +177,7 @@ export class BundleExportService {
       });
       await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
     } catch (err: unknown) {
-      vscode.window.showErrorMessage(`Ошибка предварительного просмотра: ${this.extractErrorMessage(err)}`);
+      vscode.window.showErrorMessage(`Ошибка предварительного просмотра: ${ErrorUtils.extractErrorMessage(err)}`);
     }
   }
 }

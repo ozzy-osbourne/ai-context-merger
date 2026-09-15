@@ -4,7 +4,6 @@ import { FilterSettings } from '../types';
 import { ALWAYS_IGNORED, LOCK_FILE_NAMES, BINARY_EXTENSIONS, isSecretFile, isMinifiedOrSourceMap } from '../constants';
 import { GitService } from './gitService';
 import { PathUtils } from '../utils/pathUtils';
-import { SelectionService } from './selectionService';
 
 /**
  * Scanned directory entry containing the filesystem descriptor and its normalized path.
@@ -18,20 +17,6 @@ export interface ScannedDirectoryEntry {
  * Service for scanning workspace directories, checking exclusion rules, and calculating file metrics.
  */
 export class WorkspaceScanner {
-  /**
-   * Resolves canonical real path of a directory safely to prevent recursive symlink loops.
-   *
-   * @param dirPath - Directory path.
-   * @returns Canonical real path.
-   */
-  private static async getCanonicalPath(dirPath: string): Promise<string> {
-    try {
-      return await fs.promises.realpath(dirPath);
-    } catch {
-      return dirPath;
-    }
-  }
-
   /**
    * Checks if a path belongs to unconditionally ignored system directories.
    *
@@ -216,7 +201,7 @@ export class WorkspaceScanner {
     visitedDirs: Set<string> = new Set<string>()
   ): Promise<number> {
     const normalizedDirPath = PathUtils.normalizePath(dirPath);
-    const realDir = await this.getCanonicalPath(normalizedDirPath);
+    const realDir = await PathUtils.getCanonicalPath(normalizedDirPath);
 
     if (visitedDirs.has(realDir)) {
       return 0;
@@ -247,25 +232,6 @@ export class WorkspaceScanner {
   }
 
   /**
-   * Delegates recursive folder file selection to SelectionService.
-   */
-  public static async selectFolderRecursive(
-    dirPath: string,
-    filters: FilterSettings,
-    selectedFiles: Set<string>,
-    countMap?: Map<string, number>,
-    visitedDirs: Set<string> = new Set<string>()
-  ): Promise<number> {
-    return SelectionService.selectFolderRecursive(
-      dirPath,
-      filters,
-      selectedFiles,
-      countMap,
-      visitedDirs
-    );
-  }
-
-  /**
    * Recursively searches for files matching a query substring while applying exclusion filters.
    *
    * @param dirPath - Root directory path to search.
@@ -283,7 +249,7 @@ export class WorkspaceScanner {
     const results: string[] = [];
     const normalizedDirPath = PathUtils.normalizePath(dirPath);
     const lowerQuery = query.toLowerCase();
-    const realDir = await this.getCanonicalPath(normalizedDirPath);
+    const realDir = await PathUtils.getCanonicalPath(normalizedDirPath);
 
     if (visitedDirs.has(realDir)) {
       return results;

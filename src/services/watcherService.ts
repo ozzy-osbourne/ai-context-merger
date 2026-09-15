@@ -50,11 +50,7 @@ export class WatcherService implements vscode.Disposable {
 
     const onFileEvent = (uri: vscode.Uri, isDelete: boolean = false) => {
       const fsPath = PathUtils.normalizePath(uri.fsPath);
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      const matchedFolder = workspaceFolders?.find((f) =>
-        PathUtils.isSubpath(fsPath, PathUtils.normalizePath(f.uri.fsPath))
-      );
-      const rootPath = matchedFolder ? PathUtils.normalizePath(matchedFolder.uri.fsPath) : undefined;
+      const rootPath = PathUtils.getWorkspaceRoot(fsPath);
 
       // Handle deleted file: remove immediately from active selection
       if (isDelete) {
@@ -143,7 +139,6 @@ export class WatcherService implements vscode.Disposable {
         return;
       }
 
-      // If service was disposed or reinitialized during await, abort to avoid memory leak
       if (this.isDisposed || generation !== this.watcherGeneration) {
         return;
       }

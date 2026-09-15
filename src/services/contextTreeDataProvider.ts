@@ -97,10 +97,6 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     return this.showOnlySelected;
   }
 
-  public isShowOnlySelected(): boolean {
-    return this.showOnlySelected;
-  }
-
   public setGitStatuses(statuses: Map<string, GitFileStatus>): void {
     this.gitStatuses = statuses;
     this.folderTotalCountMap.clear();

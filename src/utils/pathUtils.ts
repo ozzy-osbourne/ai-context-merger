@@ -86,6 +86,27 @@ export class PathUtils {
   }
 
   /**
+   * Resolves the enclosing workspace folder root path for a given target path.
+   *
+   * @param targetPath - Absolute path to inspect.
+   * @param workspaceFolders - Optional list of workspace folders (defaults to active folders).
+   * @returns Normalized root folder path or undefined if outside workspace.
+   */
+  public static getWorkspaceRoot(
+    targetPath: string,
+    workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined = vscode.workspace.workspaceFolders
+  ): string | undefined {
+    if (!workspaceFolders) {
+      return undefined;
+    }
+    const normTarget = this.normalizePath(targetPath);
+    const matchedFolder = workspaceFolders.find((folder) =>
+      this.isSubpath(normTarget, this.normalizePath(folder.uri.fsPath))
+    );
+    return matchedFolder ? this.normalizePath(matchedFolder.uri.fsPath) : undefined;
+  }
+
+  /**
    * Retrieves all ancestor directory paths starting from parent up to rootPath.
    *
    * @param targetPath - Child file or directory path.
