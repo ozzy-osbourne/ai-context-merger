@@ -87,6 +87,7 @@ export class PathUtils {
 
   /**
    * Resolves the enclosing workspace folder root path for a given target path.
+   * Prioritizes nested sub-workspace folders over parent folders by sorting roots by depth descending.
    *
    * @param targetPath - Absolute path to inspect.
    * @param workspaceFolders - Optional list of workspace folders (defaults to active folders).
@@ -96,11 +97,19 @@ export class PathUtils {
     targetPath: string,
     workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined = vscode.workspace.workspaceFolders
   ): string | undefined {
-    if (!workspaceFolders) {
+    if (!workspaceFolders || workspaceFolders.length === 0) {
       return undefined;
     }
     const normTarget = this.normalizePath(targetPath);
-    const matchedFolder = workspaceFolders.find((folder) =>
+
+    // Sort by path length descending to ensure nested sub-workspaces take precedence over parents
+    const sortedFolders = [...workspaceFolders].sort((a, b) => {
+      const pathA = this.normalizePath(a.uri.fsPath);
+      const pathB = this.normalizePath(b.uri.fsPath);
+      return pathB.length - pathA.length;
+    });
+
+    const matchedFolder = sortedFolders.find((folder) =>
       this.isSubpath(normTarget, this.normalizePath(folder.uri.fsPath))
     );
     return matchedFolder ? this.normalizePath(matchedFolder.uri.fsPath) : undefined;
@@ -137,6 +146,7 @@ export class PathUtils {
 
   /**
    * Computes workspace-relative POSIX path with Multi-Root workspace support.
+   * Prioritizes deepest matching root directory when nested workspace folders exist.
    *
    * @param filePath - Absolute path to the file.
    * @param workspaceFolders - Active workspace folders list.
@@ -152,7 +162,14 @@ export class PathUtils {
 
     const normFilePath = this.normalizePath(filePath);
 
-    for (const folder of workspaceFolders) {
+    // Sort folders by length descending to match closest enclosing subfolder first
+    const sortedFolders = [...workspaceFolders].sort((a, b) => {
+      const pathA = this.normalizePath(a.uri.fsPath);
+      const pathB = this.normalizePath(b.uri.fsPath);
+      return pathB.length - pathA.length;
+    });
+
+    for (const folder of sortedFolders) {
       const folderPath = this.normalizePath(folder.uri.fsPath);
 
       if (this.isSubpath(normFilePath, folderPath)) {

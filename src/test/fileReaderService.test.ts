@@ -54,19 +54,19 @@ suite('FileReaderService: Binary & Encoding Safety Tests', () => {
     assert.strictEqual(result.placeholder?.includes('Бинарный или скомпилированный файл'), true);
   });
 
-  test('Detects binary file by null-bytes inside buffer payload', async () => {
-    const nullByteFile = path.join(tempDir, 'binary_data.dat');
+  test('Detects binary file by null-bytes inside buffer payload even when file extension is .txt', async () => {
+    const nullByteFile = path.join(tempDir, 'binary_payload_as_text.txt');
+    // Binary sequence with NUL byte that would otherwise decode as valid UTF-8
     const bufferWithZeros = Buffer.from([0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x57, 0x6f, 0x72, 0x6c, 0x64]);
     await fs.promises.writeFile(nullByteFile, bufferWithZeros);
 
     const result = await FileReaderService.safeReadFile(nullByteFile);
-    assert.strictEqual(result.text, undefined);
-    assert.strictEqual(result.placeholder?.includes('Бинарный'), true);
+    assert.strictEqual(result.text, undefined, 'Text content must not be returned for files containing null bytes');
+    assert.strictEqual(result.placeholder?.includes('Бинарный'), true, 'Placeholder must indicate binary payload');
   });
 
   test('Detects corrupted double-encoded UTF-8 mojibake and yields placeholder', async () => {
     const mojibakeFile = path.join(tempDir, 'mojibake.txt');
-    // Generated dynamically without literal mojibake in source code
     const mojibakeString = createMojibakeSample();
     await fs.promises.writeFile(mojibakeFile, mojibakeString, 'utf-8');
 

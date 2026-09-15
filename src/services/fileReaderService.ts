@@ -377,7 +377,14 @@ export class FileReaderService {
       }
     }
 
-    // 4. Strict UTF-8 decoding
+    // 4. Binary detection via null bytes (strictly checked before UTF-8 decoding because NUL 0x00 is valid UTF-8)
+    if (this.hasNullBytes(buffer)) {
+      return {
+        placeholder: this.getBinaryPlaceholder(ext, stat.size, true)
+      };
+    }
+
+    // 5. Strict UTF-8 decoding
     try {
       const strictDecoder = new TextDecoder('utf-8', { fatal: true });
       const text = strictDecoder.decode(buffer).trimEnd();
@@ -390,13 +397,6 @@ export class FileReaderService {
       }
     } catch {
       // Not valid UTF-8, proceed to heuristics
-    }
-
-    // 5. Binary detection via null bytes
-    if (this.hasNullBytes(buffer)) {
-      return {
-        placeholder: this.getBinaryPlaceholder(ext, stat.size, true)
-      };
     }
 
     // 6. Intelligent statistical legacy Cyrillic recovery

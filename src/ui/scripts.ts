@@ -129,6 +129,12 @@ export function getScripts(): string {
     let searchDebounceTimer;
 
     /**
+     * Timer handle for debouncing live prompt input keystroke events.
+     * @type {number | undefined}
+     */
+    let promptDebounceTimer;
+
+    /**
      * Most recent token estimate received from extension backend.
      * @type {number}
      */
@@ -306,17 +312,35 @@ export function getScripts(): string {
 
     /**
      * Synchronizes active instruction text and enabled state with the extension host.
+     * Supports debouncing to prevent excessive disk writes and Git calculations during continuous typing.
      *
+     * @param {boolean} [immediate=false] - Whether to bypass debounce and transmit instantly.
      * @returns {void}
      */
-    function syncPromptWithExtension() {
+    function syncPromptWithExtension(immediate = false) {
       updateClearPromptButtonVisibility();
       saveState();
-      vscode.postMessage({
-        type: 'updatePrompt',
-        enabled: promptToggle.checked,
-        text: promptInput.value
-      });
+
+      if (promptDebounceTimer) {
+        clearTimeout(promptDebounceTimer);
+        promptDebounceTimer = undefined;
+      }
+
+      if (immediate) {
+        vscode.postMessage({
+          type: 'updatePrompt',
+          enabled: promptToggle.checked,
+          text: promptInput.value
+        });
+      } else {
+        promptDebounceTimer = setTimeout(() => {
+          vscode.postMessage({
+            type: 'updatePrompt',
+            enabled: promptToggle.checked,
+            text: promptInput.value
+          });
+        }, 300);
+      }
     }
 
     /**
@@ -429,7 +453,7 @@ export function getScripts(): string {
       }
       editingPresetId = preset.id;
       promptInput.value = preset.text;
-      syncPromptWithExtension();
+      syncPromptWithExtension(true);
 
       inlineFormTitle.innerText = '▼ Редактирование пресета:';
       customPresetNameInput.value = preset.name;
@@ -449,7 +473,7 @@ export function getScripts(): string {
       if (editingPresetId !== null && backupPromptText !== null) {
         promptInput.value = backupPromptText;
         backupPromptText = null;
-        syncPromptWithExtension();
+        syncPromptWithExtension(true);
       }
       editingPresetId = null;
       inlineAddForm.classList.add('hidden');
@@ -488,8 +512,12 @@ export function getScripts(): string {
         labelBtn.innerText = preset.name;
         labelBtn.title = preset.text;
         labelBtn.addEventListener('click', () => {
+          // If another preset was being edited, abort edit mode to prevent accidental overwriting
+          if (editingPresetId !== null) {
+            cancelEditingPreset();
+          }
           promptInput.value = preset.text;
-          syncPromptWithExtension();
+          syncPromptWithExtension(true);
         });
         chip.appendChild(labelBtn);
 
@@ -565,18 +593,18 @@ export function getScripts(): string {
       } else {
         promptBody.classList.add('hidden');
       }
-      syncPromptWithExtension();
+      syncPromptWithExtension(true);
     });
 
     promptInput.addEventListener('input', () => {
-      syncPromptWithExtension();
+      syncPromptWithExtension(false);
     });
 
     btnClearPrompt.addEventListener('click', (e) => {
       e.stopPropagation();
       promptInput.value = '';
       promptInput.focus();
-      syncPromptWithExtension();
+      syncPromptWithExtension(true);
     });
 
     // Git Diff Options
@@ -664,10 +692,14 @@ export function getScripts(): string {
     document.querySelectorAll('.preset-chip[data-preset]').forEach(chip => {
       chip.addEventListener('click', (e) => {
         e.stopPropagation();
+        // Abort preset editing mode if active when clicking a base chip
+        if (editingPresetId !== null) {
+          cancelEditingPreset();
+        }
         const key = chip.getAttribute('data-preset');
         if (PRESET_TEXTS[key]) {
           promptInput.value = PRESET_TEXTS[key];
-          syncPromptWithExtension();
+          syncPromptWithExtension(true);
         }
       });
     });

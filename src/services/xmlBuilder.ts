@@ -54,10 +54,12 @@ export class XmlBuilder {
     }
 
     // Section 2: ASCII Project Structure Tree (isolated in CDATA to protect branch symbols and brackets)
-    const asciiTree = AsciiTreeService.generateAsciiTree(relativePaths, gitStatuses, sortedFiles);
-    const sanitizedAsciiTree = XmlUtils.sanitizeXmlChars(asciiTree);
-    const safeAsciiTree = XmlUtils.escapeCdata(sanitizedAsciiTree);
-    xmlSections.push(`  <project_structure>\n<![CDATA[\n${safeAsciiTree}\n]]>\n  </project_structure>`);
+    if (sortedFiles.length > 0) {
+      const asciiTree = AsciiTreeService.generateAsciiTree(relativePaths, gitStatuses, sortedFiles);
+      const sanitizedAsciiTree = XmlUtils.sanitizeXmlChars(asciiTree);
+      const safeAsciiTree = XmlUtils.escapeCdata(sanitizedAsciiTree);
+      xmlSections.push(`  <project_structure>\n<![CDATA[\n${safeAsciiTree}\n]]>\n  </project_structure>`);
+    }
 
     // Section 3: Optional Git Diff block (isolated in CDATA)
     if (gitDiffSettings?.includeGitDiff && gitDiffContent && gitDiffContent.trim().length > 0) {

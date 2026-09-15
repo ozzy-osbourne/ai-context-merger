@@ -20,6 +20,7 @@ export class WorkspaceScanner {
   /**
    * Checks if a path belongs to unconditionally ignored system directories.
    * Restricts segment evaluation to workspace boundaries when a root path is provided.
+   * Accurately inspects all path segments across Windows, Linux, and macOS.
    *
    * @param fullPath - Absolute target path.
    * @param workspaceRootPath - Optional workspace root path for relative segment extraction.
@@ -39,11 +40,13 @@ export class WorkspaceScanner {
       }
     }
 
-    const segments = relative.split(path.sep).filter(Boolean);
-    const startIndex = (!workspaceRootPath && path.isAbsolute(normalized)) ? 1 : 0;
+    const segments = relative.split(/[\\/]/).filter(Boolean);
 
-    for (let i = startIndex; i < segments.length; i++) {
-      const segment = segments[i];
+    for (const segment of segments) {
+      // Skip Windows drive letters (e.g. "C:")
+      if (/^[a-zA-Z]:$/.test(segment)) {
+        continue;
+      }
       if (ALWAYS_IGNORED.has(segment)) {
         return true;
       }

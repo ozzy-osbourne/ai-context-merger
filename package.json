@@ -71,6 +71,12 @@
         "icon": "$(filter)"
       },
       {
+        "command": "aiContextMerger.treeShowAll",
+        "title": "Показать все файлы",
+        "category": "AI Context Merger",
+        "icon": "$(filter-filled)"
+      },
+      {
         "command": "aiContextMerger.treeCopyContext",
         "title": "Скопировать весь контекст",
         "category": "AI Context Merger",
@@ -147,7 +153,12 @@
       "view/title": [
         {
           "command": "aiContextMerger.treeToggleSelectedOnly",
-          "when": "view == aiContextMergerTreeView",
+          "when": "view == aiContextMergerTreeView && !aiContextMerger.showOnlySelected",
+          "group": "navigation@1"
+        },
+        {
+          "command": "aiContextMerger.treeShowAll",
+          "when": "view == aiContextMergerTreeView && aiContextMerger.showOnlySelected",
           "group": "navigation@1"
         },
         {

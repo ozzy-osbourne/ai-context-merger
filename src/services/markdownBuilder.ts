@@ -75,8 +75,10 @@ export class MarkdownBuilder {
       }
     }
 
-    const asciiTree = AsciiTreeService.generateAsciiTree(relativePaths, gitStatuses, sortedFiles);
-    outputBlocks.push(asciiTree);
+    if (sortedFiles.length > 0) {
+      const asciiTree = AsciiTreeService.generateAsciiTree(relativePaths, gitStatuses, sortedFiles);
+      outputBlocks.push(asciiTree);
+    }
 
     if (gitDiffSettings?.includeGitDiff && gitDiffContent && gitDiffContent.trim().length > 0) {
       const fence = this.getFenceSequence(gitDiffContent);

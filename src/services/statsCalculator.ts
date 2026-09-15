@@ -181,10 +181,17 @@ export class StatsCalculator {
           const relPath = relativePaths[index];
           const fileName = path.basename(filePath);
           const ext = path.extname(filePath).toLowerCase();
+          const gitStatus = gitStatuses?.get(filePath);
 
           const headerLength = `## File path: ${relPath}\n## File name: ${fileName}\n## File content:\n`.length;
-          let bodyLength = 0;
 
+          // Accurately estimate tracked Git deleted files without invoking fs.stat
+          if (gitStatus === 'deleted') {
+            const deletedContentLength = '[Файл удален в Git]'.length;
+            return headerLength + deletedContentLength + 7;
+          }
+
+          let bodyLength = 0;
           try {
             const stat = await fs.promises.stat(filePath);
             if (stat.isDirectory()) {

@@ -43,6 +43,16 @@ suite('WorkspaceScanner: Traversal, Filters & Symlink Security Tests', () => {
     assert.strictEqual(WorkspaceScanner.isIgnoredByPathSegments(venvPath), true);
   });
 
+  test('Correctly identifies ignored root path segments on POSIX paths without workspace root', () => {
+    const rootDistFile = '/dist/bundle.js';
+    const rootNodeModules = '/node_modules/lodash/index.js';
+    const validRootFile = '/src/index.ts';
+
+    assert.strictEqual(WorkspaceScanner.isIgnoredByPathSegments(rootDistFile), true);
+    assert.strictEqual(WorkspaceScanner.isIgnoredByPathSegments(rootNodeModules), true);
+    assert.strictEqual(WorkspaceScanner.isIgnoredByPathSegments(validRootFile), false);
+  });
+
   test('Permits valid project source files in workspace root and subdirectories', () => {
     assert.strictEqual(WorkspaceScanner.isIgnoredByPathSegments('/workspace/my-app/src/index.ts'), false);
     assert.strictEqual(WorkspaceScanner.isIgnoredByPathSegments('/workspace/my-app/package.json'), false);

@@ -3,12 +3,14 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import { ContextTreeStateResolver } from '../services/contextTreeStateResolver';
+import { ContextTreeDataProvider } from '../services/contextTreeDataProvider';
+import { PathUtils } from '../utils/pathUtils';
 import { FilterSettings, GitFileStatus } from '../types';
 
 /**
- * Test suite for TreeView state resolution, pluralization labels, and Git deleted item counters.
+ * Test suite for TreeView state resolution, pluralization labels, Git deleted items, and combined search filters.
  */
-suite('ContextTreeStateResolver: Labels & Folder State Resolution Tests', () => {
+suite('ContextTreeStateResolver & TreeView: State Resolution & Combined Search Tests', () => {
   let tempDir: string;
 
   const defaultFilters: FilterSettings = {
@@ -55,7 +57,6 @@ suite('ContextTreeStateResolver: Labels & Folder State Resolution Tests', () => 
     const countMap = new Map<string, number>();
     const pendingPromises = new Map<string, Promise<number>>();
 
-    // Total must be 2 disk files + 1 git deleted file = 3
     const totalCount = await ContextTreeStateResolver.getFolderTotalCount(
       tempDir,
       defaultFilters,
@@ -66,7 +67,6 @@ suite('ContextTreeStateResolver: Labels & Folder State Resolution Tests', () => 
 
     assert.strictEqual(totalCount, 3, 'Folder total count must include tracked Git deleted files');
 
-    // Select all 3 files
     const selectedFiles = new Set<string>([fileA, fileB, deletedFile]);
 
     const state = await ContextTreeStateResolver.resolveFolderState(
@@ -80,5 +80,38 @@ suite('ContextTreeStateResolver: Labels & Folder State Resolution Tests', () => 
 
     assert.strictEqual(state.isChecked, true, 'All 3 files are selected, folder must be checked');
     assert.strictEqual(state.description, '3/3 (3 файла выбрано)', 'Description must render balanced 3/3 count');
+  });
+
+  test('Filters entries harmoniously when both "showOnlySelected" and "searchQuery" are active', async () => {
+    const subFolder = PathUtils.normalizePath(path.join(tempDir, 'combined_test_dir'));
+    await fs.promises.mkdir(subFolder, { recursive: true });
+
+    const appleFile = PathUtils.normalizePath(path.join(subFolder, 'apple.ts'));
+    const bananaFile = PathUtils.normalizePath(path.join(subFolder, 'banana.ts'));
+    const apricotFile = PathUtils.normalizePath(path.join(subFolder, 'apricot.ts'));
+
+    await fs.promises.writeFile(appleFile, 'export const apple = 1;', 'utf-8');
+    await fs.promises.writeFile(bananaFile, 'export const banana = 2;', 'utf-8');
+    await fs.promises.writeFile(apricotFile, 'export const apricot = 3;', 'utf-8');
+
+    // Only apple and banana are selected (apricot is not selected)
+    const selectedFiles = new Set<string>([appleFile, bananaFile]);
+
+    const provider = new ContextTreeDataProvider(selectedFiles, defaultFilters);
+    provider.setShowOnlySelected(true);
+    await provider.setSearchQuery('ap', [subFolder]);
+
+    // Read directory items for the subfolder
+    const directoryItem = (provider as unknown as {
+      readDirectoryItems: (dirPath: string) => Promise<Array<{ uri: { fsPath: string } }>>;
+    });
+    const items = await directoryItem.readDirectoryItems(subFolder);
+
+    // Only apple.ts should be returned because:
+    // - apple.ts is selected AND matches 'ap'
+    // - banana.ts is selected, but does NOT match 'ap'
+    // - apricot.ts matches 'ap', but is NOT selected
+    assert.strictEqual(items.length, 1, 'Only one item must match both filters simultaneously');
+    assert.strictEqual(path.basename(items[0].uri.fsPath), 'apple.ts');
   });
 });

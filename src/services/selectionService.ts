@@ -302,9 +302,6 @@ export class SelectionService {
       this.handler.refresh();
     }
 
-    // Refresh tree data to ensure checkbox states render immediately
-    this.handler.refresh();
-
     if (newlyAddedPaths.length > 0) {
       vscode.window.showInformationMessage(`Выбрано файлов из открытых вкладок: ${newlyAddedPaths.length}`);
     } else {
@@ -316,12 +313,13 @@ export class SelectionService {
 
   /**
    * Selects all modified, untracked, and deleted files identified by Git and expands parent folders.
+   * Obtains repository statuses in a single unified Git call to maximize performance.
    *
    * @param filters - Active exclusion filters.
    */
   public async selectModifiedGitFiles(filters: FilterSettings): Promise<void> {
-    const modifiedPaths = await GitService.getModifiedFilePaths();
     const statuses = await GitService.getFileStatuses();
+    const modifiedPaths = Array.from(statuses.keys());
 
     this.selectedFiles.clear();
     const matchedModifiedPaths: string[] = [];
@@ -351,7 +349,7 @@ export class SelectionService {
   }
 
   /**
-   * Selects all files matching current search query across workspace.
+   * Selects all files matching current search query across workspace, including tracked Git deleted files.
    *
    * @param query - Search term.
    * @param filters - Active exclusion filters.
@@ -362,10 +360,33 @@ export class SelectionService {
       return;
     }
 
+    const lowerQuery = query.trim().toLowerCase();
+    if (!lowerQuery) {
+      return;
+    }
+
+    const gitStatuses = this.handler.getGitStatuses
+      ? this.handler.getGitStatuses()
+      : await GitService.getFileStatuses();
+
     for (const folder of workspaceFolders) {
-      const matches = await WorkspaceScanner.findMatchingFiles(folder.uri.fsPath, query, filters);
+      const root = PathUtils.normalizePath(folder.uri.fsPath);
+      const matches = await WorkspaceScanner.findMatchingFiles(root, lowerQuery, filters);
       for (const file of matches) {
-        this.selectedFiles.add(file);
+        this.selectedFiles.add(PathUtils.normalizePath(file));
+      }
+
+      if (gitStatuses) {
+        for (const [gitPath, status] of gitStatuses.entries()) {
+          if (status === 'deleted' && PathUtils.isSubpath(gitPath, root)) {
+            const fileName = path.basename(gitPath);
+            if (!WorkspaceScanner.isFilteredByType(fileName, false, filters)) {
+              if (fileName.toLowerCase().includes(lowerQuery)) {
+                this.selectedFiles.add(PathUtils.normalizePath(gitPath));
+              }
+            }
+          }
+        }
       }
     }
 

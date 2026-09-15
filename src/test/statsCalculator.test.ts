@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { StatsCalculator } from '../services/statsCalculator';
-import { PromptSettings, GitDiffSettings, DiagnosticsSettings } from '../types';
+import { PromptSettings, GitDiffSettings, DiagnosticsSettings, GitFileStatus } from '../types';
 
 /**
  * Test suite for token budget calculations, format structural overheads, and percentage metrics.
@@ -53,7 +53,6 @@ suite('StatsCalculator: Token Budget & Format Overhead Tests', () => {
   });
 
   test('Demonstrates XML formatting structural overhead compared to Markdown', async () => {
-    // Both formats calculate with same instruction and diff length
     const diffLength = 400;
 
     const statsMd = await StatsCalculator.calculateStats(
@@ -83,16 +82,35 @@ suite('StatsCalculator: Token Budget & Format Overhead Tests', () => {
   test('Clamps budget usage percentage to maximum 100 on overflow', async () => {
     const stats = await StatsCalculator.calculateStats(
       new Set<string>(),
-      { enabled: true, text: 'A'.repeat(50000) }, // ~12500 tokens
+      { enabled: true, text: 'A'.repeat(50000) },
       undefined,
       0,
       undefined,
       'markdown',
       undefined,
       0,
-      '2000' // Small budget of 2000 tokens
+      '2000'
     );
 
     assert.strictEqual(stats.percentage, 100);
+  });
+
+  test('Accurately calculates budget for tracked Git deleted files in Markdown without filesystem error fallback', async () => {
+    const deletedFile = '/virtual/workspace/deleted_by_git.ts';
+    const selectedFiles = new Set<string>([deletedFile]);
+    const gitStatuses = new Map<string, GitFileStatus>();
+    gitStatuses.set(deletedFile, 'deleted');
+
+    const stats = await StatsCalculator.calculateStats(
+      selectedFiles,
+      undefined,
+      undefined,
+      0,
+      gitStatuses,
+      'markdown'
+    );
+
+    assert.strictEqual(stats.count, 1);
+    assert.ok(stats.tokens > 0, 'Tokens must be allocated for the deleted file placeholder block');
   });
 });

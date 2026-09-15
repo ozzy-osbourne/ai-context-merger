@@ -31,6 +31,36 @@ suite('PathUtils: Cross-Platform & Multi-Root Workspace Tests', () => {
     assert.strictEqual(relBack, 'backend/src/server.ts');
   });
 
+  test('Prioritizes nested sub-workspace folder over parent root in Multi-root workspace', () => {
+    const mockWorkspaces: vscode.WorkspaceFolder[] = [
+      {
+        uri: vscode.Uri.file('/workspaces/monorepo'),
+        name: 'monorepo',
+        index: 0
+      },
+      {
+        uri: vscode.Uri.file('/workspaces/monorepo/packages/client'),
+        name: 'client',
+        index: 1
+      }
+    ];
+
+    const targetFile = '/workspaces/monorepo/packages/client/src/App.tsx';
+    const resolvedRoot = PathUtils.getWorkspaceRoot(targetFile, mockWorkspaces);
+    const relativePath = PathUtils.getRelativePath(targetFile, mockWorkspaces);
+
+    assert.strictEqual(
+      resolvedRoot,
+      PathUtils.normalizePath('/workspaces/monorepo/packages/client'),
+      'Nested folder must take precedence over parent folder'
+    );
+    assert.strictEqual(
+      relativePath,
+      'client/src/App.tsx',
+      'Relative path must be formed with nested workspace name prefix'
+    );
+  });
+
   test('Cross-drive subpath check on Windows (C:\\ vs D:\\) does not throw or mismatch', () => {
     const pathDriveC = 'C:\\Projects\\App\\index.ts';
     const pathDriveD = 'D:\\Projects\\App\\index.ts';

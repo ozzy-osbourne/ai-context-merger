@@ -87,6 +87,10 @@ export class ContextMenuService {
         await this.treeDataProvider.toggleShowOnlySelected();
       }),
 
+      vscode.commands.registerCommand('aiContextMerger.treeShowAll', async () => {
+        await this.treeDataProvider.toggleShowOnlySelected();
+      }),
+
       vscode.commands.registerCommand('aiContextMerger.treeCopyContext', async () => {
         await this.controlsProvider.copyContextToClipboard();
       }),
@@ -107,7 +111,14 @@ export class ContextMenuService {
     ];
   }
 
-  private async resolveTargetFiles(
+  /**
+   * Resolves target files from invoked URIs with support for tracked Git deleted files.
+   *
+   * @param targetUri - The primary clicked item URI.
+   * @param allSelectedUris - Multiple selected item URIs.
+   * @returns Array of normalized file paths.
+   */
+  public async resolveTargetFiles(
     targetUri?: vscode.Uri,
     allSelectedUris?: vscode.Uri[]
   ): Promise<string[]> {
@@ -127,6 +138,7 @@ export class ContextMenuService {
 
     const resolvedFiles = new Set<string>();
     const filters = this.controlsProvider.filters;
+    const gitStatuses = await GitService.getFileStatuses();
 
     for (const uri of sourceUris) {
       if (uri.scheme !== 'file') {
@@ -134,25 +146,41 @@ export class ContextMenuService {
       }
 
       const fsPath = PathUtils.normalizePath(uri.fsPath);
+      // Fallback to enclosing directory if file is outside registered workspace folders
+      const rootPath = PathUtils.getWorkspaceRoot(fsPath) || path.dirname(fsPath);
 
-      let stat: fs.Stats;
+      // Case-insensitive Git deleted status check to eliminate Windows drive letter mismatches
+      let isDeleted = gitStatuses.get(fsPath) === 'deleted';
+      if (!isDeleted && process.platform === 'win32') {
+        for (const [gitPath, status] of gitStatuses.entries()) {
+          if (status === 'deleted' && PathUtils.arePathsEqual(gitPath, fsPath)) {
+            isDeleted = true;
+            break;
+          }
+        }
+      }
+
+      let stat: fs.Stats | null = null;
       try {
         stat = await fs.promises.stat(fsPath);
       } catch {
-        continue;
+        // If file is physically absent from disk but tracked as deleted in Git, treat as valid deleted file
+        if (!isDeleted) {
+          continue;
+        }
       }
 
-      const rootPath = PathUtils.getWorkspaceRoot(fsPath);
-
-      if (stat.isDirectory()) {
+      if (stat && stat.isDirectory()) {
         await SelectionService.selectFolderRecursive(
           fsPath,
           filters,
           resolvedFiles,
-          this.treeDataProvider.folderTotalCountMap
+          this.treeDataProvider.folderTotalCountMap,
+          new Set<string>(),
+          gitStatuses
         );
-      } else if (stat.isFile()) {
-        const isFiltered = await WorkspaceScanner.shouldFilterItem(fsPath, false, filters, rootPath);
+      } else if (stat?.isFile() || isDeleted) {
+        const isFiltered = await WorkspaceScanner.shouldFilterItem(fsPath, false, filters, rootPath, isDeleted);
         if (!isFiltered) {
           resolvedFiles.add(fsPath);
         }
@@ -305,6 +333,13 @@ export class ContextMenuService {
     const fileName = path.basename(filePath);
 
     try {
+      const gitStatuses = await GitService.getFileStatuses();
+      if (gitStatuses.get(filePath) === 'deleted') {
+        await vscode.env.clipboard.writeText('[Файл удален в Git]');
+        vscode.window.showInformationMessage(`Скопирован файл (удален в Git): ${fileName}`);
+        return;
+      }
+
       const readResult = await FileReaderService.safeReadFile(filePath);
 
       let contentToCopy = '';

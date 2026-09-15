@@ -188,45 +188,64 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     }
   }
 
-  public async setSearchQuery(query: string): Promise<void> {
+  /**
+   * Updates current live search query and scans workspace roots or provided directories.
+   *
+   * @param query - Input search string.
+   * @param searchRoots - Optional array of folder paths to search (defaults to active workspace folders).
+   */
+  public async setSearchQuery(query: string, searchRoots?: string[]): Promise<void> {
     this.searchQuery = query.trim().toLowerCase();
     this.matchingFilePaths.clear();
     this.matchingFolderPaths.clear();
 
     if (this.searchQuery) {
       const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (workspaceFolders) {
-        for (const folder of workspaceFolders) {
-          const root = PathUtils.normalizePath(folder.uri.fsPath);
-          const matches = await WorkspaceScanner.findMatchingFiles(
-            root,
-            this.searchQuery,
-            this.filters
-          );
+      let roots: string[] = [];
 
-          for (const match of matches) {
-            const normMatch = PathUtils.normalizePath(match);
-            this.matchingFilePaths.add(normMatch);
+      if (searchRoots && searchRoots.length > 0) {
+        roots = searchRoots;
+      } else if (workspaceFolders && workspaceFolders.length > 0) {
+        roots = workspaceFolders.map((f) => f.uri.fsPath);
+      } else if (this.selectedFiles.size > 0) {
+        // Fallback for standalone files or test runners without registered workspace folders
+        const parentDirs = new Set<string>();
+        for (const file of this.selectedFiles) {
+          parentDirs.add(path.dirname(file));
+        }
+        roots = Array.from(parentDirs);
+      }
 
-            const ancestors = PathUtils.getAncestorPaths(normMatch, root);
-            for (const ancestor of ancestors) {
-              this.matchingFolderPaths.add(ancestor);
-            }
+      for (const rootPath of roots) {
+        const root = PathUtils.normalizePath(rootPath);
+        const matches = await WorkspaceScanner.findMatchingFiles(
+          root,
+          this.searchQuery,
+          this.filters
+        );
+
+        for (const match of matches) {
+          const normMatch = PathUtils.normalizePath(match);
+          this.matchingFilePaths.add(normMatch);
+
+          const ancestors = PathUtils.getAncestorPaths(normMatch, root);
+          for (const ancestor of ancestors) {
+            this.matchingFolderPaths.add(ancestor);
           }
+        }
 
-          // Search deleted Git files matching the search query
-          for (const [gitPath, status] of this.gitStatuses.entries()) {
-            if (status === 'deleted' && PathUtils.isSubpath(gitPath, root)) {
-              const fileName = path.basename(gitPath);
-              if (!WorkspaceScanner.isFilteredByType(fileName, false, this.filters)) {
-                if (fileName.toLowerCase().includes(this.searchQuery)) {
-                  const normGitPath = PathUtils.normalizePath(gitPath);
-                  this.matchingFilePaths.add(normGitPath);
+        // Search deleted Git files matching the search query
+        for (const [gitPath, status] of this.gitStatuses.entries()) {
+          if (status === 'deleted' && PathUtils.isSubpath(gitPath, root)) {
+            const fileName = path.basename(gitPath);
+            if (!WorkspaceScanner.isFilteredByType(fileName, false, this.filters)) {
+              if (fileName.toLowerCase().includes(this.searchQuery)) {
+                const normGitPath = PathUtils.normalizePath(gitPath);
+                this.matchingFilePaths.add(normGitPath);
 
-                  const ancestors = PathUtils.getAncestorPaths(normGitPath, root);
-                  for (const ancestor of ancestors) {
-                    this.matchingFolderPaths.add(ancestor);
-                  }
+                const ancestors = PathUtils.getAncestorPaths(normGitPath, root);
+                for (const ancestor of ancestors) {
+                  this.matchingFolderPaths.add(ancestor);
                 }
               }
             }
@@ -296,12 +315,32 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
         return [emptyItem];
       }
 
-      const activeFolders = this.showOnlySelected
-        ? workspaceFolders.filter((folder) => {
-            const folderPath = PathUtils.normalizePath(folder.uri.fsPath);
-            return this.getSelectedCountInFolder(folderPath) > 0;
-          })
-        : workspaceFolders;
+      const activeFolders = workspaceFolders.filter((folder) => {
+        const folderPath = PathUtils.normalizePath(folder.uri.fsPath);
+        if (this.showOnlySelected && this.getSelectedCountInFolder(folderPath) === 0) {
+          return false;
+        }
+        if (this.searchQuery && !this.matchingFolderPaths.has(folderPath)) {
+          return false;
+        }
+        return true;
+      });
+
+      if (activeFolders.length === 0 && (this.showOnlySelected || this.searchQuery)) {
+        const emptyItem = new ContextTreeItem(
+          vscode.Uri.parse('ai-context-merger:empty-combined'),
+          false,
+          undefined,
+          vscode.TreeItemCollapsibleState.None,
+          this.showOnlySelected && this.searchQuery
+            ? `нет выбранных файлов по запросу "${this.searchQuery}"`
+            : (this.searchQuery ? `по запросу "${this.searchQuery}"` : 'нет отмеченных файлов')
+        );
+        emptyItem.label = 'Ничего не найдено';
+        emptyItem.iconPath = new vscode.ThemeIcon('search-stop');
+        emptyItem.contextValue = 'emptyState';
+        return [emptyItem];
+      }
 
       const folderPromises = activeFolders.map(async (folder) => {
         const folderPath = PathUtils.normalizePath(folder.uri.fsPath);
@@ -330,13 +369,14 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
           this.treeVersion
         );
 
-        rootItem.contextValue = isChecked ? 'directory-checked' : 'directory-unchecked';
-
         if (isDisabled) {
+          rootItem.contextValue = 'directory-disabled';
           rootItem.iconPath = new vscode.ThemeIcon(
             'folder',
             new vscode.ThemeColor('disabledForeground')
           );
+        } else {
+          rootItem.contextValue = isChecked ? 'directory-checked' : 'directory-unchecked';
         }
 
         return rootItem;
@@ -360,21 +400,34 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
       this.filters
     );
 
+    // Harmoniously combine showOnlySelected and live search filter with cross-platform path matching
     const filteredEntries = validEntries.filter(({ entry, fullPath }) => {
+      const isDir = entry.isDirectory();
+
       if (this.showOnlySelected) {
-        if (entry.isDirectory()) {
-          return this.getSelectedCountInFolder(fullPath) > 0;
+        const isFileSelected = this.selectedFiles.has(fullPath) ||
+          (process.platform === 'win32' && Array.from(this.selectedFiles).some((f) => PathUtils.arePathsEqual(f, fullPath)));
+
+        const matchesSelected = isDir
+          ? this.getSelectedCountInFolder(fullPath) > 0
+          : isFileSelected;
+
+        if (!matchesSelected) {
+          return false;
         }
-        return this.selectedFiles.has(fullPath);
       }
 
-      if (!this.searchQuery) {
-        return true;
+      if (this.searchQuery) {
+        const matchesSearch = isDir
+          ? this.matchingFolderPaths.has(fullPath)
+          : this.matchingFilePaths.has(fullPath);
+
+        if (!matchesSearch) {
+          return false;
+        }
       }
-      if (entry.isDirectory()) {
-        return this.matchingFolderPaths.has(fullPath);
-      }
-      return this.matchingFilePaths.has(fullPath);
+
+      return true;
     });
 
     const sortedEntries = filteredEntries.sort((a, b) => {
@@ -420,19 +473,21 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
           this.treeVersion
         );
 
-        folderItem.contextValue = isChecked ? 'directory-checked' : 'directory-unchecked';
-
         if (isDisabled) {
+          folderItem.contextValue = 'directory-disabled';
           folderItem.iconPath = new vscode.ThemeIcon(
             'folder',
             new vscode.ThemeColor('disabledForeground')
           );
+        } else {
+          folderItem.contextValue = isChecked ? 'directory-checked' : 'directory-unchecked';
         }
 
         return folderItem;
       }
 
-      const isChecked = this.selectedFiles.has(fullPath);
+      const isChecked = this.selectedFiles.has(fullPath) ||
+        (process.platform === 'win32' && Array.from(this.selectedFiles).some((f) => PathUtils.arePathsEqual(f, fullPath)));
       const gitStatus = this.gitStatuses.get(fullPath);
 
       let statusBadge: string | undefined;
@@ -478,7 +533,8 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
       );
 
       if (status === 'deleted' && isDirectChild) {
-        const isChecked = this.selectedFiles.has(gitPath);
+        const isChecked = this.selectedFiles.has(gitPath) ||
+          (process.platform === 'win32' && Array.from(this.selectedFiles).some((f) => PathUtils.arePathsEqual(f, gitPath)));
 
         if (this.showOnlySelected && !isChecked) {
           continue;

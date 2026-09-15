@@ -15,7 +15,7 @@ export class GitService {
   /**
    * Maximum characters allowed for an individual file diff before truncation (100 KB).
    */
-  private static readonly MAX_DIFF_BYTES = 100 * 1024;
+  public static readonly MAX_DIFF_BYTES = 100 * 1024;
 
   /**
    * Resolves and caches the API instance of the built-in vscode.git extension.
@@ -305,36 +305,20 @@ export class GitService {
 
   /**
    * Synthesizes a valid Git unified diff representation for untracked newly created files using safe decoding.
-   * Supports unlimited diff output when configured.
+   * Truncation limits are applied centrally in getFilesDiff to prevent double slicing and duplicate banners.
    *
    * @param relPath - POSIX relative path of the file to the repository root.
    * @param absPath - Normalized absolute path to file on disk.
-   * @param unlimitedDiff - Flag indicating whether to bypass the size truncation limit.
    * @returns Formatted unified diff string, or empty string on binary/unreadable file.
    */
-  private static async synthesizeUntrackedDiff(
+  public static async synthesizeUntrackedDiff(
     relPath: string,
-    absPath: string,
-    unlimitedDiff: boolean = false
+    absPath: string
   ): Promise<string> {
     try {
       const readResult = await FileReaderService.safeReadFile(absPath);
       if (!readResult.text || readResult.placeholder) {
         return '';
-      }
-
-      if (!unlimitedDiff && readResult.text.length > this.MAX_DIFF_BYTES) {
-        const truncated = readResult.text.slice(0, this.MAX_DIFF_BYTES);
-        const lines = truncated.split(/\r?\n/);
-        return [
-          `diff --git a/${relPath} b/${relPath}`,
-          'new file mode 100644',
-          '--- /dev/null',
-          `+++ b/${relPath}`,
-          `@@ -0,0 +1,${lines.length} @@`,
-          ...lines.map((l) => `+${l}`),
-          '... [Diff превышает лимит 100 KB и был обрезан. Включите «Безлимитный Diff» для полного вывода] ...'
-        ].join('\n');
       }
 
       const lines = readResult.text.split(/\r?\n/);
@@ -400,7 +384,7 @@ export class GitService {
       let rawDiff = '';
 
       if (status === 'untracked') {
-        rawDiff = await this.synthesizeUntrackedDiff(relPath, normPath, unlimitedDiff);
+        rawDiff = await this.synthesizeUntrackedDiff(relPath, normPath);
       } else {
         try {
           // diffWithHEAD outputs the complete diff of HEAD vs working tree (both staged and unstaged)

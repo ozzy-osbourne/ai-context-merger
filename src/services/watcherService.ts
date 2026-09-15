@@ -38,6 +38,56 @@ export class WatcherService implements vscode.Disposable {
   }
 
   /**
+   * Processes a file system event (create, change, delete) and triggers a debounced refresh if applicable.
+   * Excludes system directories unconditionally before processing deletion logic to guard host performance.
+   *
+   * @param uri - Target file URI.
+   * @param isDelete - Flag indicating deletion event.
+   * @returns True if the event was accepted and processed; false if ignored by path filters.
+   */
+  public handleFileEvent(uri: vscode.Uri, isDelete: boolean = false): boolean {
+    const fsPath = PathUtils.normalizePath(uri.fsPath);
+    const rootPath = PathUtils.getWorkspaceRoot(fsPath);
+
+    // Unconditionally ignore changes and deletions in excluded system folders (.git, node_modules, etc.)
+    if (WorkspaceScanner.isIgnoredByPathSegments(fsPath, rootPath)) {
+      return false;
+    }
+
+    // Handle deleted file: remove immediately from active selection
+    if (isDelete) {
+      for (const file of Array.from(this.selectedFiles)) {
+        if (file === fsPath || PathUtils.isSubpath(file, fsPath)) {
+          this.selectedFiles.delete(file);
+        }
+      }
+      this.triggerDebouncedRefresh();
+      return true;
+    }
+
+    const fileName = path.basename(fsPath);
+    const ext = path.extname(fileName).toLowerCase();
+    const filters = this.getFilters();
+
+    // Check if file event matches active exclusion filters
+    if (filters.hideSecrets && isSecretFile(fileName)) {
+      return false;
+    }
+    if (filters.hideMinified && isMinifiedOrSourceMap(fileName)) {
+      return false;
+    }
+    if (filters.hideBinaryFiles && BINARY_EXTENSIONS.has(ext)) {
+      return false;
+    }
+    if (filters.hideLockFiles && LOCK_FILE_NAMES.has(fileName)) {
+      return false;
+    }
+
+    this.triggerDebouncedRefresh();
+    return true;
+  }
+
+  /**
    * Sets up watchers for workspace files, git repositories, and diagnostic changes.
    */
   private initWatchers(): void {
@@ -48,51 +98,10 @@ export class WatcherService implements vscode.Disposable {
     const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*');
     this.watcherDisposables.push(fileWatcher);
 
-    const onFileEvent = (uri: vscode.Uri, isDelete: boolean = false) => {
-      const fsPath = PathUtils.normalizePath(uri.fsPath);
-      const rootPath = PathUtils.getWorkspaceRoot(fsPath);
-
-      // Handle deleted file: remove immediately from active selection
-      if (isDelete) {
-        for (const file of Array.from(this.selectedFiles)) {
-          if (file === fsPath || PathUtils.isSubpath(file, fsPath)) {
-            this.selectedFiles.delete(file);
-          }
-        }
-        this.triggerDebouncedRefresh();
-        return;
-      }
-
-      // Ignore changes in unconditionally excluded folders (.git, node_modules, etc.)
-      if (WorkspaceScanner.isIgnoredByPathSegments(fsPath, rootPath)) {
-        return;
-      }
-
-      const fileName = path.basename(fsPath);
-      const ext = path.extname(fileName).toLowerCase();
-      const filters = this.getFilters();
-
-      // Check if file event matches active exclusion filters
-      if (filters.hideSecrets && isSecretFile(fileName)) {
-        return;
-      }
-      if (filters.hideMinified && isMinifiedOrSourceMap(fileName)) {
-        return;
-      }
-      if (filters.hideBinaryFiles && BINARY_EXTENSIONS.has(ext)) {
-        return;
-      }
-      if (filters.hideLockFiles && LOCK_FILE_NAMES.has(fileName)) {
-        return;
-      }
-
-      this.triggerDebouncedRefresh();
-    };
-
     this.watcherDisposables.push(
-      fileWatcher.onDidCreate((uri) => onFileEvent(uri, false)),
-      fileWatcher.onDidChange((uri) => onFileEvent(uri, false)),
-      fileWatcher.onDidDelete((uri) => onFileEvent(uri, true))
+      fileWatcher.onDidCreate((uri) => this.handleFileEvent(uri, false)),
+      fileWatcher.onDidChange((uri) => this.handleFileEvent(uri, false)),
+      fileWatcher.onDidDelete((uri) => this.handleFileEvent(uri, true))
     );
 
     // 2. Git extension watcher with generation check
