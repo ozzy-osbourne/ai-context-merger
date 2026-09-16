@@ -1,0 +1,23 @@
+{
+  "extension.description": "Code-Dateien in formatierte Markdown- und XML-Kontexte für LLMs zusammenführen",
+  "viewsContainers.title": "AI Context Merger",
+  "views.controls.name": "Steuerung & Kontext",
+  "views.tree.name": "Projektdateien",
+  "command.addToContext": "➕ Zum Kontext hinzufügen",
+  "command.removeFromContext": "➖ Aus Kontext entfernen",
+  "command.copyImmediately": "📋 Sofort in Zwischenablage kopieren",
+  "command.copyGitDiffImmediately": "🌿 Git Diff kopieren",
+  "command.treeToggleSelectedOnly": "Nur Ausgewählte anzeigen",
+  "command.treeShowAll": "Alle Dateien anzeigen",
+  "command.treeCopyContext": "Gesamten Kontext kopieren",
+  "command.treeClearAll": "Auswahl aufheben",
+  "command.treeRefresh": "Dateien und Git aktualisieren",
+  "command.treeItemCopyFile": "Diese Datei kopieren",
+  "command.treeItemOpenDiff": "Git Diff anzeigen",
+  "config.language.description": "Oberflächensprache der Erweiterung. 'auto' folgt der VS Code-Sprache.",
+  "config.ignoredDirectoryPatterns.description": "Bedingungslos ignorierte System- und Build-Ordner.",
+  "config.maxFileSizeMB.description": "Maximal lesbare Dateigröße in Megabyte (MB), bevor sie durch einen Platzhalter ersetzt wird.",
+  "config.maxDiffSizeKB.description": "Maximale Git Diff-Größe pro Datei in Kilobyte (KB) vor dem Kürzen.",
+  "config.defaultOutputFormat.description": "Standard-Ausgabeformat beim Starten einer neuen Sitzung.",
+  "config.defaultTokenLimit.description": "Standard-Token-Limit des Modells für die Berechnung des Fortschrittsbalkens."
+}

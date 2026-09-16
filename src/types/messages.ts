@@ -8,6 +8,8 @@ import {
   OutputFormat,
   PromptSettings
 } from './tree';
+import { ConfiguredLanguage, LocaleKey, TranslationSchema } from '../i18n/types';
+import { PresetDefinition } from '../constants/presets';
 
 /**
  * Message payloads sent from the Webview frontend to the Extension backend.
@@ -27,6 +29,7 @@ export type WebviewToExtensionMessage =
   | { type: 'updatePrompt'; enabled: boolean; text: string }
   | { type: 'updateOutputFormat'; format: OutputFormat }
   | { type: 'updateTokenLimit'; limit: string }
+  | { type: 'updateLanguage'; language: ConfiguredLanguage }
   | { type: 'addCustomPreset'; name: string; text: string }
   | { type: 'editCustomPreset'; id: string; name: string; text: string }
   | { type: 'deleteCustomPreset'; id: string }
@@ -53,6 +56,17 @@ export type ExtensionToWebviewMessage =
     customPresets: CustomPreset[];
     outputFormat: OutputFormat;
     tokenLimit: string;
+    language: ConfiguredLanguage;
+    activeLocale: LocaleKey;
+    uiTranslations: TranslationSchema['ui'];
+    standardPresets: PresetDefinition[];
+  }
+  | {
+    type: 'updateTranslations';
+    language: ConfiguredLanguage;
+    activeLocale: LocaleKey;
+    uiTranslations: TranslationSchema['ui'];
+    standardPresets: PresetDefinition[];
   }
   | {
     type: 'updateStats';

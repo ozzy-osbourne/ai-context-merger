@@ -5,6 +5,7 @@ import { FilterSettings, GitFileStatus } from '../types';
 import { WorkspaceScanner } from './workspaceScanner';
 import { GitService } from './gitService';
 import { PathUtils } from '../utils/pathUtils';
+import { I18nService } from '../i18n';
 
 /**
  * Interface decoupling tree provider actions from the concrete ContextTreeDataProvider class.
@@ -36,8 +37,6 @@ export interface SelectionChangeHandler {
 
 /**
  * Tree item representation interface expected by SelectionService.
- * Uses index access on vscode.TreeItem['checkboxState'] to maintain 100% type compatibility
- * with all recent versions of @types/vscode without build errors.
  */
 export interface SelectableTreeItem {
   readonly uri: vscode.Uri;
@@ -50,30 +49,11 @@ export interface SelectableTreeItem {
  * Service managing file selection state across editor tabs, workspace searches, and Git changes.
  */
 export class SelectionService {
-  /**
-   * Creates an instance of SelectionService.
-   *
-   * @param selectedFiles - Shared mutable Set storing normalized paths of selected files.
-   * @param handler - Decoupled callback interface for TreeView refreshes and expansions.
-   */
   constructor(
     private readonly selectedFiles: Set<string>,
     private readonly handler: SelectionChangeHandler
   ) {}
 
-  /**
-   * Recursively traverses a directory, adding non-filtered files to the selection set.
-   * Uses realpath checking to strictly prevent symlink recursion loops.
-   * Also selects deleted Git files located inside the subtree.
-   *
-   * @param dirPath - Root directory path to traverse.
-   * @param filters - Active file exclusion filters.
-   * @param selectedFiles - Target set of selected files to mutate.
-   * @param countMap - Optional map caching total file counts per folder.
-   * @param visitedDirs - Set of canonical paths visited during current recursion to guard loops.
-   * @param gitStatuses - Optional map of current Git file statuses.
-   * @returns Total count of selectable files found in the directory subtree.
-   */
   public static async selectFolderRecursive(
     dirPath: string,
     filters: FilterSettings,
@@ -110,7 +90,6 @@ export class SelectionService {
       }
     }
 
-    // Also select tracked Git deleted files inside this directory
     if (gitStatuses) {
       for (const [gitPath, status] of gitStatuses.entries()) {
         if (status === 'deleted' && PathUtils.isSubpath(gitPath, normalizedDirPath)) {
@@ -239,9 +218,10 @@ export class SelectionService {
    * @returns Array of selected file paths.
    */
   public async selectOpenTabs(filters: FilterSettings): Promise<string[]> {
+    const t = I18nService.getTranslations();
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
-      vscode.window.showWarningMessage('Рабочая область не открыта.');
+      vscode.window.showWarningMessage(t.messages.workspaceNotOpened);
       return [];
     }
 
@@ -303,9 +283,9 @@ export class SelectionService {
     }
 
     if (newlyAddedPaths.length > 0) {
-      vscode.window.showInformationMessage(`Выбрано файлов из открытых вкладок: ${newlyAddedPaths.length}`);
+      vscode.window.showInformationMessage(t.messages.openTabsSelected(newlyAddedPaths.length));
     } else {
-      vscode.window.showWarningMessage('В открытых вкладках не найдено доступных файлов проекта (или они скрыты фильтрами).');
+      vscode.window.showWarningMessage(t.messages.noAvailableFilesInOpenTabs);
     }
 
     return newlyAddedPaths;
@@ -318,6 +298,7 @@ export class SelectionService {
    * @param filters - Active exclusion filters.
    */
   public async selectModifiedGitFiles(filters: FilterSettings): Promise<void> {
+    const t = I18nService.getTranslations();
     const statuses = await GitService.getFileStatuses();
     const modifiedPaths = Array.from(statuses.keys());
 
@@ -342,18 +323,12 @@ export class SelectionService {
     }
 
     if (this.selectedFiles.size === 0) {
-      vscode.window.showWarningMessage('В Git нет измененных файлов (или они скрыты активными фильтрами).');
+      vscode.window.showWarningMessage(t.messages.noModifiedGitFiles);
     } else {
-      vscode.window.showInformationMessage(`Выбрано файлов Git: ${this.selectedFiles.size}`);
+      vscode.window.showInformationMessage(t.messages.modifiedGitFilesSelected(this.selectedFiles.size));
     }
   }
 
-  /**
-   * Selects all files matching current search query across workspace, including tracked Git deleted files.
-   *
-   * @param query - Search term.
-   * @param filters - Active exclusion filters.
-   */
   public async selectFoundFiles(query: string, filters: FilterSettings): Promise<void> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {

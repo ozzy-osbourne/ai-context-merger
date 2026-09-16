@@ -78,7 +78,7 @@ suite('XmlBuilder: Bundle Assembly & Structural Integrity Tests', () => {
     assert.strictEqual(xml.includes('<documents>'), false);
   });
 
-  test('Renders deleted Git files with specialized placeholder without reading from disk', async () => {
+  test('Renders deleted Git files with specialized English placeholder without reading from disk', async () => {
     const deletedFile = path.join(tempDir, 'removed.ts');
     const selectedFiles = new Set<string>([deletedFile]);
     const gitStatuses = new Map<string, GitFileStatus>();
@@ -94,7 +94,7 @@ suite('XmlBuilder: Bundle Assembly & Structural Integrity Tests', () => {
 
     assert.strictEqual(xml.includes('<document index="1">'), true);
     assert.strictEqual(xml.includes('<git_status>deleted</git_status>'), true);
-    assert.strictEqual(xml.includes('<document_content>[Файл удален в Git]</document_content>'), true);
+    assert.strictEqual(xml.includes('<document_content>[File deleted in Git]</document_content>'), true);
   });
 
   test('Omits <documents> container in "diffOnly" mode while retaining structure and <git_diff>', async () => {
@@ -113,5 +113,25 @@ suite('XmlBuilder: Bundle Assembly & Structural Integrity Tests', () => {
     assert.strictEqual(xml.includes('<git_diff>'), true);
     assert.strictEqual(xml.includes('<documents>'), false);
     assert.strictEqual(xml.includes('<document index='), false);
+  });
+
+  test('Omits <project_structure> when includeProjectStructure is false even if files are selected', async () => {
+    const fileA = path.join(tempDir, 'index_no_tree.ts');
+    await fs.promises.writeFile(fileA, 'console.log("No tree");', 'utf-8');
+
+    const selectedFiles = new Set<string>([fileA]);
+    const xml = await XmlBuilder.buildBundleXml(
+      selectedFiles,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false
+    );
+
+    assert.strictEqual(xml.includes('<project_structure>'), false);
+    assert.strictEqual(xml.includes('<documents>'), true);
   });
 });

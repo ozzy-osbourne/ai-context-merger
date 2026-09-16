@@ -4,13 +4,6 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { FileReaderService } from '../services/fileReaderService';
 
-/**
- * Helper generating a realistic double-encoded UTF-8 mojibake string at runtime.
- * Constructed via character codes to prevent workspace scanners and self-protection
- * mechanisms from falsely detecting mojibake in the test suite source code.
- *
- * @returns Runtime-generated mojibake string.
- */
 function createMojibakeSample(): string {
   const charCodes = [
     0x0420, 0x041F, 0x0421, 0x0402, 0x0420, 0x0451, 0x0420, 0x0406, 0x0420, 0x00B5, 0x0421, 0x201A,
@@ -25,9 +18,6 @@ function createMojibakeSample(): string {
   return String.fromCharCode(...charCodes);
 }
 
-/**
- * Test suite for FileReaderService encoding resilience and binary detection.
- */
 suite('FileReaderService: Binary & Encoding Safety Tests', () => {
   let tempDir: string;
 
@@ -45,24 +35,22 @@ suite('FileReaderService: Binary & Encoding Safety Tests', () => {
 
   test('Detects binary file by Magic Bytes (PNG signature) regardless of extension', async () => {
     const fakePngPath = path.join(tempDir, 'image_disguised_as_txt.txt');
-    // PNG Signature: 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A
     const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]);
     await fs.promises.writeFile(fakePngPath, pngHeader);
 
     const result = await FileReaderService.safeReadFile(fakePngPath);
     assert.strictEqual(result.text, undefined);
-    assert.strictEqual(result.placeholder?.includes('Бинарный или скомпилированный файл'), true);
+    assert.strictEqual(result.placeholder?.includes('Binary or compiled file'), true);
   });
 
   test('Detects binary file by null-bytes inside buffer payload even when file extension is .txt', async () => {
     const nullByteFile = path.join(tempDir, 'binary_payload_as_text.txt');
-    // Binary sequence with NUL byte that would otherwise decode as valid UTF-8
     const bufferWithZeros = Buffer.from([0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x57, 0x6f, 0x72, 0x6c, 0x64]);
     await fs.promises.writeFile(nullByteFile, bufferWithZeros);
 
     const result = await FileReaderService.safeReadFile(nullByteFile);
     assert.strictEqual(result.text, undefined, 'Text content must not be returned for files containing null bytes');
-    assert.strictEqual(result.placeholder?.includes('Бинарный'), true, 'Placeholder must indicate binary payload');
+    assert.strictEqual(result.placeholder?.includes('Binary'), true, 'Placeholder must indicate binary payload');
   });
 
   test('Detects corrupted double-encoded UTF-8 mojibake and yields placeholder', async () => {
@@ -72,6 +60,6 @@ suite('FileReaderService: Binary & Encoding Safety Tests', () => {
 
     const result = await FileReaderService.safeReadFile(mojibakeFile);
     assert.strictEqual(result.text, undefined);
-    assert.strictEqual(result.placeholder?.includes('Обнаружен повреждённый моджибейк'), true);
+    assert.strictEqual(result.placeholder?.includes('Mojibake detected'), true);
   });
 });

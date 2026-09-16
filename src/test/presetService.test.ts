@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { PresetService } from '../services/presetService';
 import { CustomPreset } from '../types';
+import { I18nService } from '../i18n';
 
 /**
  * Test suite for custom preset input constraints, boundary rules, and storage limits.
@@ -37,6 +38,7 @@ suite('PresetService: Input Validation & Constraints Tests', () => {
   });
 
   test('Rejects preset names longer than 32 characters', () => {
+    const t = I18nService.getTranslations();
     const exactly32 = 'A'.repeat(32);
     const validResult = presetService.validatePreset(exactly32, 'Valid body');
     assert.strictEqual(validResult.isValid, true);
@@ -44,10 +46,11 @@ suite('PresetService: Input Validation & Constraints Tests', () => {
     const tooLongName = 'A'.repeat(33);
     const invalidResult = presetService.validatePreset(tooLongName, 'Valid body');
     assert.strictEqual(invalidResult.isValid, false);
-    assert.strictEqual(invalidResult.warning?.includes('32 символа'), true);
+    assert.strictEqual(invalidResult.warning, t.messages.presetNameTooLong);
   });
 
   test('Rejects preset texts longer than 10000 characters', () => {
+    const t = I18nService.getTranslations();
     const exactly10000 = 'x'.repeat(10000);
     const validTextResult = presetService.validatePreset('Valid Title', exactly10000);
     assert.strictEqual(validTextResult.isValid, true);
@@ -55,7 +58,7 @@ suite('PresetService: Input Validation & Constraints Tests', () => {
     const tooLongText = 'x'.repeat(10001);
     const invalidTextResult = presetService.validatePreset('Valid Title', tooLongText);
     assert.strictEqual(invalidTextResult.isValid, false);
-    assert.strictEqual(invalidTextResult.warning?.includes('10 000 символов'), true);
+    assert.strictEqual(invalidTextResult.warning, t.messages.presetTextTooLong);
   });
 
   test('Accepts valid custom presets with trimmed parameters', () => {
@@ -75,9 +78,10 @@ suite('PresetService: Input Validation & Constraints Tests', () => {
       });
     }
 
+    const t = I18nService.getTranslations();
     const result = await presetService.addCustomPreset('51st Preset', 'Body');
     assert.strictEqual(result.success, false);
-    assert.strictEqual(result.error?.includes('максимум 50'), true);
+    assert.strictEqual(result.error, t.messages.presetLimitReached);
   });
 
   test('Performs CRUD lifecycle: Add, Edit, Delete', async () => {

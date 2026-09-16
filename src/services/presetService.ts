@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { CustomPreset, FilterSettings, OutputFormat } from '../types';
+import { I18nService } from '../i18n';
 
 /**
  * Storage keys for globally synchronized user settings.
@@ -72,20 +73,22 @@ export class PresetService {
     name: string,
     text: string
   ): { isValid: boolean; trimmedName: string; trimmedText: string; warning?: string } {
+    const t = I18nService.getTranslations();
+
     if (typeof name !== 'string' || typeof text !== 'string') {
-      return { isValid: false, trimmedName: '', trimmedText: '', warning: 'Название и текст пресета не могут быть пустыми.' };
+      return { isValid: false, trimmedName: '', trimmedText: '', warning: t.messages.presetNameAndTextRequired };
     }
     const trimmedName = name.trim();
     const trimmedText = text.trim();
 
     if (!trimmedName || !trimmedText) {
-      return { isValid: false, trimmedName, trimmedText, warning: 'Название и текст пресета не могут быть пустыми.' };
+      return { isValid: false, trimmedName, trimmedText, warning: t.messages.presetNameAndTextRequired };
     }
     if (trimmedName.length > 32) {
-      return { isValid: false, trimmedName, trimmedText, warning: 'Название пресета не должно превышать 32 символа.' };
+      return { isValid: false, trimmedName, trimmedText, warning: t.messages.presetNameTooLong };
     }
     if (trimmedText.length > 10000) {
-      return { isValid: false, trimmedName, trimmedText, warning: 'Текст пресета слишком длинный (максимум 10 000 символов).' };
+      return { isValid: false, trimmedName, trimmedText, warning: t.messages.presetTextTooLong };
     }
 
     return { isValid: true, trimmedName, trimmedText };
@@ -99,6 +102,7 @@ export class PresetService {
    * @returns Operation outcome.
    */
   public async addCustomPreset(name: string, text: string): Promise<PresetOperationResult> {
+    const t = I18nService.getTranslations();
     const validation = this.validatePreset(name, text);
     if (!validation.isValid) {
       return { success: false, warning: validation.warning };
@@ -106,7 +110,7 @@ export class PresetService {
 
     const currentPresets = this.getCustomPresets();
     if (currentPresets.length >= 50) {
-      return { success: false, error: 'Достигнут лимит сохраненных пресетов (максимум 50).' };
+      return { success: false, error: t.messages.presetLimitReached };
     }
 
     const newPreset: CustomPreset = {
@@ -130,8 +134,9 @@ export class PresetService {
    * @returns Operation outcome.
    */
   public async editCustomPreset(id: string, name: string, text: string): Promise<PresetOperationResult> {
+    const t = I18nService.getTranslations();
     if (typeof id !== 'string') {
-      return { success: false, error: 'Идентификатор пресета некорректен.' };
+      return { success: false, error: t.messages.presetInvalidId };
     }
 
     const validation = this.validatePreset(name, text);
@@ -143,7 +148,7 @@ export class PresetService {
     const targetIndex = currentPresets.findIndex((p) => p.id === id);
 
     if (targetIndex === -1) {
-      return { success: false, error: 'Пресет не найден или уже был удален.', updatedPresets: currentPresets };
+      return { success: false, error: t.messages.presetNotFound, updatedPresets: currentPresets };
     }
 
     currentPresets[targetIndex] = {
@@ -164,8 +169,9 @@ export class PresetService {
    * @returns Operation outcome with updated presets list.
    */
   public async deleteCustomPreset(id: string): Promise<PresetOperationResult> {
+    const t = I18nService.getTranslations();
     if (typeof id !== 'string') {
-      return { success: false, error: 'Идентификатор пресета некорректен.' };
+      return { success: false, error: t.messages.presetInvalidId };
     }
 
     const currentPresets = this.getCustomPresets();

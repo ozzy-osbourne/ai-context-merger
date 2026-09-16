@@ -5,6 +5,7 @@ import { WorkspaceScanner } from './workspaceScanner';
 import { SelectionService } from './selectionService';
 import { ContextTreeStateResolver } from './contextTreeStateResolver';
 import { PathUtils } from '../utils/pathUtils';
+import { I18nService } from '../i18n';
 
 /**
  * Representation of an individual item within the project Context TreeView.
@@ -188,12 +189,6 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
     }
   }
 
-  /**
-   * Updates current live search query and scans workspace roots or provided directories.
-   *
-   * @param query - Input search string.
-   * @param searchRoots - Optional array of folder paths to search (defaults to active workspace folders).
-   */
   public async setSearchQuery(query: string, searchRoots?: string[]): Promise<void> {
     this.searchQuery = query.trim().toLowerCase();
     this.matchingFilePaths.clear();
@@ -208,7 +203,6 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
       } else if (workspaceFolders && workspaceFolders.length > 0) {
         roots = workspaceFolders.map((f) => f.uri.fsPath);
       } else if (this.selectedFiles.size > 0) {
-        // Fallback for standalone files or test runners without registered workspace folders
         const parentDirs = new Set<string>();
         for (const file of this.selectedFiles) {
           parentDirs.add(path.dirname(file));
@@ -234,7 +228,6 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
           }
         }
 
-        // Search deleted Git files matching the search query
         for (const [gitPath, status] of this.gitStatuses.entries()) {
           if (status === 'deleted' && PathUtils.isSubpath(gitPath, root)) {
             const fileName = path.basename(gitPath);
@@ -282,6 +275,8 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
 
   public async getChildren(element?: ContextTreeItem): Promise<ContextTreeItem[]> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
+    const t = I18nService.getTranslations();
+
     if (!workspaceFolders || workspaceFolders.length === 0) {
       return [];
     }
@@ -293,9 +288,9 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
           false,
           undefined,
           vscode.TreeItemCollapsibleState.None,
-          `по запросу "${this.searchQuery}"`
+          t.tree.emptySearchDescription(this.searchQuery)
         );
-        emptyItem.label = 'Ничего не найдено';
+        emptyItem.label = t.tree.emptySearch;
         emptyItem.iconPath = new vscode.ThemeIcon('search-stop');
         emptyItem.contextValue = 'emptyState';
         return [emptyItem];
@@ -307,9 +302,9 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
           false,
           undefined,
           vscode.TreeItemCollapsibleState.None,
-          'нет отмеченных файлов'
+          t.tree.nothingSelectedDescription
         );
-        emptyItem.label = 'Ничего не выбрано';
+        emptyItem.label = t.tree.nothingSelected;
         emptyItem.iconPath = new vscode.ThemeIcon('info');
         emptyItem.contextValue = 'emptyState';
         return [emptyItem];
@@ -333,10 +328,10 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
           undefined,
           vscode.TreeItemCollapsibleState.None,
           this.showOnlySelected && this.searchQuery
-            ? `нет выбранных файлов по запросу "${this.searchQuery}"`
-            : (this.searchQuery ? `по запросу "${this.searchQuery}"` : 'нет отмеченных файлов')
+            ? t.tree.emptyCombinedDescription(this.searchQuery)
+            : (this.searchQuery ? t.tree.emptySearchDescription(this.searchQuery) : t.tree.nothingSelectedDescription)
         );
-        emptyItem.label = 'Ничего не найдено';
+        emptyItem.label = t.tree.emptySearch;
         emptyItem.iconPath = new vscode.ThemeIcon('search-stop');
         emptyItem.contextValue = 'emptyState';
         return [emptyItem];
@@ -400,7 +395,6 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
       this.filters
     );
 
-    // Harmoniously combine showOnlySelected and live search filter with cross-platform path matching
     const filteredEntries = validEntries.filter(({ entry, fullPath }) => {
       const isDir = entry.isDirectory();
 
@@ -517,7 +511,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
 
       fileItem.command = {
         command: 'aiContextMerger.toggleFileByClick',
-        title: 'Выбрать файл',
+        title: 'Toggle File',
         arguments: [fullPath]
       };
 
@@ -561,7 +555,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
         deletedItem.contextValue = isChecked ? 'file-checked-modified' : 'file-unchecked-modified';
         deletedItem.command = {
           command: 'aiContextMerger.toggleFileByClick',
-          title: 'Выбрать файл',
+          title: 'Toggle File',
           arguments: [gitPath]
         };
         treeItems.push(deletedItem);

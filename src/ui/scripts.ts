@@ -1,27 +1,17 @@
-import { PROMPT_PRESETS } from '../constants/presets';
-
 /**
  * Generates the complete client-side JavaScript for the controls Webview panel.
  * Coordinates DOM interactions, IPC messaging with the extension host, state persistence,
- * debounced search queries, and user feedback animations.
+ * debounced search queries, dynamic safe internationalization rendering, and user feedback animations.
  *
  * @returns Serialized client JavaScript code string.
  */
 export function getScripts(): string {
-  const presetsJson = JSON.stringify(PROMPT_PRESETS);
-
   return `
     /**
      * Acquisition of the native VS Code Webview messaging and state API.
      * Allows posting messages to the extension host and saving session state across tab switches.
      */
     const vscode = acquireVsCodeApi();
-
-    /**
-     * Dictionary of default AI task prompt presets injected from extension constants.
-     * @type {Record<string, string>}
-     */
-    const PRESET_TEXTS = ${presetsJson};
 
     /**
      * Default token budget fallback value when no user preference is configured.
@@ -43,8 +33,10 @@ export function getScripts(): string {
     // =========================================================================
     // 1. Primary Action & Header DOM Elements
     // =========================================================================
+    const languageSelect = document.getElementById('languageSelect');
     const btnRefreshTop = document.getElementById('btnRefreshTop');
     const btnCopy = document.getElementById('btnCopy');
+    const lblBtnCopy = document.getElementById('lblBtnCopy');
     const btnPreview = document.getElementById('btnPreview');
     const btnExport = document.getElementById('btnExport');
     const btnOpenTabs = document.getElementById('btnOpenTabs');
@@ -58,40 +50,78 @@ export function getScripts(): string {
     // 2. AI Task Prompt & Presets DOM Elements
     // =========================================================================
     const promptToggle = document.getElementById('promptToggle');
+    const lblPromptTitle = document.getElementById('lblPromptTitle');
+    const lblPromptToggleWrap = document.getElementById('lblPromptToggleWrap');
     const promptBody = document.getElementById('promptBody');
     const promptInput = document.getElementById('promptInput');
     const btnClearPrompt = document.getElementById('btnClearPrompt');
+    const baseChipsContainer = document.getElementById('baseChipsContainer');
     const customChipsContainer = document.getElementById('customChipsContainer');
     const btnShowAddPreset = document.getElementById('btnShowAddPreset');
+    const lblSaveCurrentAsPreset = document.getElementById('lblSaveCurrentAsPreset');
     const inlineAddForm = document.getElementById('inlineAddForm');
     const inlineFormTitle = document.getElementById('inlineFormTitle');
     const customPresetNameInput = document.getElementById('customPresetNameInput');
     const btnSavePreset = document.getElementById('btnSavePreset');
     const btnCancelPreset = document.getElementById('btnCancelPreset');
+    const lblBasePresets = document.getElementById('lblBasePresets');
+    const lblCustomPresets = document.getElementById('lblCustomPresets');
 
     // =========================================================================
     // 3. Format & Context Addons (Project Structure, Git Diff & Diagnostics) DOM Elements
     // =========================================================================
+    const lblFormatTitle = document.getElementById('lblFormatTitle');
+    const lblFormatMarkdownWrap = document.getElementById('lblFormatMarkdownWrap');
+    const lblFormatXmlWrap = document.getElementById('lblFormatXmlWrap');
     const formatMarkdown = document.getElementById('formatMarkdown');
     const formatXml = document.getElementById('formatXml');
 
     const projectStructureToggle = document.getElementById('projectStructureToggle');
+    const lblProjectStructureWrap = document.getElementById('lblProjectStructureWrap');
+    const lblProjectStructure = document.getElementById('lblProjectStructure');
 
     const gitDiffToggle = document.getElementById('gitDiffToggle');
+    const lblGitDiffWrap = document.getElementById('lblGitDiffWrap');
+    const lblGitDiff = document.getElementById('lblGitDiff');
     const gitDiffSuboptions = document.getElementById('gitDiffSuboptions');
     const diffOnlyToggle = document.getElementById('diffOnlyToggle');
+    const lblDiffOnlyWrap = document.getElementById('lblDiffOnlyWrap');
+    const lblDiffOnly = document.getElementById('lblDiffOnly');
     const unlimitedDiffToggle = document.getElementById('unlimitedDiffToggle');
+    const lblUnlimitedDiffWrap = document.getElementById('lblUnlimitedDiffWrap');
+    const lblUnlimitedDiff = document.getElementById('lblUnlimitedDiff');
 
     const diagnosticsToggle = document.getElementById('diagnosticsToggle');
+    const lblDiagnosticsWrap = document.getElementById('lblDiagnosticsWrap');
+    const lblDiagnostics = document.getElementById('lblDiagnostics');
     const diagnosticsSuboptions = document.getElementById('diagnosticsSuboptions');
     const diagnosticsCompilerToggle = document.getElementById('diagnosticsCompilerToggle');
+    const lblDiagCompilerWrap = document.getElementById('lblDiagCompilerWrap');
     const diagnosticsCompilerLabel = document.getElementById('diagnosticsCompilerLabel');
     const diagnosticsLinterToggle = document.getElementById('diagnosticsLinterToggle');
+    const lblDiagLinterWrap = document.getElementById('lblDiagLinterWrap');
     const diagnosticsLinterLabel = document.getElementById('diagnosticsLinterLabel');
+
+    // Filter section labels
+    const lblFilterTitle = document.getElementById('lblFilterTitle');
+    const lblFilterGitWrap = document.getElementById('lblFilterGitWrap');
+    const lblFilterGit = document.getElementById('lblFilterGit');
+    const lblFilterSecretsWrap = document.getElementById('lblFilterSecretsWrap');
+    const lblFilterSecrets = document.getElementById('lblFilterSecrets');
+    const lblFilterMinifiedWrap = document.getElementById('lblFilterMinifiedWrap');
+    const lblFilterMinified = document.getElementById('lblFilterMinified');
+    const lblFilterLockWrap = document.getElementById('lblFilterLockWrap');
+    const lblFilterLock = document.getElementById('lblFilterLock');
+    const lblFilterBinaryWrap = document.getElementById('lblFilterBinaryWrap');
+    const lblFilterBinary = document.getElementById('lblFilterBinary');
 
     // =========================================================================
     // 4. Statistics, Progress & Search DOM Elements
     // =========================================================================
+    const lblStatsTitle = document.getElementById('lblStatsTitle');
+    const lblStatFiles = document.getElementById('lblStatFiles');
+    const lblStatTokens = document.getElementById('lblStatTokens');
+    const lblProgressOf = document.getElementById('lblProgressOf');
     const searchInput = document.getElementById('searchInput');
     const btnClearSearch = document.getElementById('btnClearSearch');
     const tokenLimitSelect = document.getElementById('tokenLimitSelect');
@@ -105,6 +135,18 @@ export function getScripts(): string {
      * @type {Array<{ id: string, name: string, text: string }>}
      */
     let customPresets = [];
+
+    /**
+     * Active standard localized AI prompt presets.
+     * @type {Array<{ id: string, title: string, chipLabel: string, text: string }>}
+     */
+    let standardPresets = [];
+
+    /**
+     * Active UI translation dictionary received from the extension backend.
+     * @type {Record<string, string> | null}
+     */
+    let currentTranslations = null;
 
     /**
      * Identifier of the preset currently open in edit mode, or null if creating a new one.
@@ -141,6 +183,12 @@ export function getScripts(): string {
      * @type {number}
      */
     let currentEstimatedTokens = 0;
+
+    /**
+     * Last known diagnostics problem counters summary.
+     * @type {{ compilerCount: number, linterCount: number }}
+     */
+    let lastDiagnosticsSummary = { compilerCount: 0, linterCount: 0 };
 
     // =========================================================================
     // 6. Restoring Session State from Webview Cache
@@ -197,8 +245,113 @@ export function getScripts(): string {
     searchInput.value = currentSearchQuery;
 
     // =========================================================================
-    // 7. UI Update & Feedback Functions
+    // 7. UI Update, Feedback & Localized Rendering Functions
     // =========================================================================
+
+    /**
+     * Safely updates all DOM text labels, titles, and placeholders without HTML injection.
+     * Conforms 100% to VS Code Webview CSP security policies.
+     *
+     * @param {Record<string, string>} ui - Localized UI translation dictionary.
+     * @returns {void}
+     */
+    function applyTranslations(ui) {
+      if (!ui) return;
+      currentTranslations = ui;
+
+      btnRefreshTop.title = ui.refreshButtonTitle;
+
+      const autoOpt = languageSelect.querySelector('option[value="auto"]');
+      if (autoOpt) autoOpt.textContent = 'AUTO';
+
+      lblPromptToggleWrap.title = ui.promptToggleTooltip;
+      lblPromptTitle.textContent = ui.promptTitle;
+      btnClearPrompt.textContent = ui.clearPromptButton;
+      btnClearPrompt.title = ui.clearPromptButtonTooltip;
+      promptInput.placeholder = ui.promptPlaceholder;
+
+      lblBasePresets.textContent = ui.basePresetsLabel;
+      lblCustomPresets.textContent = ui.customPresetsLabel;
+      lblSaveCurrentAsPreset.textContent = ui.saveCurrentAsPreset;
+      btnShowAddPreset.title = ui.saveCurrentAsPresetTitle;
+
+      if (editingPresetId === null) {
+        inlineFormTitle.textContent = ui.inlineFormAddTitle;
+      } else {
+        inlineFormTitle.textContent = ui.inlineFormEditTitle;
+      }
+      customPresetNameInput.placeholder = ui.presetNamePlaceholder;
+      btnSavePreset.textContent = ui.btnSave;
+      btnCancelPreset.textContent = ui.btnCancel;
+
+      lblFormatTitle.textContent = ui.formatTitle;
+      lblFormatMarkdownWrap.title = ui.formatMarkdownTitle;
+      lblFormatXmlWrap.title = ui.formatXmlTitle;
+
+      btnCopy.title = ui.btnCopy;
+      if (!btnCopy.classList.contains('btn-copied')) {
+        lblBtnCopy.textContent = ui.btnCopy;
+      }
+
+      btnOpenTabs.textContent = ui.btnOpenTabs;
+      btnOpenTabs.title = ui.btnOpenTabsTitle;
+      btnGit.textContent = ui.btnGit;
+      btnGit.title = ui.btnGitTitle;
+
+      if (!currentSearchQuery) {
+        btnSelectAll.textContent = ui.btnSelectAll;
+      }
+      btnSelectAll.title = ui.btnSelectAllTitle;
+      btnClear.textContent = ui.btnClearAll;
+      btnClear.title = ui.btnClearAllTitle;
+      btnExpandAll.textContent = ui.btnExpandAll;
+      btnExpandAll.title = ui.btnExpandAllTitle;
+      btnCollapse.textContent = ui.btnCollapseAll;
+      btnCollapse.title = ui.btnCollapseAllTitle;
+
+      lblProjectStructureWrap.title = ui.attachProjectStructureTitle;
+      lblProjectStructure.textContent = ui.attachProjectStructure;
+
+      lblGitDiffWrap.title = ui.attachGitDiffTitle;
+      lblGitDiff.textContent = ui.attachGitDiff;
+      lblDiffOnlyWrap.title = ui.diffOnlyTitle;
+      lblDiffOnly.textContent = ui.diffOnly;
+      lblUnlimitedDiffWrap.title = ui.unlimitedDiffTitle;
+      lblUnlimitedDiff.textContent = ui.unlimitedDiff;
+
+      lblDiagnosticsWrap.title = ui.attachDiagnosticsTitle;
+      lblDiagnostics.textContent = ui.attachDiagnostics;
+      lblDiagCompilerWrap.title = ui.diagnosticsCompilerTitle;
+      lblDiagLinterWrap.title = ui.diagnosticsLinterTitle;
+
+      lblFilterTitle.textContent = ui.filtersTitle;
+      lblFilterGitWrap.title = ui.filterGitTitle;
+      lblFilterGit.textContent = ui.filterGit;
+      lblFilterSecretsWrap.title = ui.filterSecretsTitle;
+      lblFilterSecrets.textContent = ui.filterSecrets;
+      lblFilterMinifiedWrap.title = ui.filterMinifiedTitle;
+      lblFilterMinified.textContent = ui.filterMinified;
+      lblFilterLockWrap.title = ui.filterLockTitle;
+      lblFilterLock.textContent = ui.filterLock;
+      lblFilterBinaryWrap.title = ui.filterBinaryTitle;
+      lblFilterBinary.textContent = ui.filterBinary;
+
+      lblStatsTitle.textContent = '📊 ' + ui.statsTitle;
+      lblStatFiles.textContent = ui.filesMetricSuffix;
+      lblStatTokens.textContent = ui.tokensMetricSuffix;
+      lblProgressOf.textContent = ui.progressOf;
+      tokenOverflowWarning.textContent = ui.tokenOverflowWarning;
+      tokenLimitSelect.title = ui.tokenLimitTitle;
+
+      searchInput.placeholder = ui.searchPlaceholder;
+      searchInput.title = ui.searchTitle;
+      btnClearSearch.title = ui.clearSearchTooltip;
+
+      updateFormatUI(currentFormat);
+      renderDiagnosticsUI(lastDiagnosticsSummary);
+      renderBaseChips(standardPresets);
+      renderCustomChips(customPresets);
+    }
 
     /**
      * Synchronizes radio buttons and adapts button labels to the current output format.
@@ -216,17 +369,21 @@ export function getScripts(): string {
       }
 
       if (btnPreview) {
-        btnPreview.innerText = isXml ? '👁️ Превью .xml' : '👁️ Превью .md';
-        btnPreview.title = isXml
-          ? 'Открыть сгенерированный XML во вкладке рядом для предварительного просмотра'
-          : 'Открыть сгенерированный Markdown во вкладке рядом для предварительного просмотра';
+        if (currentTranslations) {
+          btnPreview.textContent = isXml ? currentTranslations.btnPreviewXml : currentTranslations.btnPreviewMd;
+          btnPreview.title = isXml ? currentTranslations.btnPreviewXmlTitle : currentTranslations.btnPreviewMdTitle;
+        } else {
+          btnPreview.textContent = isXml ? '👁️ Preview .xml' : '👁️ Preview .md';
+        }
       }
 
       if (btnExport) {
-        btnExport.innerText = isXml ? '💾 Экспорт в .xml' : '💾 Экспорт в .md';
-        btnExport.title = isXml
-          ? 'Сохранить итоговый XML-файл с контекстом на диск'
-          : 'Сохранить итоговый Markdown-файл с контекстом на диск';
+        if (currentTranslations) {
+          btnExport.textContent = isXml ? currentTranslations.btnExportXml : currentTranslations.btnExportMd;
+          btnExport.title = isXml ? currentTranslations.btnExportXmlTitle : currentTranslations.btnExportMdTitle;
+        } else {
+          btnExport.textContent = isXml ? '💾 Export to .xml' : '💾 Export to .md';
+        }
       }
     }
 
@@ -240,7 +397,7 @@ export function getScripts(): string {
       btnCopy.disabled = false;
       btnCopy.style.opacity = '1';
       btnCopy.classList.add('btn-copied');
-      btnCopy.innerHTML = '<span>✓</span> СКОПИРОВАНО!';
+      btnCopy.innerHTML = '<span>✓</span> ' + (currentTranslations ? currentTranslations.btnCopySuccess : 'COPIED!');
 
       if (copyFeedbackTimeout) {
         clearTimeout(copyFeedbackTimeout);
@@ -248,7 +405,7 @@ export function getScripts(): string {
 
       copyFeedbackTimeout = setTimeout(() => {
         btnCopy.classList.remove('btn-copied');
-        btnCopy.innerHTML = '<span>📋</span> СКОПИРОВАТЬ КОНТЕКСТ';
+        btnCopy.innerHTML = '<span>📋</span> <span id="lblBtnCopy">' + (currentTranslations ? currentTranslations.btnCopy : 'COPY CONTEXT') + '</span>';
       }, 1500);
     }
 
@@ -262,7 +419,7 @@ export function getScripts(): string {
       btnCopy.disabled = false;
       btnCopy.style.opacity = '1';
       btnCopy.classList.remove('btn-copied');
-      btnCopy.innerHTML = '<span>📋</span> СКОПИРОВАТЬ КОНТЕКСТ';
+      btnCopy.innerHTML = '<span>📋</span> <span id="lblBtnCopy">' + (currentTranslations ? currentTranslations.btnCopy : 'COPY CONTEXT') + '</span>';
     }
 
     /**
@@ -414,17 +571,21 @@ export function getScripts(): string {
     }
 
     /**
-     * Renders compiler and linter problem counters on the suboption labels.
+     * Renders compiler and linter problem counters on the suboption labels with localization.
      *
      * @param {{ compilerCount: number, linterCount: number }} summary - Aggregated issues summary.
      * @returns {void}
      */
     function renderDiagnosticsUI(summary) {
-      const compCount = summary?.compilerCount || 0;
-      const lintCount = summary?.linterCount || 0;
-      
-      diagnosticsCompilerLabel.innerText = 'Ошибки компилятора (' + compCount + ')';
-      diagnosticsLinterLabel.innerText = 'Ошибки линтера (' + lintCount + ')';
+      lastDiagnosticsSummary = summary || { compilerCount: 0, linterCount: 0 };
+      const compCount = lastDiagnosticsSummary.compilerCount || 0;
+      const lintCount = lastDiagnosticsSummary.linterCount || 0;
+
+      const compText = currentTranslations ? currentTranslations.diagnosticsCompiler : 'Compiler errors';
+      const lintText = currentTranslations ? currentTranslations.diagnosticsLinter : 'Linter errors';
+
+      diagnosticsCompilerLabel.textContent = compText + ' (' + compCount + ')';
+      diagnosticsLinterLabel.textContent = lintText + ' (' + lintCount + ')';
     }
 
     /**
@@ -452,7 +613,7 @@ export function getScripts(): string {
         bar.style.backgroundColor = 'var(--color-red)';
       }
 
-      document.getElementById('progressPercent').innerText = percentage + '%';
+      document.getElementById('progressPercent').textContent = percentage + '%';
 
       // Show overflow alert if tokens exceed chosen LLM budget
       if (currentEstimatedTokens > maxLimit) {
@@ -476,7 +637,7 @@ export function getScripts(): string {
       promptInput.value = preset.text;
       syncPromptWithExtension(true);
 
-      inlineFormTitle.innerText = '▼ Редактирование пресета:';
+      inlineFormTitle.textContent = currentTranslations ? currentTranslations.inlineFormEditTitle : '▼ Edit preset:';
       customPresetNameInput.value = preset.name;
       btnShowAddPreset.classList.add('hidden');
       inlineAddForm.classList.remove('hidden');
@@ -500,8 +661,36 @@ export function getScripts(): string {
       inlineAddForm.classList.add('hidden');
       btnShowAddPreset.classList.remove('hidden');
       customPresetNameInput.value = '';
-      inlineFormTitle.innerText = '💾 Сохранить текущий текст как пресет:';
+      inlineFormTitle.textContent = currentTranslations ? currentTranslations.inlineFormAddTitle : '💾 Save current text as preset:';
       renderCustomChips(customPresets);
+    }
+
+    /**
+     * Renders standard AI preset chips dynamically using current localized presets.
+     *
+     * @param {Array<{ id: string, title: string, chipLabel: string, text: string }>} presets - Standard presets list.
+     * @returns {void}
+     */
+    function renderBaseChips(presets) {
+      standardPresets = presets || [];
+      baseChipsContainer.innerHTML = '';
+
+      standardPresets.forEach(preset => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'preset-chip';
+        btn.textContent = preset.chipLabel || preset.title;
+        btn.title = preset.text;
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (editingPresetId !== null) {
+            cancelEditingPreset();
+          }
+          promptInput.value = preset.text;
+          syncPromptWithExtension(true);
+        });
+        baseChipsContainer.appendChild(btn);
+      });
     }
 
     /**
@@ -518,7 +707,7 @@ export function getScripts(): string {
         const emptyHint = document.createElement('span');
         emptyHint.style.fontSize = '10px';
         emptyHint.style.color = 'var(--vscode-descriptionForeground)';
-        emptyHint.innerText = 'Нет сохраненных пресетов';
+        emptyHint.textContent = currentTranslations ? currentTranslations.noCustomPresets : 'No saved presets';
         customChipsContainer.appendChild(emptyHint);
         return;
       }
@@ -530,10 +719,9 @@ export function getScripts(): string {
         const labelBtn = document.createElement('button');
         labelBtn.type = 'button';
         labelBtn.className = 'chip-label-btn';
-        labelBtn.innerText = preset.name;
+        labelBtn.textContent = preset.name;
         labelBtn.title = preset.text;
         labelBtn.addEventListener('click', () => {
-          // If another preset was being edited, abort edit mode to prevent accidental overwriting
           if (editingPresetId !== null) {
             cancelEditingPreset();
           }
@@ -549,9 +737,9 @@ export function getScripts(): string {
         const editBtn = document.createElement('button');
         editBtn.type = 'button';
         editBtn.className = 'chip-edit-btn';
-        editBtn.innerText = '✏️';
-        editBtn.title = 'Редактировать этот пресет';
-        editBtn.setAttribute('aria-label', 'Редактировать пресет ' + preset.name);
+        editBtn.textContent = '✏️';
+        editBtn.title = currentTranslations ? currentTranslations.editPresetTooltip : 'Edit this preset';
+        editBtn.setAttribute('aria-label', 'Edit preset ' + preset.name);
         editBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           startEditingPreset(preset);
@@ -562,9 +750,9 @@ export function getScripts(): string {
         const deleteBtn = document.createElement('button');
         deleteBtn.type = 'button';
         deleteBtn.className = 'chip-delete-btn';
-        deleteBtn.innerText = '✕';
-        deleteBtn.title = 'Удалить этот пресет';
-        deleteBtn.setAttribute('aria-label', 'Удалить пресет ' + preset.name);
+        deleteBtn.textContent = '✕';
+        deleteBtn.title = currentTranslations ? currentTranslations.deletePresetTooltip : 'Delete this preset';
+        deleteBtn.setAttribute('aria-label', 'Delete preset ' + preset.name);
         deleteBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           if (editingPresetId === preset.id) {
@@ -597,6 +785,14 @@ export function getScripts(): string {
     // =========================================================================
     // 8. Event Listeners Registration
     // =========================================================================
+
+    // Language Dropdown Selection
+    languageSelect.addEventListener('change', () => {
+      vscode.postMessage({
+        type: 'updateLanguage',
+        language: languageSelect.value
+      });
+    });
 
     // Output Format Radios
     formatMarkdown.addEventListener('change', () => {
@@ -676,7 +872,7 @@ export function getScripts(): string {
       updateClearSearchButtonVisibility();
 
       if (!currentSearchQuery) {
-        btnSelectAll.innerText = '✅ Выбрать всё';
+        btnSelectAll.textContent = currentTranslations ? currentTranslations.btnSelectAll : '✅ Select All';
       }
 
       clearTimeout(searchDebounceTimer);
@@ -694,7 +890,7 @@ export function getScripts(): string {
       currentSearchQuery = '';
       saveState();
       updateClearSearchButtonVisibility();
-      btnSelectAll.innerText = '✅ Выбрать всё';
+      btnSelectAll.textContent = currentTranslations ? currentTranslations.btnSelectAll : '✅ Select All';
       searchInput.focus();
 
       clearTimeout(searchDebounceTimer);
@@ -714,26 +910,10 @@ export function getScripts(): string {
       });
     });
 
-    // Default Prompt Preset Chips
-    document.querySelectorAll('.preset-chip[data-preset]').forEach(chip => {
-      chip.addEventListener('click', (e) => {
-        e.stopPropagation();
-        // Abort preset editing mode if active when clicking a base chip
-        if (editingPresetId !== null) {
-          cancelEditingPreset();
-        }
-        const key = chip.getAttribute('data-preset');
-        if (PRESET_TEXTS[key]) {
-          promptInput.value = PRESET_TEXTS[key];
-          syncPromptWithExtension(true);
-        }
-      });
-    });
-
     // Custom Preset Inline Form Actions
     btnShowAddPreset.addEventListener('click', () => {
       editingPresetId = null;
-      inlineFormTitle.innerText = '💾 Сохранить текущий текст как пресет:';
+      inlineFormTitle.textContent = currentTranslations ? currentTranslations.inlineFormAddTitle : '💾 Save current text as preset:';
       btnShowAddPreset.classList.add('hidden');
       inlineAddForm.classList.remove('hidden');
       customPresetNameInput.value = '';
@@ -772,7 +952,6 @@ export function getScripts(): string {
           text
         });
       }
-      // Form is kept open until presetOperationSuccess confirms persistence
     });
 
     btnRefreshTop.addEventListener('click', () => {
@@ -787,12 +966,10 @@ export function getScripts(): string {
     });
 
     btnCopy.addEventListener('click', () => {
-      if (btnCopy.disabled) {
-        return;
-      }
+      if (btnCopy.disabled) return;
       btnCopy.disabled = true;
       btnCopy.style.opacity = '0.7';
-      btnCopy.innerHTML = '<span>⏳</span> СБОРКА КОНТЕКСТА...';
+      btnCopy.innerHTML = '<span>⏳</span> ' + (currentTranslations ? currentTranslations.btnCopyAssembling : 'ASSEMBLING CONTEXT...');
       vscode.postMessage({ type: 'copyContext' });
     });
 
@@ -844,6 +1021,14 @@ export function getScripts(): string {
       if (!message || typeof message.type !== 'string') return;
 
       if (message.type === 'setData') {
+        if (message.language) {
+          languageSelect.value = message.language;
+        }
+
+        if (message.uiTranslations) {
+          applyTranslations(message.uiTranslations);
+        }
+
         if (message.stats) updateStatsUI(message.stats);
 
         if (message.outputFormat) {
@@ -904,12 +1089,26 @@ export function getScripts(): string {
           renderDiagnosticsUI(message.diagnosticsSummary);
         }
 
+        if (message.standardPresets) {
+          renderBaseChips(message.standardPresets);
+        }
+
         if (message.customPresets) {
           renderCustomChips(message.customPresets);
         }
 
         saveState();
         renderProgressIndicator();
+      } else if (message.type === 'updateTranslations') {
+        if (message.language) {
+          languageSelect.value = message.language;
+        }
+        if (message.standardPresets) {
+          standardPresets = message.standardPresets;
+        }
+        if (message.uiTranslations) {
+          applyTranslations(message.uiTranslations);
+        }
       } else if (message.type === 'updateStats') {
         if (message.stats) updateStatsUI(message.stats);
       } else if (message.type === 'updateDiagnosticsSummary') {
@@ -923,9 +1122,10 @@ export function getScripts(): string {
         cancelEditingPreset();
       } else if (message.type === 'searchResults') {
         if (message.query) {
-          btnSelectAll.innerText = '✅ Выбрать найденное (' + message.count + ')';
+          const prefix = currentTranslations ? currentTranslations.btnSelectFoundPrefix : '✅ Select Found';
+          btnSelectAll.textContent = prefix + ' (' + message.count + ')';
         } else {
-          btnSelectAll.innerText = '✅ Выбрать всё';
+          btnSelectAll.textContent = currentTranslations ? currentTranslations.btnSelectAll : '✅ Select All';
         }
       } else if (message.type === 'copySuccess') {
         triggerCopySuccess();
@@ -942,8 +1142,8 @@ export function getScripts(): string {
      */
     function updateStatsUI(stats) {
       currentEstimatedTokens = stats.tokens || 0;
-      document.getElementById('statCount').innerText = stats.count;
-      document.getElementById('statTokens').innerText = '~' + currentEstimatedTokens.toLocaleString();
+      document.getElementById('statCount').textContent = stats.count;
+      document.getElementById('statTokens').textContent = '~' + currentEstimatedTokens.toLocaleString();
       renderProgressIndicator();
     }
 

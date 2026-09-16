@@ -6,10 +6,8 @@ import { ContextTreeStateResolver } from '../services/contextTreeStateResolver';
 import { ContextTreeDataProvider } from '../services/contextTreeDataProvider';
 import { PathUtils } from '../utils/pathUtils';
 import { FilterSettings, GitFileStatus } from '../types';
+import { I18nService } from '../i18n';
 
-/**
- * Test suite for TreeView state resolution, pluralization labels, Git deleted items, and combined search filters.
- */
 suite('ContextTreeStateResolver & TreeView: State Resolution & Combined Search Tests', () => {
   let tempDir: string;
 
@@ -33,17 +31,28 @@ suite('ContextTreeStateResolver & TreeView: State Resolution & Combined Search T
     }
   });
 
-  test('Correctly formats Russian plural forms for selected file counters', () => {
-    assert.strictEqual(ContextTreeStateResolver.formatFilePlural(1), '1 файл выбран');
-    assert.strictEqual(ContextTreeStateResolver.formatFilePlural(2), '2 файла выбрано');
-    assert.strictEqual(ContextTreeStateResolver.formatFilePlural(4), '4 файла выбрано');
-    assert.strictEqual(ContextTreeStateResolver.formatFilePlural(5), '5 файлов выбрано');
-    assert.strictEqual(ContextTreeStateResolver.formatFilePlural(11), '11 файлов выбрано');
-    assert.strictEqual(ContextTreeStateResolver.formatFilePlural(21), '21 файл выбран');
-    assert.strictEqual(ContextTreeStateResolver.formatFilePlural(24), '24 файла выбрано');
+  test('Correctly formats plural forms for Russian locale using native Intl.PluralRules', () => {
+    assert.strictEqual(I18nService.formatSelectedFilePlural(1, 'ru'), '1 файл выбран');
+    assert.strictEqual(I18nService.formatSelectedFilePlural(2, 'ru'), '2 файла выбрано');
+    assert.strictEqual(I18nService.formatSelectedFilePlural(4, 'ru'), '4 файла выбрано');
+    assert.strictEqual(I18nService.formatSelectedFilePlural(5, 'ru'), '5 файлов выбрано');
+    assert.strictEqual(I18nService.formatSelectedFilePlural(11, 'ru'), '11 файлов выбрано');
+    assert.strictEqual(I18nService.formatSelectedFilePlural(21, 'ru'), '21 файл выбран');
+    assert.strictEqual(I18nService.formatSelectedFilePlural(24, 'ru'), '24 файла выбрано');
   });
 
-  test('Calculates total folder count including Git deleted items to prevent 6/5 anomalies', async () => {
+  test('Correctly formats plural forms for English locale using native Intl.PluralRules', () => {
+    assert.strictEqual(I18nService.formatSelectedFilePlural(1, 'en'), '1 file selected');
+    assert.strictEqual(I18nService.formatSelectedFilePlural(2, 'en'), '2 files selected');
+    assert.strictEqual(I18nService.formatSelectedFilePlural(10, 'en'), '10 files selected');
+  });
+
+  test('Correctly formats plural forms for Chinese locale using native Intl.PluralRules', () => {
+    assert.strictEqual(I18nService.formatSelectedFilePlural(1, 'zh-cn'), '已选择 1 个文件');
+    assert.strictEqual(I18nService.formatSelectedFilePlural(5, 'zh-cn'), '已选择 5 个文件');
+  });
+
+  test('Calculates total folder count including Git deleted items', async () => {
     const fileA = path.join(tempDir, 'fileA.ts');
     const fileB = path.join(tempDir, 'fileB.ts');
     const deletedFile = path.join(tempDir, 'deletedInGit.ts');
@@ -79,7 +88,7 @@ suite('ContextTreeStateResolver & TreeView: State Resolution & Combined Search T
     );
 
     assert.strictEqual(state.isChecked, true, 'All 3 files are selected, folder must be checked');
-    assert.strictEqual(state.description, '3/3 (3 файла выбрано)', 'Description must render balanced 3/3 count');
+    assert.strictEqual(state.description?.startsWith('3/3'), true);
   });
 
   test('Filters entries harmoniously when both "showOnlySelected" and "searchQuery" are active', async () => {
@@ -94,23 +103,17 @@ suite('ContextTreeStateResolver & TreeView: State Resolution & Combined Search T
     await fs.promises.writeFile(bananaFile, 'export const banana = 2;', 'utf-8');
     await fs.promises.writeFile(apricotFile, 'export const apricot = 3;', 'utf-8');
 
-    // Only apple and banana are selected (apricot is not selected)
     const selectedFiles = new Set<string>([appleFile, bananaFile]);
 
     const provider = new ContextTreeDataProvider(selectedFiles, defaultFilters);
     provider.setShowOnlySelected(true);
     await provider.setSearchQuery('ap', [subFolder]);
 
-    // Read directory items for the subfolder
     const directoryItem = (provider as unknown as {
       readDirectoryItems: (dirPath: string) => Promise<Array<{ uri: { fsPath: string } }>>;
     });
     const items = await directoryItem.readDirectoryItems(subFolder);
 
-    // Only apple.ts should be returned because:
-    // - apple.ts is selected AND matches 'ap'
-    // - banana.ts is selected, but does NOT match 'ap'
-    // - apricot.ts matches 'ap', but is NOT selected
     assert.strictEqual(items.length, 1, 'Only one item must match both filters simultaneously');
     assert.strictEqual(path.basename(items[0].uri.fsPath), 'apple.ts');
   });

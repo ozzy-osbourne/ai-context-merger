@@ -1,0 +1,23 @@
+{
+  "extension.description": "Combina archivos de código en Markdown y XML formateados para LLMs",
+  "viewsContainers.title": "AI Context Merger",
+  "views.controls.name": "Control y contexto",
+  "views.tree.name": "Archivos del proyecto",
+  "command.addToContext": "➕ Añadir al contexto",
+  "command.removeFromContext": "➖ Quitar del contexto",
+  "command.copyImmediately": "📋 Copiar inmediatamente al portapapeles",
+  "command.copyGitDiffImmediately": "🌿 Copiar Git Diff",
+  "command.treeToggleSelectedOnly": "Mostrar solo seleccionados",
+  "command.treeShowAll": "Mostrar todos los archivos",
+  "command.treeCopyContext": "Copiar contexto completo",
+  "command.treeClearAll": "Limpiar selección",
+  "command.treeRefresh": "Actualizar archivos y Git",
+  "command.treeItemCopyFile": "Copiar este archivo",
+  "command.treeItemOpenDiff": "Mostrar Git Diff",
+  "config.language.description": "Idioma de la interfaz. 'auto' sigue el idioma configurado en VS Code.",
+  "config.ignoredDirectoryPatterns.description": "Lista de carpetas y archivos del sistema o compilador excluidos incondicionalmente.",
+  "config.maxFileSizeMB.description": "Tamaño máximo de archivo legible en megabytes (MB) antes de insertar un marcador de sustitución.",
+  "config.maxDiffSizeKB.description": "Tamaño máximo de Git Diff por archivo en kilobytes (KB) antes de ser truncado.",
+  "config.defaultOutputFormat.description": "Formato de salida predeterminado al inicializar una nueva sesión.",
+  "config.defaultTokenLimit.description": "Límite de ventana de contexto del modelo para el cálculo de la barra de progreso."
+}

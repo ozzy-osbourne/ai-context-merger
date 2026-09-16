@@ -10,6 +10,7 @@ import { FileReaderService } from './fileReaderService';
 import { PathUtils } from '../utils/pathUtils';
 import { SelectionService } from './selectionService';
 import { ErrorUtils } from '../utils/errorUtils';
+import { I18nService } from '../i18n';
 
 /**
  * Service handling Explorer, Editor, and TreeView context menu actions.
@@ -41,6 +42,8 @@ export class ContextMenuService {
   }
 
   public registerCommands(): vscode.Disposable[] {
+    const t = () => I18nService.getTranslations();
+
     return [
       vscode.commands.registerCommand(
         'aiContextMerger.addToContext',
@@ -80,7 +83,7 @@ export class ContextMenuService {
 
       vscode.commands.registerCommand('aiContextMerger.treeClearAll', async () => {
         await this.controlsProvider.clearSelection();
-        vscode.window.showInformationMessage('Выделение файлов снято.');
+        vscode.window.showInformationMessage(t().messages.selectionCleared);
       }),
 
       vscode.commands.registerCommand('aiContextMerger.treeToggleSelectedOnly', async () => {
@@ -111,13 +114,6 @@ export class ContextMenuService {
     ];
   }
 
-  /**
-   * Resolves target files from invoked URIs with support for tracked Git deleted files.
-   *
-   * @param targetUri - The primary clicked item URI.
-   * @param allSelectedUris - Multiple selected item URIs.
-   * @returns Array of normalized file paths.
-   */
   public async resolveTargetFiles(
     targetUri?: vscode.Uri,
     allSelectedUris?: vscode.Uri[]
@@ -146,10 +142,8 @@ export class ContextMenuService {
       }
 
       const fsPath = PathUtils.normalizePath(uri.fsPath);
-      // Fallback to enclosing directory if file is outside registered workspace folders
       const rootPath = PathUtils.getWorkspaceRoot(fsPath) || path.dirname(fsPath);
 
-      // Case-insensitive Git deleted status check to eliminate Windows drive letter mismatches
       let isDeleted = gitStatuses.get(fsPath) === 'deleted';
       if (!isDeleted && process.platform === 'win32') {
         for (const [gitPath, status] of gitStatuses.entries()) {
@@ -164,7 +158,6 @@ export class ContextMenuService {
       try {
         stat = await fs.promises.stat(fsPath);
       } catch {
-        // If file is physically absent from disk but tracked as deleted in Git, treat as valid deleted file
         if (!isDeleted) {
           continue;
         }
@@ -194,10 +187,11 @@ export class ContextMenuService {
     targetUri?: vscode.Uri,
     allSelectedUris?: vscode.Uri[]
   ): Promise<void> {
+    const t = I18nService.getTranslations();
     const files = await this.resolveTargetFiles(targetUri, allSelectedUris);
 
     if (files.length === 0) {
-      vscode.window.showWarningMessage('Не выбрано доступных файлов (или они скрыты активными фильтрами).');
+      vscode.window.showWarningMessage(t.messages.noAvailableFiles);
       return;
     }
 
@@ -213,14 +207,14 @@ export class ContextMenuService {
     await this.controlsProvider.persistSelectedFiles();
     await this.controlsProvider.updateStats();
 
-    const pluralLabel = newlyAdded === 1 ? 'файл добавлен' : `${newlyAdded} файлов добавлено`;
-    vscode.window.showInformationMessage(`AI Context Merger: ${pluralLabel} в контекст (всего: ${this.selectedFiles.size}).`);
+    vscode.window.showInformationMessage(t.messages.filesAddedToContext(newlyAdded, this.selectedFiles.size));
   }
 
   public async removeUrisFromContext(
     targetUri?: vscode.Uri,
     allSelectedUris?: vscode.Uri[]
   ): Promise<void> {
+    const t = I18nService.getTranslations();
     let sourceUris: vscode.Uri[] = [];
 
     if (allSelectedUris && allSelectedUris.length > 0) {
@@ -249,7 +243,7 @@ export class ContextMenuService {
     }
 
     if (removedCount === 0) {
-      vscode.window.showInformationMessage('Ни один из выбранных файлов не находился в контексте.');
+      vscode.window.showInformationMessage(t.messages.noFilesWereInContext);
       return;
     }
 
@@ -257,17 +251,18 @@ export class ContextMenuService {
     await this.controlsProvider.persistSelectedFiles();
     await this.controlsProvider.updateStats();
 
-    vscode.window.showInformationMessage(`AI Context Merger: ${removedCount} файлов убрано из контекста.`);
+    vscode.window.showInformationMessage(t.messages.filesRemovedFromContext(removedCount));
   }
 
   public async copyUrisImmediately(
     targetUri?: vscode.Uri,
     allSelectedUris?: vscode.Uri[]
   ): Promise<void> {
+    const t = I18nService.getTranslations();
     const files = await this.resolveTargetFiles(targetUri, allSelectedUris);
 
     if (files.length === 0) {
-      vscode.window.showWarningMessage('Не выбрано доступных файлов для копирования (или они скрыты фильтрами).');
+      vscode.window.showWarningMessage(t.messages.noAvailableFiles);
       return;
     }
 
@@ -287,9 +282,9 @@ export class ContextMenuService {
 
       await vscode.env.clipboard.writeText(payload);
       const formatLabel = this.controlsProvider.outputFormat.toUpperCase();
-      vscode.window.showInformationMessage(`Скопирован контекст (${formatLabel}): ${isolatedSelection.size} файлов!`);
+      vscode.window.showInformationMessage(t.messages.contextCopied(formatLabel, isolatedSelection.size));
     } catch (err: unknown) {
-      vscode.window.showErrorMessage(`Ошибка копирования в буфер обмена: ${ErrorUtils.extractErrorMessage(err)}`);
+      vscode.window.showErrorMessage(`${t.messages.copyError}: ${ErrorUtils.extractErrorMessage(err)}`);
     }
   }
 
@@ -297,10 +292,11 @@ export class ContextMenuService {
     targetUri?: vscode.Uri,
     allSelectedUris?: vscode.Uri[]
   ): Promise<void> {
+    const t = I18nService.getTranslations();
     const files = await this.resolveTargetFiles(targetUri, allSelectedUris);
 
     if (files.length === 0) {
-      vscode.window.showWarningMessage('Не выбрано файлов для извлечения Git Diff.');
+      vscode.window.showWarningMessage(t.messages.noChangesInGit);
       return;
     }
 
@@ -312,18 +308,19 @@ export class ContextMenuService {
       );
 
       if (!diffContent || diffContent.trim().length === 0) {
-        vscode.window.showInformationMessage('Для выбранных файлов нет изменений в Git.');
+        vscode.window.showInformationMessage(t.messages.noChangesInGit);
         return;
       }
 
       await vscode.env.clipboard.writeText(diffContent);
-      vscode.window.showInformationMessage(`Скопирован Git Diff для ${files.length} файлов!`);
+      vscode.window.showInformationMessage(t.messages.gitDiffCopied(files.length));
     } catch (err: unknown) {
-      vscode.window.showErrorMessage(`Ошибка копирования Git Diff: ${ErrorUtils.extractErrorMessage(err)}`);
+      vscode.window.showErrorMessage(`${t.messages.gitDiffError}: ${ErrorUtils.extractErrorMessage(err)}`);
     }
   }
 
   public async copySingleFile(target?: ContextTreeItem | vscode.Uri): Promise<void> {
+    const t = I18nService.getTranslations();
     const targetUri = target instanceof ContextTreeItem ? target.uri : target;
     if (!targetUri || targetUri.scheme !== 'file') {
       return;
@@ -335,8 +332,8 @@ export class ContextMenuService {
     try {
       const gitStatuses = await GitService.getFileStatuses();
       if (gitStatuses.get(filePath) === 'deleted') {
-        await vscode.env.clipboard.writeText('[Файл удален в Git]');
-        vscode.window.showInformationMessage(`Скопирован файл (удален в Git): ${fileName}`);
+        await vscode.env.clipboard.writeText('[File deleted in Git]');
+        vscode.window.showInformationMessage(t.messages.fileCopiedDeletedGit(fileName));
         return;
       }
 
@@ -350,14 +347,14 @@ export class ContextMenuService {
       }
 
       if (!contentToCopy) {
-        vscode.window.showWarningMessage(`Файл ${fileName} пуст или недоступен для чтения.`);
+        vscode.window.showWarningMessage(t.messages.fileEmptyOrUnreadable(fileName));
         return;
       }
 
       await vscode.env.clipboard.writeText(contentToCopy);
-      vscode.window.showInformationMessage(`Скопирован файл: ${fileName}`);
+      vscode.window.showInformationMessage(t.messages.fileCopied(fileName));
     } catch (err: unknown) {
-      vscode.window.showErrorMessage(`Ошибка копирования файла: ${ErrorUtils.extractErrorMessage(err)}`);
+      vscode.window.showErrorMessage(`${t.messages.fileCopyError}: ${ErrorUtils.extractErrorMessage(err)}`);
     }
   }
 

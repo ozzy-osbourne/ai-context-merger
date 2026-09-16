@@ -1,0 +1,23 @@
+{
+  "extension.description": "将代码文件整合为结构化的 Markdown 和 XML 上下文，提供给大语言模型",
+  "viewsContainers.title": "AI Context Merger",
+  "views.controls.name": "控制与上下文",
+  "views.tree.name": "项目文件",
+  "command.addToContext": "➕ 添加到上下文",
+  "command.removeFromContext": "➖ 从上下文中移除",
+  "command.copyImmediately": "📋 立即复制到剪贴板",
+  "command.copyGitDiffImmediately": "🌿 复制 Git Diff",
+  "command.treeToggleSelectedOnly": "仅显示已选中项",
+  "command.treeShowAll": "显示所有文件",
+  "command.treeCopyContext": "复制完整上下文",
+  "command.treeClearAll": "清除选择",
+  "command.treeRefresh": "刷新文件和 Git",
+  "command.treeItemCopyFile": "复制此文件",
+  "command.treeItemOpenDiff": "查看 Git 变动",
+  "config.language.description": "扩展界面语言。'auto' 自动跟随 VS Code 界面语言。",
+  "config.ignoredDirectoryPatterns.description": "无条件忽略的系统与构建产物目录列表。",
+  "config.maxFileSizeMB.description": "允许读取的最大文件大小（MB），超过将被占位提示符替换。",
+  "config.maxDiffSizeKB.description": "单个文件的最大 Git Diff 差异大小（KB），超过将进行截断。",
+  "config.defaultOutputFormat.description": "新会话的默认上下文输出格式。",
+  "config.defaultTokenLimit.description": "用于进度条计算的模型上下文 Token 预算上限。"
+}

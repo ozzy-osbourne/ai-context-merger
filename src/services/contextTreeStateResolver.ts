@@ -5,6 +5,7 @@ import { getIgnoredDirectoriesSet } from '../constants';
 import { FilterSettings, GitFileStatus } from '../types';
 import { WorkspaceScanner } from './workspaceScanner';
 import { PathUtils } from '../utils/pathUtils';
+import { I18nService } from '../i18n';
 
 /**
  * Resolved folder presentation metadata.
@@ -20,24 +21,13 @@ export interface ResolvedFolderPresentation {
  */
 export class ContextTreeStateResolver {
   /**
-   * Formats file quantity with Russian pluralization rules.
+   * Formats file quantity using native Intl.PluralRules localization.
    *
    * @param count - Total number of selected files.
-   * @returns Formatted label string.
+   * @returns Formatted localized label string.
    */
   public static formatFilePlural(count: number): string {
-    const mod10 = count % 10;
-    const mod100 = count % 100;
-    if (mod100 >= 11 && mod100 <= 19) {
-      return `${count} файлов выбрано`;
-    }
-    if (mod10 === 1) {
-      return `${count} файл выбран`;
-    }
-    if (mod10 >= 2 && mod10 <= 4) {
-      return `${count} файла выбрано`;
-    }
-    return `${count} файлов выбрано`;
+    return I18nService.formatSelectedFilePlural(count);
   }
 
   /**
@@ -86,7 +76,6 @@ export class ContextTreeStateResolver {
 
   /**
    * Gets or calculates the total selectable file count in target directory with concurrent request deduplication.
-   * Includes tracked Git deleted files to prevent selectedCount > totalCount anomalies.
    *
    * @param folderPath - Absolute directory path.
    * @param filters - Active exclusion filters.
@@ -158,6 +147,7 @@ export class ContextTreeStateResolver {
   ): Promise<ResolvedFolderPresentation> {
     const totalCount = await this.getFolderTotalCount(folderPath, filters, countMap, pendingPromises, gitStatuses);
     const ignoredSet = getIgnoredDirectoriesSet();
+    const t = I18nService.getTranslations();
 
     if (totalCount === 0) {
       let isPhysicallyEmpty = false;
@@ -196,7 +186,7 @@ export class ContextTreeStateResolver {
 
       return {
         isChecked: undefined,
-        description: isPhysicallyEmpty ? '(пусто)' : '(скрыто фильтрами)',
+        description: isPhysicallyEmpty ? t.tree.folderEmpty : t.tree.folderFiltered,
         isDisabled: true
       };
     }

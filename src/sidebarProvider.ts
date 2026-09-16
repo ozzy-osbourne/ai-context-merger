@@ -22,6 +22,8 @@ import { WatcherService } from './services/watcherService';
 import { DiagnosticsService } from './services/diagnosticsService';
 import { WebviewMessageHandler } from './services/webviewMessageHandler';
 import { getHtmlTemplate } from './ui/htmlTemplate';
+import { I18nService, ConfiguredLanguage } from './i18n';
+import { getStandardPresets } from './constants/presets';
 
 export const WORKSPACE_STORAGE_KEYS = {
   PROMPT_SETTINGS: 'aiContextMerger.promptSettings',
@@ -41,6 +43,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
 
   private _view?: vscode.WebviewView;
   private messageListenerDisposable?: vscode.Disposable;
+  private configChangeDisposable?: vscode.Disposable;
 
   public filters: FilterSettings;
   public promptSettings: PromptSettings;
@@ -86,7 +89,6 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       { includeGitDiff: false, diffOnly: false, unlimitedDiff: false }
     );
 
-    // Linter warnings disabled by default to prevent context flooding
     this.diagnosticsSettings = this.context.workspaceState.get<DiagnosticsSettings>(
       WORKSPACE_STORAGE_KEYS.DIAGNOSTICS_SETTINGS,
       { enabled: false, includeCompiler: true, includeLinter: false }
@@ -106,6 +108,40 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       () => this.forceRefresh(),
       () => this.updateStats()
     );
+
+    // Single source of truth: listen to settings.json changes
+    this.configChangeDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('aiContextMerger.language')) {
+        this.notifyLanguageChanged();
+      }
+    });
+  }
+
+  public notifyLanguageChanged(): void {
+    const activeLocale = I18nService.getActiveLocale();
+    const currentLang = I18nService.getConfiguredLanguage();
+    const translations = I18nService.getTranslations(activeLocale);
+    const presets = getStandardPresets(activeLocale);
+
+    this.treeDataProvider.refresh();
+
+    this.postWebviewMessage({
+      type: 'updateTranslations',
+      language: currentLang,
+      activeLocale,
+      uiTranslations: translations.ui,
+      standardPresets: presets
+    });
+
+    this.updateStats();
+  }
+
+  public async setLanguagePreference(newLanguage: ConfiguredLanguage): Promise<void> {
+    await vscode.workspace.getConfiguration('aiContextMerger').update(
+      'language',
+      newLanguage,
+      vscode.ConfigurationTarget.Global
+    );
   }
 
   public bindTreeView(treeView: vscode.TreeView<ContextTreeItem>): void {
@@ -123,7 +159,6 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     this.treeDataProvider.folderTotalCountMap.clear();
     this.cachedGitStatuses = await GitService.getFileStatuses();
     this.treeDataProvider.setGitStatuses(this.cachedGitStatuses);
-    // Reapply active search query to pick up newly added or removed files
     await this.treeDataProvider.reapplySearch();
     await this.updateStats();
   }
@@ -227,6 +262,10 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     this.treeDataProvider.setGitStatuses(this.cachedGitStatuses);
 
     const stats = await this.computeContextStats();
+    const activeLocale = I18nService.getActiveLocale();
+    const currentLang = I18nService.getConfiguredLanguage();
+    const translations = I18nService.getTranslations(activeLocale);
+    const standardPresets = getStandardPresets(activeLocale);
 
     this.postWebviewMessage({
       type: 'setData',
@@ -239,7 +278,11 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       diagnosticsSummary: this.getDiagnosticsSummary(),
       customPresets: this.presetService.getCustomPresets(),
       outputFormat: this.outputFormat,
-      tokenLimit: this.tokenLimit
+      tokenLimit: this.tokenLimit,
+      language: currentLang,
+      activeLocale,
+      uiTranslations: translations.ui,
+      standardPresets
     });
   }
 
@@ -297,6 +340,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
   public dispose(): void {
     this.isDisposed = true;
     this.messageListenerDisposable?.dispose();
+    this.configChangeDisposable?.dispose();
     this.watcherService.dispose();
   }
 }

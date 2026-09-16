@@ -1,7 +1,7 @@
 {
   "name": "ai-context-merger",
   "displayName": "AI Context Merger - Combine Code to Prompt & Markdown",
-  "description": "Combine code files into formatted Markdown for LLMs",
+  "description": "%extension.description%",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.85.0"
@@ -22,6 +22,32 @@
     "configuration": {
       "title": "AI Context Merger",
       "properties": {
+        "aiContextMerger.language": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "en",
+            "ru",
+            "zh-cn",
+            "es",
+            "pt-br",
+            "ja",
+            "de"
+          ],
+          "enumDescriptions": [
+            "Auto (Follow VS Code language)",
+            "English",
+            "Русский",
+            "简体中文",
+            "Español",
+            "Português (Brasil)",
+            "日本語",
+            "Deutsch"
+          ],
+          "default": "auto",
+          "description": "%config.language.description%",
+          "scope": "application"
+        },
         "aiContextMerger.ignoredDirectoryPatterns": {
           "type": "array",
           "items": {
@@ -72,7 +98,7 @@
             "Thumbs.db",
             "desktop.ini"
           ],
-          "description": "Список безусловно исключаемых системных папок и файлов сборщика/IDE (ALWAYS_IGNORED). Вы можете убрать отсюда папки, если вам нужен их код, или добавить свои.",
+          "description": "%config.ignoredDirectoryPatterns.description%",
           "scope": "resource"
         },
         "aiContextMerger.maxFileSizeMB": {
@@ -80,7 +106,7 @@
           "default": 5,
           "minimum": 1,
           "maximum": 50,
-          "description": "Максимальный допустимый размер читаемого файла в мегабайтах (MB). Файлы больше этого размера заменяются заглушкой во избежание переполнения памяти и контекста.",
+          "description": "%config.maxFileSizeMB.description%",
           "scope": "window"
         },
         "aiContextMerger.maxDiffSizeKB": {
@@ -88,7 +114,7 @@
           "default": 100,
           "minimum": 10,
           "maximum": 5000,
-          "description": "Максимальный размер Git Diff для одного файла в килобайтах (KB) до обрезки. Может быть обойден опцией «Безлимитный Diff».",
+          "description": "%config.maxDiffSizeKB.description%",
           "scope": "window"
         },
         "aiContextMerger.defaultOutputFormat": {
@@ -98,7 +124,7 @@
             "xml"
           ],
           "default": "markdown",
-          "description": "Формат вывода контекста по умолчанию при создании нового сеанса.",
+          "description": "%config.defaultOutputFormat.description%",
           "scope": "window"
         },
         "aiContextMerger.defaultTokenLimit": {
@@ -112,7 +138,7 @@
             "2000000"
           ],
           "default": "200000",
-          "description": "Лимит контекстного окна модели по умолчанию для расчета шкалы заполнения.",
+          "description": "%config.defaultTokenLimit.description%",
           "scope": "window"
         }
       }
@@ -121,7 +147,7 @@
       "activitybar": [
         {
           "id": "ai-context-merger-sidebar",
-          "title": "AI Context Merger",
+          "title": "%viewsContainers.title%",
           "icon": "resources/icon.svg"
         }
       ]
@@ -131,12 +157,12 @@
         {
           "type": "webview",
           "id": "aiContextMergerControlsView",
-          "name": "Управление и контекст",
+          "name": "%views.controls.name%",
           "icon": "resources/icon.svg"
         },
         {
           "id": "aiContextMergerTreeView",
-          "name": "Файлы проекта",
+          "name": "%views.tree.name%",
           "icon": "resources/icon.svg"
         }
       ]
@@ -144,63 +170,63 @@
     "commands": [
       {
         "command": "aiContextMerger.addToContext",
-        "title": "➕ Добавить в контекст",
+        "title": "%command.addToContext%",
         "category": "AI Context Merger"
       },
       {
         "command": "aiContextMerger.removeFromContext",
-        "title": "➖ Убрать из контекста",
+        "title": "%command.removeFromContext%",
         "category": "AI Context Merger"
       },
       {
         "command": "aiContextMerger.copyImmediately",
-        "title": "📋 Скопировать сразу в буфер",
+        "title": "%command.copyImmediately%",
         "category": "AI Context Merger"
       },
       {
         "command": "aiContextMerger.copyGitDiffImmediately",
-        "title": "🌿 Скопировать Git Diff",
+        "title": "%command.copyGitDiffImmediately%",
         "category": "AI Context Merger"
       },
       {
         "command": "aiContextMerger.treeToggleSelectedOnly",
-        "title": "Показать только выбранные",
+        "title": "%command.treeToggleSelectedOnly%",
         "category": "AI Context Merger",
         "icon": "$(filter)"
       },
       {
         "command": "aiContextMerger.treeShowAll",
-        "title": "Показать все файлы",
+        "title": "%command.treeShowAll%",
         "category": "AI Context Merger",
         "icon": "$(filter-filled)"
       },
       {
         "command": "aiContextMerger.treeCopyContext",
-        "title": "Скопировать весь контекст",
+        "title": "%command.treeCopyContext%",
         "category": "AI Context Merger",
         "icon": "$(copy)"
       },
       {
         "command": "aiContextMerger.treeClearAll",
-        "title": "Снять всё выделение",
+        "title": "%command.treeClearAll%",
         "category": "AI Context Merger",
         "icon": "$(clear-all)"
       },
       {
         "command": "aiContextMerger.treeRefresh",
-        "title": "Обновить файлы и Git",
+        "title": "%command.treeRefresh%",
         "category": "AI Context Merger",
         "icon": "$(refresh)"
       },
       {
         "command": "aiContextMerger.treeItemCopyFile",
-        "title": "Скопировать этот файл",
+        "title": "%command.treeItemCopyFile%",
         "category": "AI Context Merger",
         "icon": "$(copy)"
       },
       {
         "command": "aiContextMerger.treeItemOpenDiff",
-        "title": "Показать Git Diff",
+        "title": "%command.treeItemOpenDiff%",
         "category": "AI Context Merger",
         "icon": "$(diff)"
       }

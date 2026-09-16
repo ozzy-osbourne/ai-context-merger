@@ -1,15 +1,54 @@
-/**
- * Universal prompt presets for typical software development tasks.
- */
-export const PROMPT_PRESETS = {
-  '🔍 Баги': 'Проведи глубокий анализ кода. Найди потенциальные логические ошибки, уязвимости, необработанные исключения и граничные случаи (edge cases). Предложи конкретные исправления.',
-  '⚡ Рефакторинг': 'Оптимизируй код без изменения его внешнего поведения: улучши читаемость, структуру и идиоматичность, устрани дублирование. Не переписывай файлы целиком - приводи только измененные фрагменты.',
-  '📝 Тесты': 'Напиши комплексный набор модульных тестов, используя стандартный или принятый в проекте инструмент тестирования. Покрой позитивные, негативные и граничные сценарии.',
-  '📖 Документация': 'Добавь исчерпывающую документацию к модулям, функциям и типам данных в принятом для этого языка стиле. Опиши назначение кода, контракты аргументов и возвращаемые значения.',
-  '🛠️ Исправление': 'Изучи ошибки компилятора и линтера в блоке "Problems & Diagnostics". Устрани выявленные проблемы, сохранив бизнес-логику. Приводи только исправленные участки кода с указанием места замены.',
-  '🌿 Ревью PR': 'Проведи строгое Code Review изменений из блока "Git Diff". Проверь код на регрессии, утечки ресурсов, краевые случаи и соответствие архитектуре. Предложи конкретные точечные улучшения.',
-  '✨ Новая фича': 'На основе архитектуры предоставленных файлов реализуй задачу: [Опишите задачу]. Сохраняй стиль кодовой базы, соглашения об именовании и обработку ошибок. Не переписывай файлы целиком - выдай только новый или измененный код.',
-  '🧠 Объяснение': 'Объясни архитектуру и логику работы предоставленного кода: поток данных (data flow), зоны ответственности модулей и ключевые вызовы. Опиши всё структурированно и кратко.'
-} as const;
+import { I18nService, LocaleKey } from '../i18n';
 
-export type PromptPresetKey = keyof typeof PROMPT_PRESETS;
+/**
+ * Standard preset key identifiers.
+ */
+export type PromptPresetKey =
+  | 'bugs'
+  | 'refactor'
+  | 'tests'
+  | 'docs'
+  | 'fix'
+  | 'prReview'
+  | 'newFeature'
+  | 'explain';
+
+/**
+ * Preset definition interface.
+ */
+export interface PresetDefinition {
+  id: PromptPresetKey;
+  title: string;
+  chipLabel: string;
+  text: string;
+}
+
+/**
+ * Retrieves the localized list of standard AI prompt presets.
+ *
+ * @param locale - Optional locale override.
+ * @returns Array of localized preset definitions.
+ */
+export function getStandardPresets(locale?: LocaleKey): PresetDefinition[] {
+  const t = I18nService.getTranslations(locale);
+  const ids: PromptPresetKey[] = [
+    'bugs',
+    'refactor',
+    'tests',
+    'docs',
+    'fix',
+    'prReview',
+    'newFeature',
+    'explain'
+  ];
+
+  return ids.map((id) => {
+    const item = t.presets[id];
+    return {
+      id,
+      title: item.title,
+      chipLabel: item.chipLabel,
+      text: item.text
+    };
+  });
+}

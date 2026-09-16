@@ -43,6 +43,7 @@ export class MarkdownBuilder {
 
   /**
    * Builds the complete Markdown bundle containing instruction, ASCII tree, diffs, diagnostics, and file sections.
+   * Output structure is strictly in English.
    *
    * @param selectedFiles - Set of absolute file paths to include.
    * @param promptSettings - Optional AI instruction configuration.
@@ -100,7 +101,7 @@ export class MarkdownBuilder {
 
         if (gitStatus === 'deleted') {
           outputBlocks.push(
-            `## File path: ${relativePath}\n## File name: ${fileName}\n## File content:\n[Файл удален в Git]`
+            `## File path: ${relativePath}\n## File name: ${fileName}\n## File content:\n[File deleted in Git]`
           );
           continue;
         }

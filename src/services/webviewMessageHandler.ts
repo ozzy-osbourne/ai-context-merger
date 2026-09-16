@@ -7,6 +7,7 @@ import { PresetService } from './presetService';
 import { WorkspaceScanner } from './workspaceScanner';
 import { GitService } from './gitService';
 import { PathUtils } from '../utils/pathUtils';
+import { I18nService } from '../i18n';
 
 /**
  * Message dispatcher routing incoming webview events to corresponding domain services.
@@ -30,15 +31,17 @@ export class WebviewMessageHandler {
       return;
     }
 
+    const t = I18nService.getTranslations();
+
     switch (message.type) {
       case 'selectAll': {
         await this.selectionService.selectAllFiles(this.provider.filters);
         await this.provider.persistSelectedFiles();
         await this.provider.updateStats();
         if (this.selectedFiles.size === 0) {
-          vscode.window.showWarningMessage('Не найдено доступных файлов для выбора (или они скрыты активными фильтрами).');
+          vscode.window.showWarningMessage(t.messages.noAvailableFiles);
         } else {
-          vscode.window.showInformationMessage(`AI Context Merger: Выбрано файлов - ${this.selectedFiles.size}.`);
+          vscode.window.showInformationMessage(t.messages.filesSelectedCount(this.selectedFiles.size));
         }
         break;
       }
@@ -53,9 +56,9 @@ export class WebviewMessageHandler {
         const newlyAdded = countAfter - countBefore;
 
         if (countAfter === 0) {
-          vscode.window.showWarningMessage(`По запросу "${message.query}" не найдено подходящих файлов.`);
+          vscode.window.showWarningMessage(t.messages.noFilesMatchedSearch(message.query));
         } else {
-          vscode.window.showInformationMessage(`AI Context Merger: Выбрано найденных файлов - ${newlyAdded} (всего: ${countAfter}).`);
+          vscode.window.showInformationMessage(t.messages.foundFilesSelected(newlyAdded, countAfter));
         }
         break;
       }
@@ -94,7 +97,7 @@ export class WebviewMessageHandler {
         this.selectionService.clearSelection();
         await this.provider.persistSelectedFiles();
         await this.provider.updateStats();
-        vscode.window.showInformationMessage('Выделение файлов снято.');
+        vscode.window.showInformationMessage(t.messages.selectionCleared);
         break;
 
       case 'expandAll':
@@ -138,6 +141,14 @@ export class WebviewMessageHandler {
         }
         break;
 
+      case 'updateLanguage': {
+        const allowedLanguages = ['auto', 'en', 'ru', 'zh-cn', 'es', 'pt-br', 'ja', 'de'];
+        if (allowedLanguages.includes(message.language)) {
+          await this.provider.setLanguagePreference(message.language);
+        }
+        break;
+      }
+
       case 'updateFilters':
         if (message.filters && typeof message.filters === 'object') {
           this.provider.filters = {
@@ -175,9 +186,7 @@ export class WebviewMessageHandler {
           await this.provider.updateStats();
 
           if (removedByFilter > 0) {
-            vscode.window.showInformationMessage(
-              `AI Context Merger: ${removedByFilter} файлов исключено из выборки в соответствии с новыми фильтрами.`
-            );
+            vscode.window.showInformationMessage(t.messages.filesExcludedByFilters(removedByFilter));
           }
         }
         break;
@@ -206,7 +215,7 @@ export class WebviewMessageHandler {
             customPresets: res.updatedPresets
           });
           this.provider.postWebviewMessage({ type: 'presetOperationSuccess' });
-          vscode.window.showInformationMessage(`Пресет "${res.preset.name}" сохранен!`);
+          vscode.window.showInformationMessage(t.messages.presetSaved(res.preset.name));
         }
         break;
       }
@@ -229,7 +238,7 @@ export class WebviewMessageHandler {
             customPresets: res.updatedPresets
           });
           this.provider.postWebviewMessage({ type: 'presetOperationSuccess' });
-          vscode.window.showInformationMessage(`Пресет "${res.preset.name}" обновлен!`);
+          vscode.window.showInformationMessage(t.messages.presetUpdated(res.preset.name));
         }
         break;
       }
@@ -242,7 +251,7 @@ export class WebviewMessageHandler {
             customPresets: res.updatedPresets
           });
         }
-        vscode.window.showInformationMessage('Пресет удалён.');
+        vscode.window.showInformationMessage(t.messages.presetDeleted);
         break;
       }
 
@@ -291,7 +300,7 @@ export class WebviewMessageHandler {
 
       case 'refresh':
         await this.provider.forceRefresh();
-        vscode.window.showInformationMessage('Данные рабочей области обновлены (выборка сохранена).');
+        vscode.window.showInformationMessage(t.messages.workspaceDataRefreshed);
         break;
 
       case 'requestInitialData':
@@ -320,7 +329,7 @@ export class WebviewMessageHandler {
     const count = this.treeDataProvider.getMatchingFilesCount();
 
     if (this.provider.treeView) {
-      this.provider.treeView.message = count > 0 ? `Найдено файлов: ${count}` : undefined;
+      this.provider.treeView.message = count > 0 ? `${I18nService.formatSelectedFilePlural(count)}` : undefined;
     }
 
     this.provider.postWebviewMessage({

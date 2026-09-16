@@ -33,20 +33,80 @@ export function getStyles(): string {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px;
+      gap: 6px;
       margin-bottom: 10px;
       padding-bottom: 6px;
       border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
+      min-width: 0;
     }
 
     .header-title {
       font-size: 11px;
       font-weight: 700;
-      letter-spacing: 1px;
+      letter-spacing: 0.5px;
       color: var(--vscode-descriptionForeground);
       text-transform: uppercase;
       margin: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+
+    .language-select-wrapper {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      background-color: var(--vscode-dropdown-background, var(--vscode-editor-background));
+      border: 1px solid var(--vscode-dropdown-border, rgba(128, 128, 128, 0.3));
+      border-radius: 4px;
+      height: 22px;
+      padding: 0 4px 0 5px;
+      box-sizing: border-box;
+      transition: border-color 0.2s;
+    }
+
+    .language-select-wrapper:hover,
+    .language-select-wrapper:focus-within {
+      border-color: var(--vscode-focusBorder);
+    }
+
+    .language-globe {
+      font-size: 11px;
+      line-height: 1;
+      pointer-events: none;
+      user-select: none;
+      margin-right: 2px;
+      opacity: 0.9;
+    }
+
+    .language-select {
+      background: transparent;
+      color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+      border: none;
+      padding: 0 10px 0 2px;
+      font-family: var(--font-family);
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      outline: none;
+      appearance: none;
+      -webkit-appearance: none;
+      height: 100%;
+      box-sizing: border-box;
+    }
+
+    .language-select option {
+      background-color: var(--vscode-dropdown-background, #252526);
+      color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
     }
 
     .btn-top-refresh {
@@ -54,15 +114,15 @@ export function getStyles(): string {
       color: var(--vscode-button-secondaryForeground);
       border: 1px solid var(--vscode-widget-border, transparent);
       border-radius: 4px;
-      padding: 3px 8px;
-      font-size: 11px;
-      font-weight: 500;
+      padding: 0;
+      width: 22px;
+      height: 22px;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 4px;
-      white-space: nowrap;
+      justify-content: center;
       flex-shrink: 0;
+      box-sizing: border-box;
       transition: background-color 0.2s, border-color 0.2s;
     }
 
@@ -635,11 +695,7 @@ export function getStyles(): string {
       color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
     }
 
-    .token-limit-select:hover {
-      color: var(--vscode-foreground);
-      border-color: var(--vscode-focusBorder);
-    }
-
+    .token-limit-select:hover,
     .token-limit-select:focus {
       color: var(--vscode-foreground);
       border-color: var(--vscode-focusBorder);

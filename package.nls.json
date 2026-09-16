@@ -1,0 +1,23 @@
+{
+  "extension.description": "Combine code files into formatted Markdown & XML for LLMs",
+  "viewsContainers.title": "AI Context Merger",
+  "views.controls.name": "Controls & Context",
+  "views.tree.name": "Project Files",
+  "command.addToContext": "➕ Add to Context",
+  "command.removeFromContext": "➖ Remove from Context",
+  "command.copyImmediately": "📋 Copy Immediately to Clipboard",
+  "command.copyGitDiffImmediately": "🌿 Copy Git Diff",
+  "command.treeToggleSelectedOnly": "Show Only Selected",
+  "command.treeShowAll": "Show All Files",
+  "command.treeCopyContext": "Copy Entire Context",
+  "command.treeClearAll": "Clear Selection",
+  "command.treeRefresh": "Refresh Files and Git",
+  "command.treeItemCopyFile": "Copy This File",
+  "command.treeItemOpenDiff": "Show Git Diff",
+  "config.language.description": "Interface language for the extension. 'auto' follows VS Code's display language.",
+  "config.ignoredDirectoryPatterns.description": "Unconditionally excluded system and build artifact directories.",
+  "config.maxFileSizeMB.description": "Maximum readable file size in megabytes (MB) before truncation placeholder.",
+  "config.maxDiffSizeKB.description": "Maximum Git diff size per file in kilobytes (KB) before truncation.",
+  "config.defaultOutputFormat.description": "Default context format on session initialization.",
+  "config.defaultTokenLimit.description": "Default context token budget limit for progress calculation."
+}

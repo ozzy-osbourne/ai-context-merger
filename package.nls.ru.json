@@ -1,0 +1,23 @@
+{
+  "extension.description": "Сборка файлов кода в форматированный Markdown и XML для ИИ",
+  "viewsContainers.title": "AI Context Merger",
+  "views.controls.name": "Управление и контекст",
+  "views.tree.name": "Файлы проекта",
+  "command.addToContext": "➕ Добавить в контекст",
+  "command.removeFromContext": "➖ Убрать из контекста",
+  "command.copyImmediately": "📋 Скопировать сразу в буфер",
+  "command.copyGitDiffImmediately": "🌿 Скопировать Git Diff",
+  "command.treeToggleSelectedOnly": "Показать только выбранные",
+  "command.treeShowAll": "Показать все файлы",
+  "command.treeCopyContext": "Скопировать весь контекст",
+  "command.treeClearAll": "Снять всё выделение",
+  "command.treeRefresh": "Обновить файлы и Git",
+  "command.treeItemCopyFile": "Скопировать этот файл",
+  "command.treeItemOpenDiff": "Показать Git Diff",
+  "config.language.description": "Язык интерфейса расширения. 'auto' следует за языком самого VS Code.",
+  "config.ignoredDirectoryPatterns.description": "Список безусловно исключаемых системных папок и файлов сборщика/IDE.",
+  "config.maxFileSizeMB.description": "Максимальный допустимый размер читаемого файла в мегабайтах (MB).",
+  "config.maxDiffSizeKB.description": "Максимальный размер Git Diff для одного файла в килобайтах (KB) до обрезки.",
+  "config.defaultOutputFormat.description": "Формат вывода контекста по умолчанию при создании нового сеанса.",
+  "config.defaultTokenLimit.description": "Лимит контекстного окна модели по умолчанию для расчета шкалы заполнения."
+}

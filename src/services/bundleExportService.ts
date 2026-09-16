@@ -10,15 +10,15 @@ import {
 } from '../types';
 import { BundleService } from './bundleService';
 import { ErrorUtils } from '../utils/errorUtils';
+import { I18nService } from '../i18n';
 
 /**
  * Service responsible for exporting context payloads to the clipboard, file system, or editor preview.
- * Integrates VS Code progress reporting and notifications.
+ * Integrates VS Code progress reporting and localized notifications.
  */
 export class BundleExportService {
   /**
    * Assembles context bundle with progress reporting and writes it to the system clipboard.
-   * Notifies user if some files were replaced by error/binary placeholders.
    *
    * @param selectedFiles - Set of selected absolute file paths.
    * @param outputFormat - Current output format ('markdown' or 'xml').
@@ -29,7 +29,7 @@ export class BundleExportService {
    * @param cachedGitStatuses - Map of file paths to Git statuses.
    * @param includeProjectStructure - Flag indicating if project structure is included.
    * @param onSuccess - Optional callback triggered upon successful copy.
-   * @param onError - Optional callback triggered if assembly or clipboard fails (used to reset Webview button).
+   * @param onError - Optional callback triggered if assembly or clipboard fails.
    */
   public static async copyContextToClipboard(
     selectedFiles: Set<string>,
@@ -43,8 +43,10 @@ export class BundleExportService {
     onSuccess?: () => void,
     onError?: () => void
   ): Promise<void> {
+    const t = I18nService.getTranslations();
+
     if (selectedFiles.size === 0) {
-      vscode.window.showWarningMessage('Не выбрано ни одного файла для копирования.');
+      vscode.window.showWarningMessage(t.messages.noFilesSelectedCopy);
       if (onError) {
         onError();
       }
@@ -54,7 +56,7 @@ export class BundleExportService {
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: `AI Context Merger: сборка контекста (${selectedFiles.size} файлов)...`,
+        title: t.messages.assemblingContext(selectedFiles.size),
         cancellable: false
       },
       async () => {
@@ -77,27 +79,22 @@ export class BundleExportService {
           }
 
           const formatLabel = outputFormat.toUpperCase();
-          vscode.window.showInformationMessage(`Скопирован контекст (${formatLabel}): ${selectedFiles.size} файлов!`);
+          vscode.window.showInformationMessage(t.messages.contextCopied(formatLabel, selectedFiles.size));
 
-          const placeholderMatches = payload.match(/\[(Ошибка чтения|Файл превышает лимит|Файл с нераспознанной)/g);
+          const placeholderMatches = payload.match(/\[(Read error|File exceeds size limit|Binary file|Binary or compiled file|File with unrecognized)/g);
           if (placeholderMatches && placeholderMatches.length > 0) {
-            vscode.window.showWarningMessage(
-              `Внимание: в ${placeholderMatches.length} файлах содержимое было заменено служебными заглушками.`
-            );
+            vscode.window.showWarningMessage(t.messages.placeholdersWarning(placeholderMatches.length));
           }
         } catch (err: unknown) {
           if (onError) {
             onError();
           }
-          vscode.window.showErrorMessage(`Ошибка копирования в буфер обмена: ${ErrorUtils.extractErrorMessage(err)}`);
+          vscode.window.showErrorMessage(`${t.messages.copyError}: ${ErrorUtils.extractErrorMessage(err)}`);
         }
       }
     );
   }
 
-  /**
-   * Prompts user for a save location and exports formatted bundle to disk using VS Code Workspace FS.
-   */
   public static async exportContextToFile(
     selectedFiles: Set<string>,
     outputFormat: OutputFormat,
@@ -108,8 +105,10 @@ export class BundleExportService {
     cachedGitStatuses: Map<string, GitFileStatus>,
     includeProjectStructure: boolean = true
   ): Promise<void> {
+    const t = I18nService.getTranslations();
+
     if (selectedFiles.size === 0) {
-      vscode.window.showWarningMessage('Не выбрано ни одного файла для экспорта.');
+      vscode.window.showWarningMessage(t.messages.noFilesSelectedExport);
       return;
     }
 
@@ -145,17 +144,13 @@ export class BundleExportService {
         cachedGitStatuses,
         includeProjectStructure
       );
-      // Use VS Code workspace FS API to support WSL, Remote SSH, and Virtual File Systems
       await vscode.workspace.fs.writeFile(uri, Buffer.from(payload, 'utf-8'));
-      vscode.window.showInformationMessage(`Файл сохранен: ${path.basename(uri.fsPath)}`);
+      vscode.window.showInformationMessage(t.messages.fileSaved(path.basename(uri.fsPath)));
     } catch (err: unknown) {
-      vscode.window.showErrorMessage(`Ошибка сохранения файла: ${ErrorUtils.extractErrorMessage(err)}`);
+      vscode.window.showErrorMessage(`${t.messages.fileSaveError}: ${ErrorUtils.extractErrorMessage(err)}`);
     }
   }
 
-  /**
-   * Opens assembled context in an editor split beside current view, reusing preview document tab to prevent tab spam.
-   */
   public static async previewContext(
     selectedFiles: Set<string>,
     outputFormat: OutputFormat,
@@ -166,8 +161,10 @@ export class BundleExportService {
     cachedGitStatuses: Map<string, GitFileStatus>,
     includeProjectStructure: boolean = true
   ): Promise<void> {
+    const t = I18nService.getTranslations();
+
     if (selectedFiles.size === 0) {
-      vscode.window.showWarningMessage('Сначала выберите файлы для предпросмотра.');
+      vscode.window.showWarningMessage(t.messages.noFilesSelectedPreview);
       return;
     }
 
@@ -205,7 +202,7 @@ export class BundleExportService {
         await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
       }
     } catch (err: unknown) {
-      vscode.window.showErrorMessage(`Ошибка предварительного просмотра: ${ErrorUtils.extractErrorMessage(err)}`);
+      vscode.window.showErrorMessage(`${t.messages.previewError}: ${ErrorUtils.extractErrorMessage(err)}`);
     }
   }
 }

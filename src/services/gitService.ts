@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as path from 'path';
 import { FilterSettings, GitAPI, GitChange, GitExtensionExports, GitFileStatus, GitRepository, GitStatus } from '../types';
 import { WorkspaceScanner } from './workspaceScanner';
 import { FileReaderService } from './fileReaderService';
@@ -228,6 +229,10 @@ export class GitService {
       return { path: fsPath, status: 'deleted' };
     }
 
+    if (gitStatusCode === GitStatus.UNTRACKED || gitStatusCode === GitStatus.INDEX_ADDED) {
+      return { path: fsPath, status: 'untracked' };
+    }
+
     let fileExists = true;
     try {
       await fs.promises.access(fsPath, fs.constants.F_OK);
@@ -236,6 +241,32 @@ export class GitService {
     }
 
     return { path: fsPath, status: fileExists ? 'modified' : 'deleted' };
+  }
+
+  /**
+   * Recursively traverses an untracked directory and registers all contained files as untracked.
+   * Prevents Git directory-level changes from omitting newly created nested files.
+   *
+   * @param folderPath - Normalized absolute path to the untracked directory.
+   * @param statusMap - Target map collecting resolved Git file statuses.
+   */
+  private static async collectUntrackedFolderFiles(
+    folderPath: string,
+    statusMap: Map<string, GitFileStatus>
+  ): Promise<void> {
+    try {
+      const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = PathUtils.normalizePath(path.join(folderPath, entry.name));
+        if (entry.isDirectory()) {
+          await GitService.collectUntrackedFolderFiles(fullPath, statusMap);
+        } else if (entry.isFile()) {
+          statusMap.set(fullPath, 'untracked');
+        }
+      }
+    } catch {
+      // Ignore unreadable directory or race condition deletion
+    }
   }
 
   /**
@@ -273,7 +304,9 @@ export class GitService {
             const fsPath = PathUtils.normalizePath(change.uri.fsPath);
             try {
               const stat = await fs.promises.stat(fsPath);
-              if (!stat.isDirectory()) {
+              if (stat.isDirectory()) {
+                await GitService.collectUntrackedFolderFiles(fsPath, statusMap);
+              } else {
                 statusMap.set(fsPath, 'untracked');
               }
             } catch {
@@ -405,7 +438,7 @@ export class GitService {
       if (!unlimitedDiff && rawDiff.length > maxDiffLimit) {
         const truncated = rawDiff.slice(0, maxDiffLimit);
         const limitKb = (maxDiffLimit / 1024).toFixed(0);
-        rawDiff = `${truncated}\n\n... [Diff превышает лимит ${limitKb} KB и был обрезан. Включите «Безлимитный Diff» для полного вывода] ...`;
+        rawDiff = `${truncated}\n\n... [Diff exceeds limit of ${limitKb} KB and was truncated. Enable "Unlimited Diff" for full output] ...`;
       }
 
       diffBlocks.push(rawDiff.trim());

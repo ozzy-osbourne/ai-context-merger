@@ -114,7 +114,7 @@ export class StatsCalculator {
               `      <source>${relPath}</source>\n` +
               `      <file_name>${fileName}</file_name>\n` +
               `      <git_status>deleted</git_status>\n` +
-              `      <document_content>[Файл удален в Git]</document_content>\n` +
+              `      <document_content>[File deleted in Git]</document_content>\n` +
               `    </document>\n`
             ).length;
           }
@@ -189,7 +189,7 @@ export class StatsCalculator {
           const headerLength = `## File path: ${relPath}\n## File name: ${fileName}\n## File content:\n`.length;
 
           if (gitStatus === 'deleted') {
-            const deletedContentLength = '[Файл удален в Git]'.length;
+            const deletedContentLength = '[File deleted in Git]'.length;
             return headerLength + deletedContentLength + 7;
           }
 

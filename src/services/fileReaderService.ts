@@ -12,6 +12,7 @@ export interface SafeFileReadResult {
 
 /**
  * Service responsible for safe file content reading, binary detection, encoding recovery, and placeholder generation.
+ * Generates context placeholders strictly in English to minimize token consumption and maximize LLM comprehension.
  */
 export class FileReaderService {
   /**
@@ -67,12 +68,12 @@ export class FileReaderService {
    * Generates a placeholder string for files exceeding the maximum allowable size limit.
    *
    * @param sizeInBytes - File size in bytes.
-   * @returns Formatted placeholder message.
+   * @returns Formatted placeholder message in English.
    */
   public static getSizeExceededPlaceholder(sizeInBytes: number): string {
     const sizeMb = (sizeInBytes / (1024 * 1024)).toFixed(2);
     const limitMb = (getMaxFileSizeBytes() / (1024 * 1024)).toFixed(0);
-    return `[Файл превышает лимит размера ${limitMb} MB (${sizeMb} MB) - содержимое пропущено во избежание переполнения контекста ИИ]`;
+    return `[File exceeds size limit of ${limitMb} MB (${sizeMb} MB) - content skipped to avoid LLM context overflow]`;
   }
 
   /**
@@ -81,13 +82,13 @@ export class FileReaderService {
    * @param ext - File extension.
    * @param sizeInBytes - File size in bytes.
    * @param isCompiled - Flag indicating if detected via buffer inspection.
-   * @returns Formatted placeholder message.
+   * @returns Formatted placeholder message in English.
    */
   public static getBinaryPlaceholder(ext: string, sizeInBytes: number, isCompiled: boolean = false): string {
     const sizeKb = (sizeInBytes / 1024).toFixed(1);
     const label = ext ? ext.replace('.', '').toUpperCase() : 'BINARY';
-    const prefix = isCompiled ? 'Бинарный или скомпилированный файл' : 'Бинарный файл';
-    return `[${prefix}: ${label} (${sizeKb} KB) - содержимое пропущено для сохранения контекста]`;
+    const prefix = isCompiled ? 'Binary or compiled file' : 'Binary file';
+    return `[${prefix}: ${label} (${sizeKb} KB) - content skipped to preserve context]`;
   }
 
   /**
@@ -95,12 +96,12 @@ export class FileReaderService {
    *
    * @param sizeInBytes - File size in bytes.
    * @param details - Optional detected encoding or failure reason.
-   * @returns Formatted placeholder message.
+   * @returns Formatted placeholder message in English.
    */
   public static getInvalidEncodingPlaceholder(sizeInBytes: number, details?: string): string {
     const sizeKb = (sizeInBytes / 1024).toFixed(1);
     const reason = details ? ` (${details}, ${sizeKb} KB)` : ` (${sizeKb} KB)`;
-    return `[Файл с нераспознанной или повреждённой кодировкой${reason} - содержимое пропущено во избежание искажения контекста ИИ]`;
+    return `[File with unrecognized or corrupted encoding${reason} - content skipped to avoid context pollution]`;
   }
 
   /**
@@ -212,9 +213,9 @@ export class FileReaderService {
       return null;
     }
 
-    let win1251Specific = 0; // Bytes 0xC0-0xDF (Capital Cyrillic in Windows-1251; pseudo-graphics in CP866)
-    let cp866Specific = 0;   // Bytes 0x80-0xAF (Cyrillic in CP866; control/symbols in Windows-1251)
-    let koi8rSpecific = 0;   // Bytes 0xE0-0xFF (Lowercase Cyrillic in KOI8-R; overlapping lowercase in Win1251)
+    let win1251Specific = 0;
+    let cp866Specific = 0;
+    let koi8rSpecific = 0;
     let highByteCount = 0;
 
     for (let i = 0; i < checkLength; i++) {
@@ -233,12 +234,10 @@ export class FileReaderService {
       }
     }
 
-    // Require at least 8 high-range bytes to warrant legacy analysis
     if (highByteCount < 8) {
       return null;
     }
 
-    // Rank candidates by characteristic non-overlapping byte score
     const candidates: string[] = [];
     if (win1251Specific > cp866Specific && win1251Specific > 5) {
       candidates.push('windows-1251', 'ibm866', 'koi8-r');
@@ -265,7 +264,6 @@ export class FileReaderService {
           continue;
         }
 
-        // Natural Russian text has ~40% vowel ratio among letters. Pseudo-graphics decoded as Cyrillic will have near zero.
         const vowels = decoded.match(this.CYRILLIC_VOWELS_REGEX);
         const vowelRatio = vowels ? vowels.length / cyrillicLetters.length : 0;
 
@@ -299,7 +297,7 @@ export class FileReaderService {
       stat = await fs.promises.stat(filePath);
     } catch {
       return {
-        placeholder: '[Ошибка чтения: файл не найден или недоступен]'
+        placeholder: '[Read error: file not found or inaccessible]'
       };
     }
 
@@ -319,7 +317,7 @@ export class FileReaderService {
     try {
       buffer = await fs.promises.readFile(filePath);
     } catch (err) {
-      return { placeholder: `[Ошибка чтения файла: ${err}]` };
+      return { placeholder: `[Read error: ${err}]` };
     }
 
     if (buffer.length === 0) {
@@ -339,7 +337,7 @@ export class FileReaderService {
         const decoder = new TextDecoder('utf-8', { fatal: true });
         const text = decoder.decode(buffer.subarray(3)).trimEnd();
         if (this.containsMojibakeSignature(text)) {
-          return { placeholder: this.getInvalidEncodingPlaceholder(stat.size, 'Обнаружен повреждённый моджибейк') };
+          return { placeholder: this.getInvalidEncodingPlaceholder(stat.size, 'Mojibake detected') };
         }
         return { text };
       } catch {
@@ -379,7 +377,7 @@ export class FileReaderService {
       }
     }
 
-    // 4. Binary detection via null bytes (strictly checked before UTF-8 decoding because NUL 0x00 is valid UTF-8)
+    // 4. Binary detection via null bytes
     if (this.hasNullBytes(buffer)) {
       return {
         placeholder: this.getBinaryPlaceholder(ext, stat.size, true)
@@ -393,23 +391,23 @@ export class FileReaderService {
 
       if (!text.includes('\uFFFD')) {
         if (this.containsMojibakeSignature(text)) {
-          return { placeholder: this.getInvalidEncodingPlaceholder(stat.size, 'Обнаружен повреждённый моджибейк') };
+          return { placeholder: this.getInvalidEncodingPlaceholder(stat.size, 'Mojibake detected') };
         }
         return { text };
       }
     } catch {
-      // Not valid UTF-8, proceed to heuristics
+      // Proceed to heuristics
     }
 
-    // 6. Intelligent statistical legacy Cyrillic recovery
+    // 6. Statistical legacy Cyrillic recovery
     const recoveredText = this.tryDecodeLegacyCyrillic(buffer);
     if (recoveredText !== null) {
       return { text: recoveredText };
     }
 
-    // 7. Strict safeguard: reject unrecognized encoding rather than emitting mojibake
+    // 7. Reject unrecognized encoding rather than emitting mojibake
     return {
-      placeholder: this.getInvalidEncodingPlaceholder(stat.size, 'Неизвестная однобайтовая кодировка')
+      placeholder: this.getInvalidEncodingPlaceholder(stat.size, 'Unknown single-byte encoding')
     };
   }
 }

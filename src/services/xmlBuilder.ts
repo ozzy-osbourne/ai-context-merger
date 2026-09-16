@@ -9,21 +9,21 @@ import { PathUtils } from '../utils/pathUtils';
 /**
  * Service responsible for assembling selected source files, instructions, Git diffs,
  * diagnostics, and hierarchical project structure into a valid, standard XML document.
- * Adheres to Anthropic's XML prompting guidelines for Claude and standard XML parsers.
+ * Adheres strictly to Anthropic's XML prompting guidelines and standard XML 1.0 specifications.
  */
 export class XmlBuilder {
   /**
-   * Builds the complete XML context bundle containing instruction, ASCII tree, diffs, diagnostics, and indexed documents.
+   * Builds the complete XML context bundle. Structure is strictly English.
    *
    * @param selectedFiles - Set of absolute file paths to include in the context.
-   * @param promptSettings - Optional AI instruction configuration (system / task prompt).
+   * @param promptSettings - Optional AI instruction configuration.
    * @param gitDiffSettings - Optional Git diff inclusion settings.
    * @param gitDiffContent - Raw Git diff unified text payload.
-   * @param gitStatuses - Optional map containing current Git statuses for visual decorations.
+   * @param gitStatuses - Optional map containing current Git statuses.
    * @param diagnosticsSettings - Optional compiler/linter diagnostics configuration.
    * @param diagnosticsContent - Pre-formatted diagnostics error and warning lines.
    * @param includeProjectStructure - Optional flag to include ASCII project tree (defaults to true).
-   * @returns Fully formatted and valid XML document string with declaration.
+   * @returns Fully formatted XML document string.
    */
   public static async buildBundleXml(
     selectedFiles: Set<string>,
@@ -104,7 +104,7 @@ export class XmlBuilder {
 
         // Handle deleted git files vs active files
         if (gitStatus === 'deleted') {
-          docLines.push('      <document_content>[Файл удален в Git]</document_content>');
+          docLines.push('      <document_content>[File deleted in Git]</document_content>');
         } else {
           const readResult = await FileReaderService.safeReadFile(filePath);
           if (readResult.placeholder) {

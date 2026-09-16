@@ -1,0 +1,23 @@
+{
+  "extension.description": "LLM向けにコードファイルを整形されたMarkdownおよびXMLに統合",
+  "viewsContainers.title": "AI Context Merger",
+  "views.controls.name": "コントロールとコンテキスト",
+  "views.tree.name": "プロジェクトファイル",
+  "command.addToContext": "➕ コンテキストに追加",
+  "command.removeFromContext": "➖ コンテキストから削除",
+  "command.copyImmediately": "📋 直ちにクリップボードにコピー",
+  "command.copyGitDiffImmediately": "🌿 Git Diffをコピー",
+  "command.treeToggleSelectedOnly": "選択項目のみ表示",
+  "command.treeShowAll": "すべてのファイルを表示",
+  "command.treeCopyContext": "コンテキスト全体をコピー",
+  "command.treeClearAll": "選択をすべてクリア",
+  "command.treeRefresh": "ファイルとGitを更新",
+  "command.treeItemCopyFile": "このファイルをコピー",
+  "command.treeItemOpenDiff": "Git Diffを表示",
+  "config.language.description": "拡張機能のインターフェース言語。'auto' はVS Codeの表示言語に従います。",
+  "config.ignoredDirectoryPatterns.description": "無条件に除外されるシステムおよびビルド成果物のディレクトリリスト。",
+  "config.maxFileSizeMB.description": "読み取り可能な最大ファイルサイズ（MB）。これを超えるとプレースホルダーに置換されます。",
+  "config.maxDiffSizeKB.description": "1ファイルあたりの最大Git Diffサイズ（KB）。切り捨ての上限値です。",
+  "config.defaultOutputFormat.description": "新しいセッション初期化時のデフォルト出力フォーマット。",
+  "config.defaultTokenLimit.description": "プログレスバー計算用のデフォルトモデルコンテキストトークン制限値。"
+}
