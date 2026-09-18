@@ -6,6 +6,7 @@ import { ContextMenuService } from './services/contextMenuService';
 import { PresetService } from './services/presetService';
 import { GitService } from './services/gitService';
 import { PathUtils } from './utils/pathUtils';
+import { GitFileStatus } from './types';
 
 /**
  * Activates the AI Context Merger extension.
@@ -15,8 +16,10 @@ import { PathUtils } from './utils/pathUtils';
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const savedFiles = context.workspaceState.get<string[]>(WORKSPACE_STORAGE_KEYS.SELECTED_FILES, []);
 
-  // Retrieve git statuses to retain deleted git files [D] across VS Code restarts
-  const gitStatuses = await GitService.getFileStatuses();
+  // Retrieve git statuses to retain deleted git files [D] across VS Code restarts only if saved files exist
+  const gitStatuses = savedFiles.length > 0
+    ? await GitService.getFileStatuses()
+    : new Map<string, GitFileStatus>();
 
   const existingFiles: string[] = [];
   for (const filePath of savedFiles) {

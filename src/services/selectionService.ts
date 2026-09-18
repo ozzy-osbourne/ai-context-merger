@@ -160,8 +160,9 @@ export class SelectionService {
     }
   }
 
-  /**
+    /**
    * Inverts selection state for a file by path when clicked directly in the tree row.
+   * Handles Windows case-insensitivity seamlessly to prevent ghost duplicates in selection.
    *
    * @param filePath - Path of clicked file.
    * @param filters - Active exclusion filters.
@@ -172,8 +173,13 @@ export class SelectionService {
     }
     const norm = PathUtils.normalizePath(filePath);
 
-    if (this.selectedFiles.has(norm)) {
-      this.selectedFiles.delete(norm);
+    let existingKey: string | undefined = norm;
+    if (!this.selectedFiles.has(norm) && process.platform === 'win32') {
+      existingKey = Array.from(this.selectedFiles).find((f) => PathUtils.arePathsEqual(f, norm));
+    }
+
+    if (existingKey && this.selectedFiles.has(existingKey)) {
+      this.selectedFiles.delete(existingKey);
     } else {
       const fileName = path.basename(norm);
       if (!WorkspaceScanner.isFilteredByType(fileName, false, filters)) {

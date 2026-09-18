@@ -30,6 +30,7 @@ export const jaLocale: TranslationSchema = {
     btnPreviewXml: '👁️ プレビュー .xml',
     btnPreviewMdTitle: '生成されたMarkdownを隣の分割タブでプレビュー表示',
     btnPreviewXmlTitle: '生成されたXMLを隣の分割タブでプレビュー表示',
+    btnPreviewAssembling: 'プレビュー生成中...',
     btnExportMd: '💾 .md にエクスポート',
     btnExportXml: '💾 .xml にエクスポート',
     btnExportMdTitle: '生成されたMarkdownコンテキストファイルをディスクに保存',
@@ -96,6 +97,10 @@ export const jaLocale: TranslationSchema = {
     selectedPlural: {
       one: '{count} 個のファイルを選択中',
       other: '{count} 個のファイルを選択中'
+    },
+    foundPlural: {
+      one: '{count} 個のファイルが見つかりました',
+      other: '{count} 個のファイルが見つかりました'
     }
   },
   messages: {

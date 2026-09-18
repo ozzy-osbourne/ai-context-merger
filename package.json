@@ -2,15 +2,43 @@
   "name": "ai-context-merger",
   "displayName": "AI Context Merger - Combine Code to Prompt & Markdown",
   "description": "%extension.description%",
-  "version": "0.0.1",
-  "engines": {
-    "vscode": "^1.85.0"
+  "version": "1.0.0",
+  "publisher": "alex-developer",
+  "author": {
+    "name": "Alex Developer",
+    "url": "https://github.com/ozzy-osbourne"
   },
+  "license": "MIT",
+  "pricing": "Free",
+  "homepage": "https://github.com/ozzy-osbourne/ai-context-merger/blob/main/README.md",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ozzy-osbourne/ai-context-merger"
+  },
+  "bugs": {
+    "url": "https://github.com/ozzy-osbourne/ai-context-merger/issues"
+  },
+  "icon": "resources/icon.png",
   "categories": [
     "AI",
     "Programming Languages",
     "Other"
   ],
+  "keywords": [
+    "ai context",
+    "chatgpt",
+    "claude",
+    "code to markdown",
+    "code to prompt",
+    "combine files",
+    "llm",
+    "merge code",
+    "prompt",
+    "repomix"
+  ],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": true
@@ -99,6 +127,51 @@
             "desktop.ini"
           ],
           "description": "%config.ignoredDirectoryPatterns.description%",
+          "scope": "resource"
+        },
+        "aiContextMerger.lockFilePatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "package-lock.json",
+            "yarn.lock",
+            "pnpm-lock.yaml",
+            "Cargo.lock",
+            "composer.lock",
+            "poetry.lock",
+            "Pipfile.lock",
+            "bun.lockb",
+            "bun.lock",
+            "Gemfile.lock",
+            "uv.lock",
+            "pdm.lock",
+            "go.sum",
+            "pubspec.lock",
+            "Podfile.lock",
+            "packages.lock.json",
+            "flake.lock"
+          ],
+          "description": "%config.lockFilePatterns.description%",
+          "scope": "resource"
+        },
+        "aiContextMerger.binaryExtensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            ".rpyc", ".rpym", ".rpymc", ".rpyb", ".rpa", ".save", ".pyc", ".pyo", ".pyd", ".class",
+            ".exe", ".dll", ".so", ".dylib", ".wasm", ".o", ".obj", ".bin", ".hex",
+            ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".svg", ".bmp", ".tiff", ".psd", ".ai",
+            ".mp3", ".wav", ".ogg", ".flac", ".aac", ".mp4", ".avi", ".webm", ".mkv", ".mov", ".wmv",
+            ".zip", ".tar", ".gz", ".tgz", ".rar", ".7z", ".bz2", ".xz", ".jar", ".war", ".apk", ".ipa",
+            ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+            ".ttf", ".otf", ".woff", ".woff2", ".eot",
+            ".sqlite", ".sqlite3", ".db", ".dat", ".cache"
+          ],
+          "description": "%config.binaryExtensions.description%",
           "scope": "resource"
         },
         "aiContextMerger.maxFileSizeMB": {

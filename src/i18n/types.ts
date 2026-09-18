@@ -51,6 +51,7 @@ export interface TranslationSchema {
     btnPreviewXml: string;
     btnPreviewMdTitle: string;
     btnPreviewXmlTitle: string;
+    btnPreviewAssembling: string;
     btnExportMd: string;
     btnExportXml: string;
     btnExportMdTitle: string;
@@ -115,6 +116,7 @@ export interface TranslationSchema {
     folderEmpty: string;
     folderFiltered: string;
     selectedPlural: PluralForms;
+    foundPlural: PluralForms;
   };
   messages: {
     noFilesSelectedCopy: string;

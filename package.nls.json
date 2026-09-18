@@ -1,5 +1,5 @@
 {
-  "extension.description": "Combine code files into formatted Markdown & XML for LLMs",
+  "extension.description": "Merge codebase & files into 1-click prompts for LLMs (Claude, ChatGPT). Clean Markdown & XML context with live token counter, Git diff & project tree.",
   "viewsContainers.title": "AI Context Merger",
   "views.controls.name": "Controls & Context",
   "views.tree.name": "Project Files",
@@ -16,6 +16,8 @@
   "command.treeItemOpenDiff": "Show Git Diff",
   "config.language.description": "Interface language for the extension. 'auto' follows VS Code's display language.",
   "config.ignoredDirectoryPatterns.description": "Unconditionally excluded system and build artifact directories.",
+  "config.lockFilePatterns.description": "Package manager lock file names excluded when the lock files filter is active.",
+  "config.binaryExtensions.description": "File extensions recognized as binary or media artifacts to exclude when the binary filter is active.",
   "config.maxFileSizeMB.description": "Maximum readable file size in megabytes (MB) before truncation placeholder.",
   "config.maxDiffSizeKB.description": "Maximum Git diff size per file in kilobytes (KB) before truncation.",
   "config.defaultOutputFormat.description": "Default context format on session initialization.",

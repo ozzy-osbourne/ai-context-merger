@@ -30,6 +30,7 @@ export const enLocale: TranslationSchema = {
     btnPreviewXml: '👁️ Preview .xml',
     btnPreviewMdTitle: 'Open assembled Markdown in a split tab for preview',
     btnPreviewXmlTitle: 'Open assembled XML in a split tab for preview',
+    btnPreviewAssembling: 'Generating preview...',
     btnExportMd: '💾 Export to .md',
     btnExportXml: '💾 Export to .xml',
     btnExportMdTitle: 'Save assembled Markdown context file to disk',
@@ -96,6 +97,10 @@ export const enLocale: TranslationSchema = {
     selectedPlural: {
       one: '{count} file selected',
       other: '{count} files selected'
+    },
+    foundPlural: {
+      one: '{count} file found',
+      other: '{count} files found'
     }
   },
   messages: {

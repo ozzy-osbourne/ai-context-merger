@@ -151,6 +151,20 @@ export class BundleExportService {
     }
   }
 
+  /**
+   * Previews assembled context in a split editor tab with asynchronous progress and feedback callbacks.
+   *
+   * @param selectedFiles - Set of selected absolute file paths.
+   * @param outputFormat - Current output format ('markdown' or 'xml').
+   * @param promptSettings - AI instruction configuration.
+   * @param gitDiffSettings - Git diff settings.
+   * @param diagnosticsSettings - Compiler/linter diagnostics settings.
+   * @param filters - Active file exclusion filters.
+   * @param cachedGitStatuses - Map of file paths to Git statuses.
+   * @param includeProjectStructure - Flag indicating if project structure is included.
+   * @param onSuccess - Optional callback triggered when preview opens successfully.
+   * @param onError - Optional callback triggered upon preview assembly failure.
+   */
   public static async previewContext(
     selectedFiles: Set<string>,
     outputFormat: OutputFormat,
@@ -159,50 +173,71 @@ export class BundleExportService {
     diagnosticsSettings: DiagnosticsSettings,
     filters: FilterSettings,
     cachedGitStatuses: Map<string, GitFileStatus>,
-    includeProjectStructure: boolean = true
+    includeProjectStructure: boolean = true,
+    onSuccess?: () => void,
+    onError?: () => void
   ): Promise<void> {
     const t = I18nService.getTranslations();
 
     if (selectedFiles.size === 0) {
       vscode.window.showWarningMessage(t.messages.noFilesSelectedPreview);
+      if (onError) {
+        onError();
+      }
       return;
     }
 
-    try {
-      const payload = await BundleService.buildContextPayload(
-        selectedFiles,
-        outputFormat,
-        promptSettings,
-        gitDiffSettings,
-        diagnosticsSettings,
-        filters,
-        cachedGitStatuses,
-        includeProjectStructure
-      );
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: t.messages.assemblingContext(selectedFiles.size),
+        cancellable: false
+      },
+      async () => {
+        try {
+          const payload = await BundleService.buildContextPayload(
+            selectedFiles,
+            outputFormat,
+            promptSettings,
+            gitDiffSettings,
+            diagnosticsSettings,
+            filters,
+            cachedGitStatuses,
+            includeProjectStructure
+          );
 
-      const isXml = outputFormat === 'xml';
-      const fileName = `AI-Context-Preview.${isXml ? 'xml' : 'md'}`;
-      const previewUri = vscode.Uri.parse(`untitled:${fileName}`);
+          const isXml = outputFormat === 'xml';
+          const fileName = `AI-Context-Preview.${isXml ? 'xml' : 'md'}`;
+          const previewUri = vscode.Uri.parse(`untitled:${fileName}`);
 
-      try {
-        const doc = await vscode.workspace.openTextDocument(previewUri);
-        const edit = new vscode.WorkspaceEdit();
-        const fullRange = new vscode.Range(
-          doc.positionAt(0),
-          doc.positionAt(doc.getText().length)
-        );
-        edit.replace(previewUri, fullRange, payload);
-        await vscode.workspace.applyEdit(edit);
-        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
-      } catch {
-        const doc = await vscode.workspace.openTextDocument({
-          content: payload,
-          language: isXml ? 'xml' : 'markdown'
-        });
-        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+          try {
+            const doc = await vscode.workspace.openTextDocument(previewUri);
+            const edit = new vscode.WorkspaceEdit();
+            const fullRange = new vscode.Range(
+              doc.positionAt(0),
+              doc.positionAt(doc.getText().length)
+            );
+            edit.replace(previewUri, fullRange, payload);
+            await vscode.workspace.applyEdit(edit);
+            await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+          } catch {
+            const doc = await vscode.workspace.openTextDocument({
+              content: payload,
+              language: isXml ? 'xml' : 'markdown'
+            });
+            await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+          }
+
+          if (onSuccess) {
+            onSuccess();
+          }
+        } catch (err: unknown) {
+          if (onError) {
+            onError();
+          }
+          vscode.window.showErrorMessage(`${t.messages.previewError}: ${ErrorUtils.extractErrorMessage(err)}`);
+        }
       }
-    } catch (err: unknown) {
-      vscode.window.showErrorMessage(`${t.messages.previewError}: ${ErrorUtils.extractErrorMessage(err)}`);
-    }
+    );
   }
 }

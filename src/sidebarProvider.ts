@@ -109,10 +109,21 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       () => this.updateStats()
     );
 
-    // Single source of truth: listen to settings.json changes
+        // Single source of truth: listen to settings.json changes
     this.configChangeDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('aiContextMerger.language')) {
         this.notifyLanguageChanged();
+      }
+      if (
+        e.affectsConfiguration('aiContextMerger.ignoredDirectoryPatterns') ||
+        e.affectsConfiguration('aiContextMerger.lockFilePatterns') ||
+        e.affectsConfiguration('aiContextMerger.binaryExtensions') ||
+        e.affectsConfiguration('aiContextMerger.maxFileSizeMB') ||
+        e.affectsConfiguration('aiContextMerger.maxDiffSizeKB') ||
+        e.affectsConfiguration('aiContextMerger.defaultOutputFormat') ||
+        e.affectsConfiguration('aiContextMerger.defaultTokenLimit')
+      ) {
+        this.forceRefresh();
       }
     });
   }
@@ -324,7 +335,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     );
   }
 
-  public async previewContext(): Promise<void> {
+    public async previewContext(): Promise<void> {
     await BundleExportService.previewContext(
       this.selectedFiles,
       this.outputFormat,
@@ -333,7 +344,13 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       this.diagnosticsSettings,
       this.filters,
       this.cachedGitStatuses,
-      this.includeProjectStructure
+      this.includeProjectStructure,
+      () => {
+        this.postWebviewMessage({ type: 'previewSuccess' });
+      },
+      () => {
+        this.postWebviewMessage({ type: 'previewError' });
+      }
     );
   }
 

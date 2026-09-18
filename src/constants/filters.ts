@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 /**
  * Default fallback directories and metadata files that are unconditionally excluded from scanning.
  */
-export const ALWAYS_IGNORED: ReadonlySet<string> = new Set([
+export const DEFAULT_IGNORED_DIRECTORIES: ReadonlySet<string> = new Set([
   // VCS and IDE metadata
   '.git',
   '.vscode',
@@ -65,6 +65,11 @@ export const ALWAYS_IGNORED: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Backward compatibility alias for default ignored directories.
+ */
+export const ALWAYS_IGNORED = DEFAULT_IGNORED_DIRECTORIES;
+
+/**
  * Resolves active ignored directory set, taking user-configured patterns from settings into account.
  *
  * @returns Set of ignored directory and metadata names.
@@ -79,13 +84,13 @@ export function getIgnoredDirectoriesSet(): ReadonlySet<string> {
   } catch {
     // Fall back to built-in default if settings are not available in test runner
   }
-  return ALWAYS_IGNORED;
+  return DEFAULT_IGNORED_DIRECTORIES;
 }
 
 /**
- * Known package manager lockfile names.
+ * Known default package manager lockfile names.
  */
-export const LOCK_FILE_NAMES: ReadonlySet<string> = new Set([
+export const DEFAULT_LOCK_FILE_NAMES: ReadonlySet<string> = new Set([
   'package-lock.json',
   'yarn.lock',
   'pnpm-lock.yaml',
@@ -104,6 +109,29 @@ export const LOCK_FILE_NAMES: ReadonlySet<string> = new Set([
   'packages.lock.json',
   'flake.lock'
 ]);
+
+/**
+ * Backward compatibility alias for lock files list.
+ */
+export const LOCK_FILE_NAMES = DEFAULT_LOCK_FILE_NAMES;
+
+/**
+ * Resolves active lock file set, taking user configuration into account with built-in fallback.
+ *
+ * @returns Set of lock file names.
+ */
+export function getLockFilesSet(): ReadonlySet<string> {
+  try {
+    const config = vscode.workspace.getConfiguration('aiContextMerger');
+    const configuredPatterns = config.get<string[]>('lockFilePatterns');
+    if (Array.isArray(configuredPatterns) && configuredPatterns.length > 0) {
+      return new Set(configuredPatterns);
+    }
+  } catch {
+    // Fall back to built-in default if settings are not available in test runner
+  }
+  return DEFAULT_LOCK_FILE_NAMES;
+}
 
 /**
  * Patterns matching sensitive configuration files, keys, certificates, and credentials.
@@ -174,9 +202,9 @@ export function isMinifiedOrSourceMap(fileName: string): boolean {
 }
 
 /**
- * File extensions recognized as binary, compiled, or non-text media.
+ * Default file extensions recognized as binary, compiled, or non-text media.
  */
-export const BINARY_EXTENSIONS: ReadonlySet<string> = new Set([
+export const DEFAULT_BINARY_EXTENSIONS: ReadonlySet<string> = new Set([
   // Bytecode and compiled scripts
   '.rpyc', '.rpym', '.rpymc', '.rpyb', '.rpa', '.save', '.pyc', '.pyo', '.pyd', '.class',
 
@@ -199,6 +227,29 @@ export const BINARY_EXTENSIONS: ReadonlySet<string> = new Set([
   // Databases and cache stores
   '.sqlite', '.sqlite3', '.db', '.dat', '.cache'
 ]);
+
+/**
+ * Backward compatibility alias for binary extensions.
+ */
+export const BINARY_EXTENSIONS = DEFAULT_BINARY_EXTENSIONS;
+
+/**
+ * Resolves active binary extensions set from configuration with fallback to default.
+ *
+ * @returns Set of normalized binary extensions.
+ */
+export function getBinaryExtensionsSet(): ReadonlySet<string> {
+  try {
+    const config = vscode.workspace.getConfiguration('aiContextMerger');
+    const configuredExtensions = config.get<string[]>('binaryExtensions');
+    if (Array.isArray(configuredExtensions) && configuredExtensions.length > 0) {
+      return new Set(configuredExtensions.map((ext) => (ext.startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`)));
+    }
+  } catch {
+    // Fall back to built-in default if settings are not available in test runner
+  }
+  return DEFAULT_BINARY_EXTENSIONS;
+}
 
 /**
  * Default fallback maximum token budget threshold for context estimation.

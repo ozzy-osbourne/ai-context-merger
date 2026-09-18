@@ -1,5 +1,5 @@
 {
-  "extension.description": "Сборка файлов кода в форматированный Markdown и XML для ИИ",
+  "extension.description": "Объединение файлов и кода в контекст для ИИ (ChatGPT, Claude) в 1 клик. Markdown и XML, живой счетчик токенов, Git Diff и дерево проекта.",
   "viewsContainers.title": "AI Context Merger",
   "views.controls.name": "Управление и контекст",
   "views.tree.name": "Файлы проекта",
@@ -16,6 +16,8 @@
   "command.treeItemOpenDiff": "Показать Git Diff",
   "config.language.description": "Язык интерфейса расширения. 'auto' следует за языком самого VS Code.",
   "config.ignoredDirectoryPatterns.description": "Список безусловно исключаемых системных папок и файлов сборщика/IDE.",
+  "config.lockFilePatterns.description": "Список имен lock-файлов менеджеров зависимостей, исключаемых при активном фильтре.",
+  "config.binaryExtensions.description": "Список расширений файлов, определяемых как медиа или бинарные данные при активном фильтре.",
   "config.maxFileSizeMB.description": "Максимальный допустимый размер читаемого файла в мегабайтах (MB).",
   "config.maxDiffSizeKB.description": "Максимальный размер Git Diff для одного файла в килобайтах (KB) до обрезки.",
   "config.defaultOutputFormat.description": "Формат вывода контекста по умолчанию при создании нового сеанса.",

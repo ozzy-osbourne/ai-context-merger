@@ -30,6 +30,7 @@ export const esLocale: TranslationSchema = {
     btnPreviewXml: '👁️ Vista previa .xml',
     btnPreviewMdTitle: 'Abrir Markdown generado en pestaña lateral para vista previa',
     btnPreviewXmlTitle: 'Abrir XML generado en pestaña lateral para vista previa',
+    btnPreviewAssembling: 'Generando vista previa...',
     btnExportMd: '💾 Exportar a .md',
     btnExportXml: '💾 Exportar a .xml',
     btnExportMdTitle: 'Guardar archivo de contexto Markdown en disco',
@@ -96,6 +97,10 @@ export const esLocale: TranslationSchema = {
     selectedPlural: {
       one: '{count} archivo seleccionado',
       other: '{count} archivos seleccionados'
+    },
+    foundPlural: {
+      one: '{count} archivo encontrado',
+      other: '{count} archivos encontrados'
     }
   },
   messages: {

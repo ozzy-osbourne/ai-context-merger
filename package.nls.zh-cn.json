@@ -1,5 +1,5 @@
 {
-  "extension.description": "将代码文件整合为结构化的 Markdown 和 XML 上下文，提供给大语言模型",
+  "extension.description": "一键将代码与文件整合为大模型（Claude、ChatGPT）提示词。包含实时 Token 计数、Git Diff 与项目目录树的纯净 Markdown 及 XML 上下文。",
   "viewsContainers.title": "AI Context Merger",
   "views.controls.name": "控制与上下文",
   "views.tree.name": "项目文件",
@@ -16,6 +16,8 @@
   "command.treeItemOpenDiff": "查看 Git 变动",
   "config.language.description": "扩展界面语言。'auto' 自动跟随 VS Code 界面语言。",
   "config.ignoredDirectoryPatterns.description": "无条件忽略的系统与构建产物目录列表。",
+  "config.lockFilePatterns.description": "当依赖锁过滤启用时，将被排除的包管理器 lock 文件名列表。",
+  "config.binaryExtensions.description": "当二进制过滤启用时，将被视作多媒体或二进制文件排除的文件扩展名列表。",
   "config.maxFileSizeMB.description": "允许读取的最大文件大小（MB），超过将被占位提示符替换。",
   "config.maxDiffSizeKB.description": "单个文件的最大 Git Diff 差异大小（KB），超过将进行截断。",
   "config.defaultOutputFormat.description": "新会话的默认上下文输出格式。",

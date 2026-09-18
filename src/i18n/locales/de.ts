@@ -30,6 +30,7 @@ export const deLocale: TranslationSchema = {
     btnPreviewXml: '👁️ Vorschau .xml',
     btnPreviewMdTitle: 'Erstelltes Markdown in geteiltem Tab zur Vorschau öffnen',
     btnPreviewXmlTitle: 'Erstelltes XML in geteiltem Tab zur Vorschau öffnen',
+    btnPreviewAssembling: 'Vorschau wird erstellt...',
     btnExportMd: '💾 Als .md exportieren',
     btnExportXml: '💾 Als .xml exportieren',
     btnExportMdTitle: 'Zusammengestellte Markdown-Kontextdatei auf Datenträger speichern',
@@ -96,6 +97,10 @@ export const deLocale: TranslationSchema = {
     selectedPlural: {
       one: '{count} Datei ausgewählt',
       other: '{count} Dateien ausgewählt'
+    },
+    foundPlural: {
+      one: '{count} Datei gefunden',
+      other: '{count} Dateien gefunden'
     }
   },
   messages: {

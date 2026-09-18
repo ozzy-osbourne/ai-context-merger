@@ -1,7 +1,13 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { FilterSettings } from '../types';
-import { ALWAYS_IGNORED, LOCK_FILE_NAMES, BINARY_EXTENSIONS, isSecretFile, isMinifiedOrSourceMap } from '../constants';
+import {
+  getIgnoredDirectoriesSet,
+  getLockFilesSet,
+  getBinaryExtensionsSet,
+  isSecretFile,
+  isMinifiedOrSourceMap
+} from '../constants';
 import { GitService } from './gitService';
 import { PathUtils } from '../utils/pathUtils';
 
@@ -41,13 +47,14 @@ export class WorkspaceScanner {
     }
 
     const segments = relative.split(/[\\/]/).filter(Boolean);
+    const ignoredSet = getIgnoredDirectoriesSet();
 
     for (const segment of segments) {
       // Skip Windows drive letters (e.g. "C:")
       if (/^[a-zA-Z]:$/.test(segment)) {
         continue;
       }
-      if (ALWAYS_IGNORED.has(segment)) {
+      if (ignoredSet.has(segment)) {
         return true;
       }
     }
@@ -76,10 +83,10 @@ export class WorkspaceScanner {
     }
 
     const ext = path.extname(name).toLowerCase();
-    if (filters.hideLockFiles && LOCK_FILE_NAMES.has(name)) {
+    if (filters.hideLockFiles && getLockFilesSet().has(name)) {
       return true;
     }
-    if (filters.hideBinaryFiles && BINARY_EXTENSIONS.has(ext)) {
+    if (filters.hideBinaryFiles && getBinaryExtensionsSet().has(ext)) {
       return true;
     }
     return false;
@@ -157,8 +164,9 @@ export class WorkspaceScanner {
       }
 
       const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
+      const ignoredSet = getIgnoredDirectoriesSet();
       // Filter out system ignores and strictly ignore all symbolic links
-      const primaryFiltered = entries.filter((entry) => !ALWAYS_IGNORED.has(entry.name) && !entry.isSymbolicLink());
+      const primaryFiltered = entries.filter((entry) => !ignoredSet.has(entry.name) && !entry.isSymbolicLink());
 
       const resolvedEntries: Array<{ entry: fs.Dirent; fullPath: string; isDir: boolean }> = primaryFiltered.map(
         (entry) => ({

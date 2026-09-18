@@ -423,6 +423,18 @@ export function getScripts(): string {
     }
 
     /**
+     * Resets preview button from loading state back to default on completion or error.
+     *
+     * @returns {void}
+     */
+    function resetPreviewButtonState() {
+      if (!btnPreview) return;
+      btnPreview.disabled = false;
+      btnPreview.style.opacity = '1';
+      updateFormatUI(currentFormat);
+    }
+
+    /**
      * Persists all current UI controls state into Webview session storage.
      *
      * @returns {void}
@@ -973,7 +985,14 @@ export function getScripts(): string {
       vscode.postMessage({ type: 'copyContext' });
     });
 
-    btnPreview.addEventListener('click', () => vscode.postMessage({ type: 'previewContext' }));
+    btnPreview.addEventListener('click', () => {
+      if (btnPreview.disabled) return;
+      btnPreview.disabled = true;
+      btnPreview.style.opacity = '0.7';
+      btnPreview.textContent = '⏳ ' + (currentTranslations ? currentTranslations.btnPreviewAssembling : 'Generating preview...');
+      vscode.postMessage({ type: 'previewContext' });
+    });
+
     btnExport.addEventListener('click', () => vscode.postMessage({ type: 'exportFile' }));
     btnOpenTabs.addEventListener('click', () => vscode.postMessage({ type: 'selectOpenTabs' }));
     btnGit.addEventListener('click', () => vscode.postMessage({ type: 'selectModified' }));
@@ -1131,6 +1150,8 @@ export function getScripts(): string {
         triggerCopySuccess();
       } else if (message.type === 'copyError') {
         triggerCopyError();
+      } else if (message.type === 'previewSuccess' || message.type === 'previewError') {
+        resetPreviewButtonState();
       }
     });
 

@@ -111,6 +111,33 @@ export class I18nService {
 
     return template.replace('{count}', String(count));
   }
+
+  /**
+   * Formats a found search item count using native Intl.PluralRules for accurate linguistic pluralization.
+   *
+   * @param count - Item count found by search.
+   * @param locale - Active locale key.
+   * @returns Formatted localized search results string.
+   */
+  public static formatFoundFilePlural(count: number, locale: LocaleKey = this.getActiveLocale()): string {
+    const t = this.getTranslations(locale);
+    const intlLocale = locale === 'zh-cn' ? 'zh-CN' : (locale === 'pt-br' ? 'pt-BR' : locale);
+    const pr = new Intl.PluralRules(intlLocale);
+    const rule = pr.select(count);
+
+    const forms = t.tree.foundPlural;
+    let template = forms.other;
+
+    if (rule === 'one' && forms.one) {
+      template = forms.one;
+    } else if (rule === 'few' && forms.few) {
+      template = forms.few;
+    } else if (rule === 'many' && forms.many) {
+      template = forms.many;
+    }
+
+    return template.replace('{count}', String(count));
+  }
 }
 
 export * from './types';

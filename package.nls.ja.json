@@ -1,5 +1,5 @@
 {
-  "extension.description": "LLM向けにコードファイルを整形されたMarkdownおよびXMLに統合",
+  "extension.description": "コードとファイルを1クリックでLLM（Claude、ChatGPT）向けプロンプトに統合。リアルタイムトークン計算、Git Diff、プロジェクトツリー付きのクリーンなMarkdown＆XML出力。",
   "viewsContainers.title": "AI Context Merger",
   "views.controls.name": "コントロールとコンテキスト",
   "views.tree.name": "プロジェクトファイル",
@@ -16,6 +16,8 @@
   "command.treeItemOpenDiff": "Git Diffを表示",
   "config.language.description": "拡張機能のインターフェース言語。'auto' はVS Codeの表示言語に従います。",
   "config.ignoredDirectoryPatterns.description": "無条件に除外されるシステムおよびビルド成果物のディレクトリリスト。",
+  "config.lockFilePatterns.description": "ロックファイルフィルター有効時に除外されるパッケージマネージャーのロックファイル名一覧。",
+  "config.binaryExtensions.description": "バイナリフィルター有効時に除外されるメディアおよびバイナリファイルの拡張子一覧。",
   "config.maxFileSizeMB.description": "読み取り可能な最大ファイルサイズ（MB）。これを超えるとプレースホルダーに置換されます。",
   "config.maxDiffSizeKB.description": "1ファイルあたりの最大Git Diffサイズ（KB）。切り捨ての上限値です。",
   "config.defaultOutputFormat.description": "新しいセッション初期化時のデフォルト出力フォーマット。",

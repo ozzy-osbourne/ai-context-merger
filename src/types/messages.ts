@@ -93,4 +93,10 @@ export type ExtensionToWebviewMessage =
   }
   | {
     type: 'copyError';
+  }
+  | {
+    type: 'previewSuccess';
+  }
+  | {
+    type: 'previewError';
   };

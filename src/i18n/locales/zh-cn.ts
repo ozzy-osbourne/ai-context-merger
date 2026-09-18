@@ -30,6 +30,7 @@ export const zhCnLocale: TranslationSchema = {
     btnPreviewXml: '👁️ 预览 .xml',
     btnPreviewMdTitle: '在分屏侧边栏中预览生成的 Markdown 上下文',
     btnPreviewXmlTitle: '在分屏侧边栏中预览生成的 XML 上下文',
+    btnPreviewAssembling: '正在生成预览...',
     btnExportMd: '💾 导出为 .md',
     btnExportXml: '💾 导出为 .xml',
     btnExportMdTitle: '将生成的 Markdown 上下文文件保存到本地磁盘',
@@ -96,6 +97,10 @@ export const zhCnLocale: TranslationSchema = {
     selectedPlural: {
       one: '已选择 {count} 个文件',
       other: '已选择 {count} 个文件'
+    },
+    foundPlural: {
+      one: '找到 {count} 个文件',
+      other: '找到 {count} 个文件'
     }
   },
   messages: {

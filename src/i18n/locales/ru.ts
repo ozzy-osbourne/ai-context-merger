@@ -30,6 +30,7 @@ export const ruLocale: TranslationSchema = {
     btnPreviewXml: '👁️ Превью .xml',
     btnPreviewMdTitle: 'Открыть сгенерированный Markdown во вкладке рядом для предварительного просмотра',
     btnPreviewXmlTitle: 'Открыть сгенерированный XML во вкладке рядом для предварительного просмотра',
+    btnPreviewAssembling: 'Сборка превью...',
     btnExportMd: '💾 Экспорт в .md',
     btnExportXml: '💾 Экспорт в .xml',
     btnExportMdTitle: 'Сохранить итоговый Markdown-файл с контекстом на диск',
@@ -98,6 +99,12 @@ export const ruLocale: TranslationSchema = {
       few: '{count} файла выбрано',
       many: '{count} файлов выбрано',
       other: '{count} файлов выбрано'
+    },
+    foundPlural: {
+      one: '{count} файл найден',
+      few: '{count} файла найдено',
+      many: '{count} файлов найдено',
+      other: '{count} файлов найдено'
     }
   },
   messages: {

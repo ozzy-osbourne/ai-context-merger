@@ -309,8 +309,9 @@ export class WebviewMessageHandler {
     }
   }
 
-  /**
+    /**
    * Processes search query updates and notifies the TreeView and Webview.
+   * Uses dedicated foundPlural localization to accurately reflect matching results.
    *
    * @param query - Input search string.
    */
@@ -329,7 +330,7 @@ export class WebviewMessageHandler {
     const count = this.treeDataProvider.getMatchingFilesCount();
 
     if (this.provider.treeView) {
-      this.provider.treeView.message = count > 0 ? `${I18nService.formatSelectedFilePlural(count)}` : undefined;
+      this.provider.treeView.message = count > 0 ? `${I18nService.formatFoundFilePlural(count)}` : undefined;
     }
 
     this.provider.postWebviewMessage({
