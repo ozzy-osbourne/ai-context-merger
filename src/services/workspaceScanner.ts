@@ -1,12 +1,13 @@
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { FilterSettings } from '../types';
 import {
-  getIgnoredDirectoriesSet,
   getLockFilesSet,
   getBinaryExtensionsSet,
   isSecretFile,
-  isMinifiedOrSourceMap
+  isMinifiedOrSourceMap,
+  isPathExcluded
 } from '../constants';
 import { GitService } from './gitService';
 import { PathUtils } from '../utils/pathUtils';
@@ -24,40 +25,58 @@ export interface ScannedDirectoryEntry {
  */
 export class WorkspaceScanner {
   /**
-   * Checks if a path belongs to unconditionally ignored system directories.
-   * Restricts segment evaluation to workspace boundaries when a root path is provided.
-   * Accurately inspects all path segments across Windows, Linux, and macOS.
+   * Checks if a path matches unconditionally excluded glob patterns (e.g. node_modules, .git, Library, **\/*.meta).
+   * Accurately evaluates workspace-relative paths against both root-anchored and floating exclusion rules,
+   * avoiding false positives from system temporary folders (such as Windows Temp) in headless test environments.
    *
    * @param fullPath - Absolute target path.
-   * @param workspaceRootPath - Optional workspace root path for relative segment extraction.
-   * @returns `true` if path contains an ignored segment.
+   * @param workspaceRootPath - Optional workspace root path for relative calculation.
+   * @returns `true` if path matches an excluded pattern.
    */
   public static isIgnoredByPathSegments(fullPath: string, workspaceRootPath?: string): boolean {
     const normalized = PathUtils.normalizePath(fullPath);
-    let relative = normalized;
 
-    if (workspaceRootPath) {
-      const normRoot = PathUtils.normalizePath(workspaceRootPath);
-      if (PathUtils.arePathsEqual(normalized, normRoot)) {
+    const root = workspaceRootPath
+      ? PathUtils.normalizePath(workspaceRootPath)
+      : PathUtils.getWorkspaceRoot(normalized);
+
+    if (root) {
+      if (PathUtils.arePathsEqual(normalized, root)) {
         return false;
       }
-      if (PathUtils.isSubpath(normalized, normRoot)) {
-        relative = path.relative(normRoot, normalized);
+      if (PathUtils.isSubpath(normalized, root)) {
+        const relative = path.relative(root, normalized).replace(/\\/g, '/');
+        return isPathExcluded(relative);
       }
     }
 
-    const segments = relative.split(/[\\/]/).filter(Boolean);
-    const ignoredSet = getIgnoredDirectoriesSet();
+    // 2. Fallback when outside workspace or in isolated test runner:
+    // Extract segments, excluding OS tmpdir prefix to prevent matching system Temp on Windows
+    const posixPath = normalized.replace(/\\/g, '/');
 
+    const normalizedTmp = PathUtils.normalizePath(os.tmpdir()).replace(/\\/g, '/').toLowerCase();
+    const isInsideOsTmp = posixPath.toLowerCase().startsWith(normalizedTmp);
+
+    let testPath = posixPath;
+    if (isInsideOsTmp) {
+      testPath = posixPath.slice(normalizedTmp.length).replace(/^\/+/, '');
+    }
+
+    if (testPath && isPathExcluded(testPath)) {
+      return true;
+    }
+
+    const segments = testPath.split('/').filter(Boolean);
     for (const segment of segments) {
       // Skip Windows drive letters (e.g. "C:")
       if (/^[a-zA-Z]:$/.test(segment)) {
         continue;
       }
-      if (ignoredSet.has(segment)) {
+      if (isPathExcluded(segment)) {
         return true;
       }
     }
+
     return false;
   }
 
@@ -95,7 +114,7 @@ export class WorkspaceScanner {
   /**
    * Evaluates all exclusion rules for a given file or directory item, including Git repository ignore rules.
    * Strictly forbids following symbolic links for security and isolation.
-   * Bypasses lstat check when inspecting a known deleted Git file.
+   * Bypasses lstat check when inspecting a known deleted Git file to allow diff generation.
    *
    * @param fullPath - Absolute path to item.
    * @param isDirectory - Directory flag.
@@ -156,6 +175,7 @@ export class WorkspaceScanner {
     filters: FilterSettings
   ): Promise<ScannedDirectoryEntry[]> {
     const normalizedDirPath = PathUtils.normalizePath(dirPath);
+    const rootPath = PathUtils.getWorkspaceRoot(normalizedDirPath) || normalizedDirPath;
 
     try {
       const lstat = await fs.promises.lstat(normalizedDirPath);
@@ -164,20 +184,25 @@ export class WorkspaceScanner {
       }
 
       const entries = await fs.promises.readdir(normalizedDirPath, { withFileTypes: true });
-      const ignoredSet = getIgnoredDirectoriesSet();
-      // Filter out system ignores and strictly ignore all symbolic links
-      const primaryFiltered = entries.filter((entry) => !ignoredSet.has(entry.name) && !entry.isSymbolicLink());
 
-      const resolvedEntries: Array<{ entry: fs.Dirent; fullPath: string; isDir: boolean }> = primaryFiltered.map(
-        (entry) => ({
-          entry,
-          fullPath: PathUtils.normalizePath(path.join(normalizedDirPath, entry.name)),
-          isDir: entry.isDirectory()
-        })
-      );
+      const resolvedEntries: Array<{ entry: fs.Dirent; fullPath: string; isDir: boolean }> = [];
+      for (const entry of entries) {
+        if (entry.isSymbolicLink()) {
+          continue;
+        }
+
+        const fullPath = PathUtils.normalizePath(path.join(normalizedDirPath, entry.name));
+        const isDir = entry.isDirectory();
+
+        if (this.isIgnoredByPathSegments(fullPath, rootPath)) {
+          continue;
+        }
+
+        resolvedEntries.push({ entry, fullPath, isDir });
+      }
 
       let gitIgnoredPaths = new Set<string>();
-      if (filters.hideGitIgnored) {
+      if (filters.hideGitIgnored && resolvedEntries.length > 0) {
         const candidatePaths = resolvedEntries.map((e) => (e.isDir ? `${e.fullPath}/` : e.fullPath));
         gitIgnoredPaths = await GitService.checkIgnoredPaths(candidatePaths);
       }

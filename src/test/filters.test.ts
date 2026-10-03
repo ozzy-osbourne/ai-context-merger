@@ -46,9 +46,12 @@ suite('Filters: Secret Identification & Artifact Exclusions Tests', () => {
     assert.strictEqual(LOCK_FILE_NAMES.has('Cargo.lock'), true);
   });
 
-  test('Contains common media and binary extensions', () => {
+  test('Contains common media, binary and 3D game asset extensions', () => {
     assert.strictEqual(BINARY_EXTENSIONS.has('.png'), true);
     assert.strictEqual(BINARY_EXTENSIONS.has('.exe'), true);
     assert.strictEqual(BINARY_EXTENSIONS.has('.zip'), true);
+    assert.strictEqual(BINARY_EXTENSIONS.has('.fbx'), true, '.fbx models must be classified as binary');
+    assert.strictEqual(BINARY_EXTENSIONS.has('.tga'), true, '.tga textures must be classified as binary');
+    assert.strictEqual(BINARY_EXTENSIONS.has('.blend'), true, '.blend files must be classified as binary');
   });
 });

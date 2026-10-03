@@ -22,7 +22,7 @@
 > * ⏳ **Manually via clipboard:** Copying dozens of tabs is tedious, strips directory structure, and makes it easy to accidentally leak `.env` files, API tokens, or multi-megabyte lockfiles into your prompt.
 > * 📟 **Via console CLI tools:** The terminal lacks visual clarity. It is hard to see what will actually go into the bundle, cherry-picking scattered files is awkward, and you have to constantly switch between your editor and command line.
 >
-> **The Solution:** **AI Context Merger** solves both problems - an interactive file tree, smart secret filtering, and instant clean context assembly in a couple of clicks directly inside your editor.
+> **The Solution:** **AI Context Merger** solves both problems - an interactive file tree, smart secret filtering, fast context-menu exclusions, and instant clean context assembly in a couple of clicks directly inside your editor.
 
 ---
 
@@ -47,13 +47,17 @@
 
 ### 📁 Frictionless File Selection
 * **Open Tabs:** Add all files currently active in editor tabs with a single click.
-* **Git Changes (Changed):** Instantly isolate created, modified, or deleted `[D]` working tree files.
-* **Interactive Project Tree:** Smooth navigation, checkboxes for files and folders, and selected item count badges.
+* **Git Changes (Changed):** Instantly isolate created, modified, or deleted `[D]` working tree files for diff generation and prompt assembly.
+* **Interactive Project Tree:** Smooth navigation, checkboxes for files and folders, and selected item count badges (keeps treeview clean and focused on physical files).
+* **1-Click Quick Hide & Filtering:** Right-click any file in the tree or editor to hide all files with that extension (`*.meta`, `*.tmp`) or exclude the specific path.
+* **Manage Excluded Patterns:** Interactive QuickPick dialog to view, search, unhide custom patterns, and remove or restore default rules.
 * **Live Search:** Filter project structure by filename with the ability to select search results in bulk.
 * **Multi-Root Workspace Support:** Accurate path resolution and folder prefixes for multi-folder projects and monorepos.
 
 ### 🛡️ Rock-Solid Protection Against Leaks and Bloat
-* **Secret Isolation:** Automatic exclusion of `.env`, `*.pem`, `*.key`, `id_rsa`, `credentials.json`, and other sensitive configuration files.
+* **Glob Exclude Patterns:** Supports glob wildcards (`**/*.meta`, `**/build/**`) and negation rules (`!pattern`) to selectively unhide default exclusions without cluttering settings.
+* **Game Engine & 3D Asset Safety:** Out-of-the-box exclusion for Unity/Unreal metadata (`**/*.meta`, `**/*.unitypackage`, `Library`, `Logs`), 3D models (`.fbx`, `.blend`, `.obj`, `.gltf`), game audio banks (`.bank`, `.wem`), textures (`.dds`, `.tga`), and compiled shaders.
+* **Secret Isolation:** Automatic exclusion of `.env`, `*.pem`, `*.key`, `id_rsa`, `credentials.json`, and other sensitive configuration files. Fully customizable via regular expressions.
 * **Build Artifact Filtering:** Automatic exclusion of lockfiles (`package-lock.json`, `pnpm-lock.yaml`, `Cargo.lock`, etc.), source maps (`*.map`), minified bundles, and media/binary files.
 * **Corrupted Encoding Protection (Mojibake):** Automatic encoding detection, recovery of legacy Cyrillic files (`Windows-1251`, `CP866`), and replacing unreadable mojibake with a safe placeholder.
 * **Magic Bytes Binary Detection:** Deep binary signature inspection prevents unreadable machine code from polluting context (even if disguised with a `.txt` extension).
@@ -106,7 +110,7 @@ AI Context Merger supports two optimized output formats:
 > * **Project Tree (Project Structure):** Toggle via the *"📁 Attach project structure"* checkbox.
 > * **Git Diff:** Enabled with the *"🌿 Attach Git Diff"* option. In *"Diff Only"* mode, full file code is omitted.
 > * **Diagnostics:** Enabled with the *"⚠️ Attach diagnostics"* option, with selective inclusion of compiler and linter issues.
-> * **Deleted Files `[D]`:** Marked with `[File deleted in Git]`, preserving architectural context integrity.
+> * **Deleted Files `[D]`:** Included in Git changes and rendered with `[File deleted in Git]` and ASCII status badges in Markdown/XML bundles without cluttering the native explorer tree.
 
 ### 1. Markdown Format
 
@@ -140,7 +144,7 @@ diff --git a/src/controllers/auth.controller.ts b/src/controllers/auth.controlle
 @@ -12,3 +12,5 @@ export async function login(req: Request, res: Response) {
 -  const token = generateOldToken(user);
 +  const token = await generateJwtToken(user);
-+  res.cookie('auth_token', token, { httpOnly: true, secure: true });
+  res.cookie('auth_token', token, { httpOnly: true, secure: true });
  }
 ```
 
@@ -242,7 +246,7 @@ diff --git a/src/controllers/auth.controller.ts b/src/controllers/auth.controlle
 @@ -12,3 +12,5 @@ export async function login(req: Request, res: Response) {
 -  const token = generateOldToken(user);
 +  const token = await generateJwtToken(user);
-+  res.cookie('auth_token', token, { httpOnly: true, secure: true });
+  res.cookie('auth_token', token, { httpOnly: true, secure: true });
  }
 ]]>
   </git_diff>
@@ -329,8 +333,14 @@ code --install-extension alex-developer.ai-context-merger
 5. Paste the assembled result into your chat prompt with the LLM.
 
 > 💡 **Quick actions from Explorer and Editor:**
-> * Right-click any file or folder in VS Code Explorer ➔ **AI Context Merger** ➔ choose *"Add to Context"*, *"Copy Immediately"*, or *"Copy Git Diff"*.
-> * The same context menu is available by right-clicking open editor tabs.
+> * Right-click any file or folder in VS Code Explorer ➔ **AI Context Merger**:
+>   * *"Add to Context"* / *"Remove from Context"*
+>   * *"Copy Immediately"* / *"Copy Git Diff"*
+>   * *"🙈 Hide all files with this extension"* — instantly excludes matching files from the tree and context.
+>   * *"🙈 Hide this path in tree"* — excludes the file or folder from scanning.
+>   * *"👁️ Unhide in AI Context Tree"* — restores an excluded path or extension directly from Explorer.
+>   * *"⚙️ Manage Excluded Patterns..."* — opens a QuickPick menu to review, search, unhide custom patterns, and remove or restore default rules.
+> * The same menu is available by right-clicking open editor tabs or items in the extension's **Project Files** tree.
 > * Clicking the `[M]` badge in the extension tree immediately opens the native Git Diff comparison.
 
 ---
@@ -354,9 +364,10 @@ Extension behavior can be configured via `settings.json`:
 | `aiContextMerger.defaultTokenLimit` | `"200000"` | Default token budget limit for progress calculation. |
 | `aiContextMerger.maxFileSizeMB` | `5` | Maximum readable file size in MB before replacing with a placeholder. |
 | `aiContextMerger.maxDiffSizeKB` | `100` | Maximum Git diff size per file in KB before truncation. |
-| `aiContextMerger.ignoredDirectoryPatterns` | `[...]` | List of unconditionally excluded system and build artifact directories (`node_modules`, `.git`, etc.). |
+| `aiContextMerger.excludePatterns` | `[...]` | Wildcard and glob patterns unconditionally excluded from scanning and treeview (`node_modules`, `**/*.meta`, `Library`, etc.). Supports `!pattern` to negate default exclusions. |
+| `aiContextMerger.secretPatterns` | `[...]` | Regular expression patterns matching confidential files, private keys, certificates, `.env` files, and tokens. |
 | `aiContextMerger.lockFilePatterns` | `[...]` | List of package manager lockfile names excluded when the lock files filter is active. |
-| `aiContextMerger.binaryExtensions` | `[...]` | List of file extensions recognized as binary or media artifacts to exclude when the binary filter is active. |
+| `aiContextMerger.binaryExtensions` | `[...]` | List of file extensions recognized as binary or media artifacts to exclude when the binary filter is active (includes 3D models, textures, audio banks). |
 
 ---
 

@@ -22,6 +22,8 @@ import { PathUtils } from '../utils/pathUtils';
 export class StatsCalculator {
   /**
    * Computes token metrics for the selected file context bundle based on output format, diffs, and diagnostics.
+   * Counts strictly physical non-deleted files for the UI file quantity badge while allocating budget
+   * for deleted file placeholders and diffs in the exported context structure.
    *
    * @param selectedFiles - Set of selected absolute file paths.
    * @param promptSettings - Optional AI instruction configuration.
@@ -33,7 +35,7 @@ export class StatsCalculator {
    * @param diagnosticsLength - Character length of formatted diagnostics.
    * @param tokenLimit - User-configured token limit threshold (e.g. 32000, 200000, 1000000).
    * @param includeProjectStructure - Optional flag indicating if project structure tree is included (defaults to true).
-   * @returns Aggregated statistics: file count, estimated tokens, and budget usage percentage.
+   * @returns Aggregated statistics: physical file count, estimated tokens, and budget usage percentage.
    */
   public static async calculateStats(
     selectedFiles: Set<string>,
@@ -227,8 +229,17 @@ export class StatsCalculator {
     const estimatedTokens = Math.ceil(totalChars / 4);
     const percentage = Math.min(100, Math.round((estimatedTokens / maxBudget) * 100));
 
+    // Count physical files for UI display, keeping deleted items out of UI counts
+    let physicalCount = 0;
+    for (const file of selectedFiles) {
+      if (gitStatuses && gitStatuses.get(file) === 'deleted') {
+        continue;
+      }
+      physicalCount++;
+    }
+
     return {
-      count: selectedFiles.size,
+      count: physicalCount,
       tokens: estimatedTokens,
       percentage
     };

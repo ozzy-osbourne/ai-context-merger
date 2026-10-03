@@ -109,13 +109,14 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
       () => this.updateStats()
     );
 
-        // Single source of truth: listen to settings.json changes
+    // Single source of truth: listen to settings.json changes
     this.configChangeDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('aiContextMerger.language')) {
         this.notifyLanguageChanged();
       }
       if (
-        e.affectsConfiguration('aiContextMerger.ignoredDirectoryPatterns') ||
+        e.affectsConfiguration('aiContextMerger.excludePatterns') ||
+        e.affectsConfiguration('aiContextMerger.secretPatterns') ||
         e.affectsConfiguration('aiContextMerger.lockFilePatterns') ||
         e.affectsConfiguration('aiContextMerger.binaryExtensions') ||
         e.affectsConfiguration('aiContextMerger.maxFileSizeMB') ||
@@ -335,7 +336,7 @@ export class ContextMergerControlsProvider implements vscode.WebviewViewProvider
     );
   }
 
-    public async previewContext(): Promise<void> {
+  public async previewContext(): Promise<void> {
     await BundleExportService.previewContext(
       this.selectedFiles,
       this.outputFormat,

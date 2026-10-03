@@ -309,7 +309,7 @@ export class WebviewMessageHandler {
     }
   }
 
-    /**
+  /**
    * Processes search query updates and notifies the TreeView and Webview.
    * Uses dedicated foundPlural localization to accurately reflect matching results.
    *

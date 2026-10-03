@@ -145,7 +145,27 @@ export const esLocale: TranslationSchema = {
     presetTextTooLong: 'El texto del preajuste es demasiado largo (máximo 10.000 caracteres).',
     presetLimitReached: 'Límite de preajustes personalizados alcanzado (máximo 50).',
     presetInvalidId: 'Identificador de preajuste no válido.',
-    presetNotFound: 'Preajuste no encontrado o ya eliminado.'
+    presetNotFound: 'Preajuste no encontrado o ya eliminado.',
+    confirmHideExtensionTitle: (ext: string) => `¿Ocultar todos los archivos *${ext} del árbol AI Context?`,
+    confirmHidePathTitle: (itemPath: string, isDir: boolean) =>
+      isDir ? `¿Ocultar la carpeta "${itemPath}" del árbol AI Context?` : `¿Ocultar el archivo "${itemPath}" del árbol AI Context?`,
+    confirmHideDetail: 'Puede restaurarlos en cualquier momento desde "⚙️ Administrar patrones excluidos..." o en Configuración.',
+    btnConfirmHide: 'Ocultar',
+    btnCancelHide: 'Cancelar',
+    noExtensionToHide: 'El archivo seleccionado no tiene extensión para ocultar.',
+    hiddenAllExtensionFiles: (ext: string) => `Se han ocultado todos los archivos *${ext} del árbol AI Context.`,
+    hiddenPathInTree: (itemPath: string) => `Ruta "${itemPath}" ocultada en el árbol AI Context.`,
+    restoredPathInTree: (name: string) => `"${name}" restaurado en el árbol AI Context.`,
+    notMatchedExcludedPattern: (name: string) => `"${name}" no coincide directamente con ningún patrón de excludePatterns. (Compruebe si el filtro "Medios y binarios" está activo).`,
+    noExcludePatternsConfigured: 'Actualmente no hay patrones de exclusión configurados.',
+    manageExcludedQuickPickPlaceholder: 'Seleccione un patrón para administrar (mostrar, quitar o restaurar)',
+    customRuleQuickPickDesc: 'Regla personalizada (Clic para mostrar)',
+    defaultRuleQuickPickDesc: 'Regla predeterminada (Clic para quitar)',
+    removedDefaultRuleQuickPickDesc: 'Regla predeterminada quitada (Clic para restaurar)',
+    removedCustomPattern: (pattern: string) => `Patrón personalizado "${pattern}" eliminado de las exclusiones.`,
+    restoredDefaultRule: (pattern: string) => `Regla predeterminada "${pattern}" restaurada en las exclusiones.`,
+    removedDefaultRule: (pattern: string) => `Regla predeterminada "${pattern}" eliminada de las exclusiones.`,
+    btnUndo: 'Deshacer'
   },
   presets: {
     bugs: {

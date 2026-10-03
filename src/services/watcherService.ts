@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { FilterSettings, GitExtensionExports, GitRepository } from '../types';
-import { BINARY_EXTENSIONS, LOCK_FILE_NAMES, isSecretFile, isMinifiedOrSourceMap } from '../constants';
+import { getBinaryExtensionsSet, getLockFilesSet, isSecretFile, isMinifiedOrSourceMap } from '../constants';
 import { WorkspaceScanner } from './workspaceScanner';
 import { PathUtils } from '../utils/pathUtils';
 
@@ -40,6 +40,7 @@ export class WatcherService implements vscode.Disposable {
   /**
    * Processes a file system event (create, change, delete) and triggers a debounced refresh if applicable.
    * Excludes system directories unconditionally before processing deletion logic to guard host performance.
+   * Evaluates active user-configured binary extensions and lockfile settings dynamically.
    *
    * @param uri - Target file URI.
    * @param isDelete - Flag indicating deletion event.
@@ -76,10 +77,10 @@ export class WatcherService implements vscode.Disposable {
     if (filters.hideMinified && isMinifiedOrSourceMap(fileName)) {
       return false;
     }
-    if (filters.hideBinaryFiles && BINARY_EXTENSIONS.has(ext)) {
+    if (filters.hideBinaryFiles && getBinaryExtensionsSet().has(ext)) {
       return false;
     }
-    if (filters.hideLockFiles && LOCK_FILE_NAMES.has(fileName)) {
+    if (filters.hideLockFiles && getLockFilesSet().has(fileName)) {
       return false;
     }
 

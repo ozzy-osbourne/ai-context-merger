@@ -4,6 +4,33 @@ All notable changes to the **AI Context Merger** extension will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-10-03
+
+### Added
+- **1-Click Tree & Extension Hiding:**
+  - `aiContextMerger.hideExtension`: Instantly hide all files sharing the target file's extension with a confirmation prompt and quick Undo action.
+  - `aiContextMerger.hidePath`: Hide a specific file or folder path directly from the Project Files tree or editor/explorer context menus.
+  - `aiContextMerger.unhidePath`: Restore a hidden file or extension directly from the VS Code Explorer context menu.
+- **Interactive Exclusion Pattern Manager:**
+  - `aiContextMerger.manageExcludedPatterns`: QuickPick palette allowing you to inspect, search, unhide custom patterns, and remove or restore default engine rules.
+- **Glob Pattern Support & Negations:**
+  - Migrated legacy directory-only rules to wildcard and glob matching (`aiContextMerger.excludePatterns`) supporting `**`, `*`, and `?`.
+  - Added support for pattern negations (`!pattern`), enabling users to selectively re-enable built-in default rules (e.g. `!**/*.meta`) via settings or the QuickPick UI.
+  - Automatic scope-aware migration of legacy `ignoredDirectoryPatterns` settings.
+- **GameDev & 3D Engine Out-of-the-Box Support:**
+  - Built-in exclusions for Unity and game engine metadata/cache folders (`**/*.meta`, `**/*.unitypackage`, `Library`, `Logs`, `UserSettings`, `MemoryCaptures`, etc.).
+  - Comprehensive media & binary filter expansion for 3D meshes (`.fbx`, `.blend`, `.obj`, `.gltf`, `.glb`, `.dae`, `.3ds`, `.max`, `.c4d`), textures (`.tga`, `.dds`, `.exr`, `.hdr`, `.raw`), compiled shaders (`.spv`, `.dxbc`, `.dxil`), and audio banks (`.bank`, `.bnk`, `.wem`).
+- **Customizable Secret Filtering:**
+  - Exposed `aiContextMerger.secretPatterns` in user settings to allow custom regex patterns for sensitive files and credentials.
+
+### Fixed
+- Fixed pattern resolution in multi-package workspaces and monorepos by using root-relative path matching instead of greedy recursive prefixes.
+- Fixed exclusion manager where selecting default rules failed to remove them due to hardcoded arrays.
+- Fixed exclusion manager dialog hiding default rules when at least one custom rule was active.
+- Fixed settings migration race condition between global and workspace scopes.
+
+---
+
 ## [1.0.0] - 2026-09-18
 
 ### Initial Production Release 🎉

@@ -145,7 +145,27 @@ export const ptBrLocale: TranslationSchema = {
     presetTextTooLong: 'O texto do preset é muito longo (máximo de 10.000 caracteres).',
     presetLimitReached: 'Limite de presets personalizados atingido (máximo de 50).',
     presetInvalidId: 'Identificador de preset inválido.',
-    presetNotFound: 'Preset não encontrado ou já excluído.'
+    presetNotFound: 'Preset não encontrado ou já excluído.',
+    confirmHideExtensionTitle: (ext: string) => `Ocultar todos os arquivos *${ext} da árvore do AI Context?`,
+    confirmHidePathTitle: (itemPath: string, isDir: boolean) =>
+      isDir ? `Ocultar a pasta "${itemPath}" da árvore do AI Context?` : `Ocultar o arquivo "${itemPath}" da árvore do AI Context?`,
+    confirmHideDetail: 'Você pode restaurá-los a qualquer momento em "⚙️ Gerenciar padrões excluídos..." ou nas Configurações.',
+    btnConfirmHide: 'Ocultar',
+    btnCancelHide: 'Cancelar',
+    noExtensionToHide: 'O arquivo selecionado não possui extensão para ocultar.',
+    hiddenAllExtensionFiles: (ext: string) => `Todos os arquivos *${ext} foram ocultados da árvore do AI Context.`,
+    hiddenPathInTree: (itemPath: string) => `Caminho "${itemPath}" ocultado na árvore do AI Context.`,
+    restoredPathInTree: (name: string) => `"${name}" restaurado na árvore do AI Context.`,
+    notMatchedExcludedPattern: (name: string) => `"${name}" não corresponde diretamente a nenhum padrão em excludePatterns. (Verifique se o filtro "Mídia e binários" está ativo).`,
+    noExcludePatternsConfigured: 'Nenhum padrão de exclusão está configurado no momento.',
+    manageExcludedQuickPickPlaceholder: 'Selecione um padrão excluído para gerenciar (reexibir, remover ou restaurar)',
+    customRuleQuickPickDesc: 'Regra personalizada (Clique para reexibir)',
+    defaultRuleQuickPickDesc: 'Regra padrão (Clique para remover)',
+    removedDefaultRuleQuickPickDesc: 'Regra padrão removida (Clique para restaurar)',
+    removedCustomPattern: (pattern: string) => `Padrão personalizado "${pattern}" removido das exclusões.`,
+    restoredDefaultRule: (pattern: string) => `Regra padrão "${pattern}" restaurada nas exclusões.`,
+    removedDefaultRule: (pattern: string) => `Regra padrão "${pattern}" removida das exclusões.`,
+    btnUndo: 'Desfazer'
   },
   presets: {
     bugs: {
@@ -155,7 +175,7 @@ export const ptBrLocale: TranslationSchema = {
     },
     refactor: {
       title: '⚡ Refatorar',
-      chipLabel: '⚡ Refatorar',
+      chipLabel: '⚡ Refactor',
       text: 'Otimize o código sem alterar seu comportamento externo: melhore legibilidade, estrutura e expressividade idiomática; elimine duplicações e complexidade desnecessária. Não reescreva arquivos inteiros, apenas as partes modificadas.'
     },
     tests: {

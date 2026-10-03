@@ -52,15 +52,25 @@ export class SelectionService {
   constructor(
     private readonly selectedFiles: Set<string>,
     private readonly handler: SelectionChangeHandler
-  ) {}
+  ) { }
 
+  /**
+   * Recursively traverses a directory and adds all physical files into the selection set.
+   * Strictly operates on physical files to ensure deleted items never appear in UI directory selection.
+   *
+   * @param dirPath - Directory path to traverse.
+   * @param filters - Active exclusion filters.
+   * @param selectedFiles - Active selection set to populate.
+   * @param countMap - Optional map storing total selectable counts per folder.
+   * @param visitedDirs - Set of visited directory real paths to prevent recursion loops.
+   * @returns Total number of affected files.
+   */
   public static async selectFolderRecursive(
     dirPath: string,
     filters: FilterSettings,
     selectedFiles: Set<string>,
     countMap?: Map<string, number>,
-    visitedDirs: Set<string> = new Set<string>(),
-    gitStatuses?: Map<string, GitFileStatus>
+    visitedDirs: Set<string> = new Set<string>()
   ): Promise<number> {
     const normalizedDirPath = PathUtils.normalizePath(dirPath);
     const realDir = await PathUtils.getCanonicalPath(normalizedDirPath);
@@ -80,27 +90,12 @@ export class SelectionService {
           filters,
           selectedFiles,
           countMap,
-          visitedDirs,
-          gitStatuses
+          visitedDirs
         );
         affectedCount += childCount;
       } else {
         affectedCount++;
         selectedFiles.add(fullPath);
-      }
-    }
-
-    if (gitStatuses) {
-      for (const [gitPath, status] of gitStatuses.entries()) {
-        if (status === 'deleted' && PathUtils.isSubpath(gitPath, normalizedDirPath)) {
-          const fileName = path.basename(gitPath);
-          if (!WorkspaceScanner.isFilteredByType(fileName, false, filters)) {
-            if (!selectedFiles.has(gitPath)) {
-              selectedFiles.add(gitPath);
-              affectedCount++;
-            }
-          }
-        }
       }
     }
 
@@ -132,14 +127,12 @@ export class SelectionService {
 
     if (item.isDirectory) {
       if (isChecked) {
-        const gitStatuses = this.handler.getGitStatuses ? this.handler.getGitStatuses() : undefined;
         await SelectionService.selectFolderRecursive(
           targetPath,
           filters,
           this.selectedFiles,
           this.handler.folderTotalCountMap,
-          new Set<string>(),
-          gitStatuses
+          new Set<string>()
         );
       } else {
         for (const file of Array.from(this.selectedFiles)) {
@@ -160,7 +153,7 @@ export class SelectionService {
     }
   }
 
-    /**
+  /**
    * Inverts selection state for a file by path when clicked directly in the tree row.
    * Handles Windows case-insensitivity seamlessly to prevent ghost duplicates in selection.
    *
@@ -200,7 +193,6 @@ export class SelectionService {
     }
 
     this.selectedFiles.clear();
-    const gitStatuses = this.handler.getGitStatuses ? this.handler.getGitStatuses() : undefined;
 
     for (const folder of workspaceFolders) {
       const rootPath = PathUtils.normalizePath(folder.uri.fsPath);
@@ -209,8 +201,7 @@ export class SelectionService {
         filters,
         this.selectedFiles,
         this.handler.folderTotalCountMap,
-        new Set<string>(),
-        gitStatuses
+        new Set<string>()
       );
     }
     this.handler.refresh();
@@ -298,8 +289,9 @@ export class SelectionService {
   }
 
   /**
-   * Selects all modified, untracked, and deleted files identified by Git and expands parent folders.
-   * Obtains repository statuses in a single unified Git call to maximize performance.
+   * Selects all modified, untracked, and deleted files identified by Git.
+   * Deleted files are added to selection exclusively so that they appear in the project structure
+   * ASCII tree and Git Diff of exported Markdown/XML bundles, while never being rendered in the UI tree.
    *
    * @param filters - Active exclusion filters.
    */
@@ -318,7 +310,10 @@ export class SelectionService {
 
       if (!isFiltered) {
         this.selectedFiles.add(filePath);
-        matchedModifiedPaths.push(filePath);
+        // Only existing physical files expand UI folders
+        if (!isDeleted) {
+          matchedModifiedPaths.push(filePath);
+        }
       }
     }
 
@@ -346,28 +341,11 @@ export class SelectionService {
       return;
     }
 
-    const gitStatuses = this.handler.getGitStatuses
-      ? this.handler.getGitStatuses()
-      : await GitService.getFileStatuses();
-
     for (const folder of workspaceFolders) {
       const root = PathUtils.normalizePath(folder.uri.fsPath);
       const matches = await WorkspaceScanner.findMatchingFiles(root, lowerQuery, filters);
       for (const file of matches) {
         this.selectedFiles.add(PathUtils.normalizePath(file));
-      }
-
-      if (gitStatuses) {
-        for (const [gitPath, status] of gitStatuses.entries()) {
-          if (status === 'deleted' && PathUtils.isSubpath(gitPath, root)) {
-            const fileName = path.basename(gitPath);
-            if (!WorkspaceScanner.isFilteredByType(fileName, false, filters)) {
-              if (fileName.toLowerCase().includes(lowerQuery)) {
-                this.selectedFiles.add(PathUtils.normalizePath(gitPath));
-              }
-            }
-          }
-        }
       }
     }
 

@@ -149,7 +149,27 @@ export const ruLocale: TranslationSchema = {
     presetTextTooLong: 'Текст пресета слишком длинный (максимум 10 000 символов).',
     presetLimitReached: 'Достигнут лимит сохраненных пресетов (максимум 50).',
     presetInvalidId: 'Идентификатор пресета некорректен.',
-    presetNotFound: 'Пресет не найден или уже был удален.'
+    presetNotFound: 'Пресет не найден или уже был удален.',
+    confirmHideExtensionTitle: (ext: string) => `Скрыть все файлы *${ext} из дерева AI Context?`,
+    confirmHidePathTitle: (itemPath: string, isDir: boolean) =>
+      isDir ? `Скрыть папку "${itemPath}" из дерева AI Context?` : `Скрыть файл "${itemPath}" из дерева AI Context?`,
+    confirmHideDetail: 'Вы всегда сможете вернуть их через меню "⚙️ Управление исключениями..." или в настройках aiContextMerger.excludePatterns.',
+    btnConfirmHide: 'Скрыть',
+    btnCancelHide: 'Отмена',
+    noExtensionToHide: 'У выбранного файла нет расширения для скрытия.',
+    hiddenAllExtensionFiles: (ext: string) => `Все файлы *${ext} скрыты из дерева AI Context.`,
+    hiddenPathInTree: (itemPath: string) => `Путь "${itemPath}" скрыт из дерева AI Context.`,
+    restoredPathInTree: (name: string) => `"${name}" снова отображается в дереве AI Context.`,
+    notMatchedExcludedPattern: (name: string) => `"${name}" не соответствует ни одному правилу excludePatterns. (Проверьте, не включён ли фильтр "Медиа и бинарники").`,
+    noExcludePatternsConfigured: 'В данный момент нет настроенных правил исключения.',
+    manageExcludedQuickPickPlaceholder: 'Выберите правило исключения для управления (вернуть, скрыть или восстановить)',
+    customRuleQuickPickDesc: 'Пользовательское правило (Нажмите, чтобы вернуть)',
+    defaultRuleQuickPickDesc: 'Встроенное правило (Нажмите, чтобы отключить)',
+    removedDefaultRuleQuickPickDesc: 'Отключенное встроенное правило (Нажмите, чтобы включить обратно)',
+    removedCustomPattern: (pattern: string) => `Пользовательский шаблон "${pattern}" удален из исключений.`,
+    restoredDefaultRule: (pattern: string) => `Встроенное правило "${pattern}" возвращено в исключения.`,
+    removedDefaultRule: (pattern: string) => `Встроенное правило "${pattern}" отключено из исключений.`,
+    btnUndo: 'Отменить'
   },
   presets: {
     bugs: {

@@ -145,7 +145,27 @@ export const enLocale: TranslationSchema = {
     presetTextTooLong: 'Preset text is too long (maximum 10,000 characters).',
     presetLimitReached: 'Custom preset limit reached (maximum 50).',
     presetInvalidId: 'Invalid preset identifier.',
-    presetNotFound: 'Preset not found or was already deleted.'
+    presetNotFound: 'Preset not found or was already deleted.',
+    confirmHideExtensionTitle: (ext: string) => `Hide all *${ext} files from AI Context Tree?`,
+    confirmHidePathTitle: (itemPath: string, isDir: boolean) =>
+      isDir ? `Hide folder "${itemPath}" from AI Context Tree?` : `Hide file "${itemPath}" from AI Context Tree?`,
+    confirmHideDetail: 'You can restore them at any time via "⚙️ Manage Excluded Patterns..." or in Settings (aiContextMerger.excludePatterns).',
+    btnConfirmHide: 'Hide',
+    btnCancelHide: 'Cancel',
+    noExtensionToHide: 'Selected file does not have an extension to hide.',
+    hiddenAllExtensionFiles: (ext: string) => `Hidden all *${ext} files from AI Context Tree.`,
+    hiddenPathInTree: (itemPath: string) => `Hidden path "${itemPath}" in AI Context Tree.`,
+    restoredPathInTree: (name: string) => `Restored "${name}" in AI Context Tree.`,
+    notMatchedExcludedPattern: (name: string) => `"${name}" is not directly matched by custom or default excludePatterns. (Check if "Media & Binaries" filter is active).`,
+    noExcludePatternsConfigured: 'No exclude patterns are currently configured.',
+    manageExcludedQuickPickPlaceholder: 'Select an excluded pattern to manage (unhide, remove, or restore)',
+    customRuleQuickPickDesc: 'Custom rule (Click to unhide)',
+    defaultRuleQuickPickDesc: 'Default rule (Click to remove)',
+    removedDefaultRuleQuickPickDesc: 'Removed default rule (Click to restore)',
+    removedCustomPattern: (pattern: string) => `Removed custom pattern "${pattern}" from exclude patterns.`,
+    restoredDefaultRule: (pattern: string) => `Restored default rule "${pattern}" to exclude patterns.`,
+    removedDefaultRule: (pattern: string) => `Removed default rule "${pattern}" from exclude patterns.`,
+    btnUndo: 'Undo'
   },
   presets: {
     bugs: {

@@ -11,9 +11,9 @@ import { PathUtils } from '../utils/pathUtils';
 import { FilterSettings, GitFileStatus } from '../types';
 
 /**
- * Test suite for ContextMenuService target file resolution and Git deleted files support.
+ * Test suite for ContextMenuService target file resolution, Git deleted files handling, and fast hiding commands.
  */
-suite('ContextMenuService: Target Resolution & Git Deleted Files Tests', () => {
+suite('ContextMenuService: Target Resolution & Quick Hiding Tests', () => {
   let tempDir: string;
 
   const defaultFilters: FilterSettings = {
@@ -36,7 +36,31 @@ suite('ContextMenuService: Target Resolution & Git Deleted Files Tests', () => {
     }
   });
 
-  test('Resolves tracked Git deleted file as a valid target despite physical absence from disk', async () => {
+  test('Resolves physical file as a valid target', async () => {
+    const activeFile = PathUtils.normalizePath(path.join(tempDir, 'active_script.ts'));
+    await fs.promises.writeFile(activeFile, 'export const ready = true;', 'utf-8');
+
+    const selectedFiles = new Set<string>();
+    const mockControlsProvider = {
+      filters: defaultFilters
+    } as unknown as ContextMergerControlsProvider;
+
+    const mockTreeProvider = {
+      folderTotalCountMap: new Map<string, number>()
+    } as unknown as ContextTreeDataProvider;
+
+    const contextMenuService = new ContextMenuService(
+      selectedFiles,
+      mockTreeProvider,
+      mockControlsProvider
+    );
+
+    const resolved = await contextMenuService.resolveTargetFiles(vscode.Uri.file(activeFile));
+    assert.strictEqual(resolved.length, 1);
+    assert.strictEqual(PathUtils.arePathsEqual(resolved[0], activeFile), true);
+  });
+
+  test('Does not resolve non-existent or physically deleted file as target in UI context actions', async () => {
     const deletedFile = PathUtils.normalizePath(path.join(tempDir, 'file_deleted_in_git.ts'));
     try {
       await fs.promises.unlink(deletedFile);
@@ -67,48 +91,7 @@ suite('ContextMenuService: Target Resolution & Git Deleted Files Tests', () => {
       );
 
       const resolved = await contextMenuService.resolveTargetFiles(vscode.Uri.file(deletedFile));
-      assert.strictEqual(resolved.length, 1);
-      assert.strictEqual(PathUtils.arePathsEqual(resolved[0], deletedFile), true);
-    } finally {
-      GitService.getFileStatuses = originalGetStatuses;
-    }
-  });
-
-  test('Recursively includes tracked Git deleted files when adding folder to context', async () => {
-    const subFolder = PathUtils.normalizePath(path.join(tempDir, 'folder_with_deletion'));
-    await fs.promises.mkdir(subFolder, { recursive: true });
-
-    const activeFile = PathUtils.normalizePath(path.join(subFolder, 'active.ts'));
-    const deletedFile = PathUtils.normalizePath(path.join(subFolder, 'removed.ts'));
-
-    await fs.promises.writeFile(activeFile, 'export const active = true;', 'utf-8');
-
-    const mockGitStatuses = new Map<string, GitFileStatus>();
-    mockGitStatuses.set(deletedFile, 'deleted');
-
-    const originalGetStatuses = GitService.getFileStatuses;
-    GitService.getFileStatuses = async () => mockGitStatuses;
-
-    try {
-      const selectedFiles = new Set<string>();
-      const mockControlsProvider = {
-        filters: defaultFilters
-      } as unknown as ContextMergerControlsProvider;
-
-      const mockTreeProvider = {
-        folderTotalCountMap: new Map<string, number>()
-      } as unknown as ContextTreeDataProvider;
-
-      const contextMenuService = new ContextMenuService(
-        selectedFiles,
-        mockTreeProvider,
-        mockControlsProvider
-      );
-
-      const resolved = await contextMenuService.resolveTargetFiles(vscode.Uri.file(subFolder));
-      assert.strictEqual(resolved.length, 2, 'Must include both the active file and the tracked Git deleted file');
-      assert.strictEqual(resolved.some((f) => PathUtils.arePathsEqual(f, activeFile)), true);
-      assert.strictEqual(resolved.some((f) => PathUtils.arePathsEqual(f, deletedFile)), true);
+      assert.strictEqual(resolved.length, 0, 'Physically deleted files must not be resolved via UI context menus');
     } finally {
       GitService.getFileStatuses = originalGetStatuses;
     }

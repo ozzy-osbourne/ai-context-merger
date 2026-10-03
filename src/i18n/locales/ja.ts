@@ -144,7 +144,27 @@ export const jaLocale: TranslationSchema = {
     presetTextTooLong: 'プリセットテキストが長すぎます (最大10,000文字)。',
     presetLimitReached: 'カスタムプリセットの最大数に達しました (最大50個)。',
     presetInvalidId: '無効なプリセットIDです。',
-    presetNotFound: 'プリセットが見つからないか、既に削除されています。'
+    presetNotFound: 'プリセットが見つからないか、既に削除されています。',
+    confirmHideExtensionTitle: (ext: string) => `*${ext} のすべてのファイルをAI Contextツリーから非表示にしますか？`,
+    confirmHidePathTitle: (itemPath: string, isDir: boolean) =>
+      isDir ? `フォルダ "${itemPath}" をAI Contextツリーから非表示にしますか？` : `ファイル "${itemPath}" をAI Contextツリーから非表示にしますか？`,
+    confirmHideDetail: '「⚙️ 除外パターンを管理...」または設定からいつでも再表示できます。',
+    btnConfirmHide: '非表示にする',
+    btnCancelHide: 'キャンセル',
+    noExtensionToHide: '選択したファイルには非表示にする拡張子がありません。',
+    hiddenAllExtensionFiles: (ext: string) => `すべての *${ext} ファイルをAI Contextツリーで非表示にしました。`,
+    hiddenPathInTree: (itemPath: string) => `パス "${itemPath}" をAI Contextツリーで非表示にしました。`,
+    restoredPathInTree: (name: string) => `"${name}" をAI Contextツリーに再表示しました。`,
+    notMatchedExcludedPattern: (name: string) => `"${name}" は excludePatterns のどのパターンにも直接一致していません。（「メディア & バイナリ」フィルターが有効になっていないか確認してください）。`,
+    noExcludePatternsConfigured: '現在設定されている除外パターンはありません。',
+    manageExcludedQuickPickPlaceholder: '管理する除外パターンを選択してください（再表示、削除、復元）',
+    customRuleQuickPickDesc: 'カスタムルール（クリックで再表示）',
+    defaultRuleQuickPickDesc: 'デフォルトルール（クリックで除外）',
+    removedDefaultRuleQuickPickDesc: '削除されたデフォルトルール（クリックで復元）',
+    removedCustomPattern: (pattern: string) => `カスタムパターン "${pattern}" を除外リストから削除しました。`,
+    restoredDefaultRule: (pattern: string) => `デフォルトルール "${pattern}" を除外リストに復元しました。`,
+    removedDefaultRule: (pattern: string) => `デフォルトルール "${pattern}" を除外リストから除外しました。`,
+    btnUndo: '元に戻す'
   },
   presets: {
     bugs: {

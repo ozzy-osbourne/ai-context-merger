@@ -51,6 +51,7 @@ export class ContextTreeItem extends vscode.TreeItem {
 
 /**
  * Tree data provider managing hierarchical project file representation for the native VS Code TreeView.
+ * Renders only physical existing files in the UI, keeping deleted files out of the explorer tree.
  */
 export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextTreeItem>, vscode.Disposable {
   private readonly _onDidChangeTreeData: vscode.EventEmitter<ContextTreeItem | undefined | void> =
@@ -111,7 +112,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
   }
 
   public getSelectedCountInFolder(folderPath: string): number {
-    return ContextTreeStateResolver.getSelectedCountInFolder(folderPath, this.selectedFiles);
+    return ContextTreeStateResolver.getSelectedCountInFolder(folderPath, this.selectedFiles, this.gitStatuses);
   }
 
   public async getFolderTotalCount(folderPath: string): Promise<number> {
@@ -119,8 +120,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
       folderPath,
       this.filters,
       this.folderTotalCountMap,
-      this.pendingCountPromises,
-      this.gitStatuses
+      this.pendingCountPromises
     );
   }
 
@@ -225,23 +225,6 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
           const ancestors = PathUtils.getAncestorPaths(normMatch, root);
           for (const ancestor of ancestors) {
             this.matchingFolderPaths.add(ancestor);
-          }
-        }
-
-        for (const [gitPath, status] of this.gitStatuses.entries()) {
-          if (status === 'deleted' && PathUtils.isSubpath(gitPath, root)) {
-            const fileName = path.basename(gitPath);
-            if (!WorkspaceScanner.isFilteredByType(fileName, false, this.filters)) {
-              if (fileName.toLowerCase().includes(this.searchQuery)) {
-                const normGitPath = PathUtils.normalizePath(gitPath);
-                this.matchingFilePaths.add(normGitPath);
-
-                const ancestors = PathUtils.getAncestorPaths(normGitPath, root);
-                for (const ancestor of ancestors) {
-                  this.matchingFolderPaths.add(ancestor);
-                }
-              }
-            }
           }
         }
       }
@@ -518,51 +501,7 @@ export class ContextTreeDataProvider implements vscode.TreeDataProvider<ContextT
       return fileItem;
     });
 
-    const treeItems = await Promise.all(itemPromises);
-
-    for (const [gitPath, status] of this.gitStatuses.entries()) {
-      const isDirectChild = PathUtils.arePathsEqual(
-        path.dirname(gitPath),
-        normalizedDirPath
-      );
-
-      if (status === 'deleted' && isDirectChild) {
-        const isChecked = this.selectedFiles.has(gitPath) ||
-          (process.platform === 'win32' && Array.from(this.selectedFiles).some((f) => PathUtils.arePathsEqual(f, gitPath)));
-
-        if (this.showOnlySelected && !isChecked) {
-          continue;
-        }
-
-        const fileName = path.basename(gitPath);
-
-        if (WorkspaceScanner.isFilteredByType(fileName, false, this.filters)) {
-          continue;
-        }
-
-        if (this.searchQuery && !fileName.toLowerCase().includes(this.searchQuery)) {
-          continue;
-        }
-
-        const deletedItem = new ContextTreeItem(
-          vscode.Uri.file(gitPath),
-          false,
-          isChecked,
-          vscode.TreeItemCollapsibleState.None,
-          '[D]'
-        );
-        deletedItem.iconPath = new vscode.ThemeIcon('diff-removed');
-        deletedItem.contextValue = isChecked ? 'file-checked-modified' : 'file-unchecked-modified';
-        deletedItem.command = {
-          command: 'aiContextMerger.toggleFileByClick',
-          title: 'Toggle File',
-          arguments: [gitPath]
-        };
-        treeItems.push(deletedItem);
-      }
-    }
-
-    return treeItems;
+    return await Promise.all(itemPromises);
   }
 
   public async toggleItemSelection(

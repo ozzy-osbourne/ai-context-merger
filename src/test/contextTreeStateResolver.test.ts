@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import { ContextTreeStateResolver } from '../services/contextTreeStateResolver';
 import { ContextTreeDataProvider } from '../services/contextTreeDataProvider';
 import { PathUtils } from '../utils/pathUtils';
-import { FilterSettings, GitFileStatus } from '../types';
+import { FilterSettings } from '../types';
 import { I18nService } from '../i18n';
 
 suite('ContextTreeStateResolver & TreeView: State Resolution & Combined Search Tests', () => {
@@ -52,16 +52,12 @@ suite('ContextTreeStateResolver & TreeView: State Resolution & Combined Search T
     assert.strictEqual(I18nService.formatSelectedFilePlural(5, 'zh-cn'), '已选择 5 个文件');
   });
 
-  test('Calculates total folder count including Git deleted items', async () => {
+  test('Calculates total folder count for physical files', async () => {
     const fileA = path.join(tempDir, 'fileA.ts');
     const fileB = path.join(tempDir, 'fileB.ts');
-    const deletedFile = path.join(tempDir, 'deletedInGit.ts');
 
     await fs.promises.writeFile(fileA, 'const a = 1;', 'utf-8');
     await fs.promises.writeFile(fileB, 'const b = 2;', 'utf-8');
-
-    const gitStatuses = new Map<string, GitFileStatus>();
-    gitStatuses.set(deletedFile, 'deleted');
 
     const countMap = new Map<string, number>();
     const pendingPromises = new Map<string, Promise<number>>();
@@ -70,25 +66,23 @@ suite('ContextTreeStateResolver & TreeView: State Resolution & Combined Search T
       tempDir,
       defaultFilters,
       countMap,
-      pendingPromises,
-      gitStatuses
+      pendingPromises
     );
 
-    assert.strictEqual(totalCount, 3, 'Folder total count must include tracked Git deleted files');
+    assert.strictEqual(totalCount, 2, 'Folder total count must reflect physical files on disk');
 
-    const selectedFiles = new Set<string>([fileA, fileB, deletedFile]);
+    const selectedFiles = new Set<string>([fileA, fileB]);
 
     const state = await ContextTreeStateResolver.resolveFolderState(
       tempDir,
       selectedFiles,
       defaultFilters,
       countMap,
-      pendingPromises,
-      gitStatuses
+      pendingPromises
     );
 
-    assert.strictEqual(state.isChecked, true, 'All 3 files are selected, folder must be checked');
-    assert.strictEqual(state.description?.startsWith('3/3'), true);
+    assert.strictEqual(state.isChecked, true, 'Both files are selected, folder must be checked');
+    assert.strictEqual(state.description?.startsWith('2/2'), true);
   });
 
   test('Filters entries harmoniously when both "showOnlySelected" and "searchQuery" are active', async () => {

@@ -160,6 +160,25 @@ export interface TranslationSchema {
     presetLimitReached: string;
     presetInvalidId: string;
     presetNotFound: string;
+    confirmHideExtensionTitle: (ext: string) => string;
+    confirmHidePathTitle: (itemPath: string, isDir: boolean) => string;
+    confirmHideDetail: string;
+    btnConfirmHide: string;
+    btnCancelHide: string;
+    noExtensionToHide: string;
+    hiddenAllExtensionFiles: (ext: string) => string;
+    hiddenPathInTree: (itemPath: string) => string;
+    restoredPathInTree: (name: string) => string;
+    notMatchedExcludedPattern: (name: string) => string;
+    noExcludePatternsConfigured: string;
+    manageExcludedQuickPickPlaceholder: string;
+    customRuleQuickPickDesc: string;
+    defaultRuleQuickPickDesc: string;
+    removedDefaultRuleQuickPickDesc: string;
+    removedCustomPattern: (pattern: string) => string;
+    restoredDefaultRule: (pattern: string) => string;
+    removedDefaultRule: (pattern: string) => string;
+    btnUndo: string;
   };
   presets: Record<string, { title: string; text: string; chipLabel: string }>;
 }

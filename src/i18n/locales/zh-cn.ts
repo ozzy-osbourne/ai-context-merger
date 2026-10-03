@@ -144,7 +144,27 @@ export const zhCnLocale: TranslationSchema = {
     presetTextTooLong: '提示词内容过长 (上限 10,000 字符)。',
     presetLimitReached: '已达到自定义预设数量上限 (最多 50 个)。',
     presetInvalidId: '预设 ID 无效。',
-    presetNotFound: '预设未找到或已被删除。'
+    presetNotFound: '预设未找到或已被删除。',
+    confirmHideExtensionTitle: (ext: string) => `确定从 AI Context 树中隐藏所有 *${ext} 文件吗？`,
+    confirmHidePathTitle: (itemPath: string, isDir: boolean) =>
+      isDir ? `确定从 AI Context 树中隐藏文件夹 "${itemPath}" 吗？` : `确定从 AI Context 树中隐藏文件 "${itemPath}" 吗？`,
+    confirmHideDetail: '您可以随时通过“⚙️ 管理已排除的模式...”或在设置中恢复它们。',
+    btnConfirmHide: '隐藏',
+    btnCancelHide: '取消',
+    noExtensionToHide: '所选文件没有可供隐藏的扩展名格式。',
+    hiddenAllExtensionFiles: (ext: string) => `已在 AI Context 树中隐藏所有 *${ext} 文件。`,
+    hiddenPathInTree: (itemPath: string) => `已在 AI Context 树中隐藏路径 "${itemPath}"。`,
+    restoredPathInTree: (name: string) => `已在 AI Context 树中恢复 "${name}"。`,
+    notMatchedExcludedPattern: (name: string) => `"${name}" 未直接匹配任何自定义或默认 excludePatterns 规则（请检查是否启用了“多媒体与二进制”过滤）。`,
+    noExcludePatternsConfigured: '当前未配置任何排除模式。',
+    manageExcludedQuickPickPlaceholder: '选择要管理的排除模式（重新显示、移除或恢复）',
+    customRuleQuickPickDesc: '自定义规则（点击重新显示）',
+    defaultRuleQuickPickDesc: '默认规则（点击移除）',
+    removedDefaultRuleQuickPickDesc: '已移除的默认规则（点击恢复）',
+    removedCustomPattern: (pattern: string) => `已从排除模式中移除自定义规则 "${pattern}"。`,
+    restoredDefaultRule: (pattern: string) => `已将默认规则 "${pattern}" 恢复至排除模式。`,
+    removedDefaultRule: (pattern: string) => `已从排除模式中移除默认规则 "${pattern}"。`,
+    btnUndo: '撤销'
   },
   presets: {
     bugs: {

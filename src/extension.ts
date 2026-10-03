@@ -9,14 +9,49 @@ import { PathUtils } from './utils/pathUtils';
 import { GitFileStatus } from './types';
 
 /**
+ * Migrates legacy configurations and ensures excludePatterns are properly synchronized into VS Code Settings.
+ * Separately inspects and migrates Workspace and Global configuration scopes to prevent ghost settings.
+ */
+async function migrateAndSyncSettings(): Promise<void> {
+  try {
+    const config = vscode.workspace.getConfiguration('aiContextMerger');
+    const inspected = config.inspect<string[]>('excludePatterns');
+    const legacyInspected = config.inspect<string[]>('ignoredDirectoryPatterns');
+
+    // 1. Migrate workspace-level legacy patterns if present
+    const legacyWorkspace = legacyInspected?.workspaceValue;
+    if (Array.isArray(legacyWorkspace) && legacyWorkspace.length > 0) {
+      const currentWorkspace = inspected?.workspaceValue || [];
+      const mergedWorkspace = Array.from(new Set([...currentWorkspace, ...legacyWorkspace]));
+      await config.update('excludePatterns', mergedWorkspace, vscode.ConfigurationTarget.Workspace);
+      await config.update('ignoredDirectoryPatterns', undefined, vscode.ConfigurationTarget.Workspace);
+    }
+
+    // 2. Migrate global-level legacy patterns if present
+    const legacyGlobal = legacyInspected?.globalValue;
+    if (Array.isArray(legacyGlobal) && legacyGlobal.length > 0) {
+      const currentGlobal = inspected?.globalValue || [];
+      const mergedGlobal = Array.from(new Set([...currentGlobal, ...legacyGlobal]));
+      await config.update('excludePatterns', mergedGlobal, vscode.ConfigurationTarget.Global);
+      await config.update('ignoredDirectoryPatterns', undefined, vscode.ConfigurationTarget.Global);
+    }
+  } catch {
+    // Ignore migration error
+  }
+}
+
+/**
  * Activates the AI Context Merger extension.
+ * Restores previous file selection across sessions, retaining tracked Git deleted files for context generation.
  *
  * @param context - Extension context provided by VS Code.
  */
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  await migrateAndSyncSettings();
+
   const savedFiles = context.workspaceState.get<string[]>(WORKSPACE_STORAGE_KEYS.SELECTED_FILES, []);
 
-  // Retrieve git statuses to retain deleted git files [D] across VS Code restarts only if saved files exist
+  // Retrieve git statuses to retain deleted git files across VS Code restarts
   const gitStatuses = savedFiles.length > 0
     ? await GitService.getFileStatuses()
     : new Map<string, GitFileStatus>();
@@ -30,7 +65,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         existingFiles.push(normPath);
       }
     } catch {
-      // If file is physically absent from disk but tracked as deleted in Git, keep it in selection
+      // If file is physically absent from disk but tracked as deleted in Git, keep it in selection for bundle generation
       if (gitStatuses.get(normPath) === 'deleted') {
         existingFiles.push(normPath);
       }

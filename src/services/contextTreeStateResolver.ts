@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { getIgnoredDirectoriesSet } from '../constants';
 import { FilterSettings, GitFileStatus } from '../types';
 import { WorkspaceScanner } from './workspaceScanner';
 import { PathUtils } from '../utils/pathUtils';
@@ -57,16 +56,26 @@ export class ContextTreeStateResolver {
   }
 
   /**
-   * Computes the number of currently selected files located inside target directory in memory.
+   * Computes the number of currently selected physical files inside target directory.
+   * Strictly filters out deleted Git files so that UI tree folder counters never reflect deleted items.
    *
    * @param folderPath - Absolute directory path.
    * @param selectedFiles - Active selection set.
-   * @returns Number of selected files contained within directory subtree.
+   * @param gitStatuses - Optional map containing current Git file statuses.
+   * @returns Number of selected physical files contained within directory subtree.
    */
-  public static getSelectedCountInFolder(folderPath: string, selectedFiles: Set<string>): number {
+  public static getSelectedCountInFolder(
+    folderPath: string,
+    selectedFiles: Set<string>,
+    gitStatuses?: Map<string, GitFileStatus>
+  ): number {
     const normFolder = PathUtils.normalizePath(folderPath);
     let count = 0;
     for (const file of selectedFiles) {
+      // Under no circumstances count deleted files in UI folder descriptions
+      if (gitStatuses && gitStatuses.get(file) === 'deleted') {
+        continue;
+      }
       if (PathUtils.isSubpath(file, normFolder)) {
         count++;
       }
@@ -76,20 +85,19 @@ export class ContextTreeStateResolver {
 
   /**
    * Gets or calculates the total selectable file count in target directory with concurrent request deduplication.
+   * Counts strictly physical selectable files on disk.
    *
    * @param folderPath - Absolute directory path.
    * @param filters - Active exclusion filters.
    * @param countMap - Cache map storing counts per normalized folder path.
    * @param pendingPromises - Cache map storing in-flight calculation promises.
-   * @param gitStatuses - Optional map of current Git file statuses.
-   * @returns Total selectable file count.
+   * @returns Total selectable physical file count.
    */
   public static async getFolderTotalCount(
     folderPath: string,
     filters: FilterSettings,
     countMap: Map<string, number>,
-    pendingPromises: Map<string, Promise<number>>,
-    gitStatuses?: Map<string, GitFileStatus>
+    pendingPromises: Map<string, Promise<number>>
   ): Promise<number> {
     const norm = PathUtils.normalizePath(folderPath);
     if (countMap.has(norm)) {
@@ -101,21 +109,7 @@ export class ContextTreeStateResolver {
     }
 
     const countPromise = (async () => {
-      const diskCount = await WorkspaceScanner.countSelectableFiles(norm, filters, countMap);
-      let deletedGitCount = 0;
-
-      if (gitStatuses) {
-        for (const [gitPath, status] of gitStatuses.entries()) {
-          if (status === 'deleted' && PathUtils.isSubpath(gitPath, norm)) {
-            const fileName = path.basename(gitPath);
-            if (!WorkspaceScanner.isFilteredByType(fileName, false, filters)) {
-              deletedGitCount++;
-            }
-          }
-        }
-      }
-
-      const total = diskCount + deletedGitCount;
+      const total = await WorkspaceScanner.countSelectableFiles(norm, filters, countMap);
       countMap.set(norm, total);
       return total;
     })().finally(() => {
@@ -127,14 +121,15 @@ export class ContextTreeStateResolver {
   }
 
   /**
-   * Resolves the checkbox state, disabled status, and formatted description label for a directory node.
+   * Resolves the checkbox state, disabled status, and formatted description label for a directory node in the UI.
+   * Guaranteed to represent physical files only, preventing deleted files from leaking into UI badges.
    *
    * @param folderPath - Absolute directory path.
    * @param selectedFiles - Active selection set.
    * @param filters - Active exclusion filters.
    * @param countMap - Cache map storing counts per normalized folder path.
    * @param pendingPromises - Cache map storing in-flight calculation promises.
-   * @param gitStatuses - Optional map of current Git file statuses.
+   * @param gitStatuses - Optional map containing current Git file statuses.
    * @returns Resolved selection state, disabled flag, and optional description.
    */
   public static async resolveFolderState(
@@ -145,15 +140,18 @@ export class ContextTreeStateResolver {
     pendingPromises: Map<string, Promise<number>>,
     gitStatuses?: Map<string, GitFileStatus>
   ): Promise<ResolvedFolderPresentation> {
-    const totalCount = await this.getFolderTotalCount(folderPath, filters, countMap, pendingPromises, gitStatuses);
-    const ignoredSet = getIgnoredDirectoriesSet();
+    const totalCount = await this.getFolderTotalCount(folderPath, filters, countMap, pendingPromises);
+    const rootPath = PathUtils.getWorkspaceRoot(folderPath);
     const t = I18nService.getTranslations();
 
     if (totalCount === 0) {
       let isPhysicallyEmpty = false;
       try {
         const rawEntries = await fs.promises.readdir(folderPath, { withFileTypes: true });
-        const visibleEntries = rawEntries.filter((e) => !ignoredSet.has(e.name) && !e.isSymbolicLink());
+        const visibleEntries = rawEntries.filter((e) =>
+          !WorkspaceScanner.isIgnoredByPathSegments(path.join(folderPath, e.name), rootPath) &&
+          !e.isSymbolicLink()
+        );
 
         if (visibleEntries.length === 0) {
           isPhysicallyEmpty = true;
@@ -163,19 +161,10 @@ export class ContextTreeStateResolver {
             isPhysicallyEmpty = true;
             for (const dirEntry of visibleEntries) {
               const subPath = path.join(folderPath, dirEntry.name);
-              const subCount = await this.getFolderTotalCount(subPath, filters, countMap, pendingPromises, gitStatuses);
+              const subCount = await this.getFolderTotalCount(subPath, filters, countMap, pendingPromises);
               if (subCount > 0) {
                 isPhysicallyEmpty = false;
                 break;
-              }
-              try {
-                const subRaw = await fs.promises.readdir(subPath);
-                if (subRaw.some((name) => !ignoredSet.has(name))) {
-                  isPhysicallyEmpty = false;
-                  break;
-                }
-              } catch {
-                // Ignore subfolder read failure
               }
             }
           }
@@ -191,7 +180,7 @@ export class ContextTreeStateResolver {
       };
     }
 
-    const selectedCount = this.getSelectedCountInFolder(folderPath, selectedFiles);
+    const selectedCount = this.getSelectedCountInFolder(folderPath, selectedFiles, gitStatuses);
     if (selectedCount === 0) {
       return { isChecked: false, description: undefined, isDisabled: false };
     }

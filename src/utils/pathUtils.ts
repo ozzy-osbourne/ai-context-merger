@@ -3,9 +3,27 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 /**
- * Utility functions for cross-platform file path operations and resolution.
+ * Utility functions for cross-platform file path operations, glob matching, and resolution.
  */
 export class PathUtils {
+  /**
+   * In-memory cache storing compiled regular expressions for wildcard glob patterns.
+   * Eliminates expensive repetitive RegExp compilation during workspace scans.
+   */
+  private static readonly globRegexCache = new Map<string, RegExp>();
+
+  /**
+   * Maximum allowable cache size to prevent memory leaks from excessive dynamic patterns.
+   */
+  private static readonly MAX_GLOB_CACHE_SIZE = 1000;
+
+  /**
+   * Clears the compiled glob regular expression cache.
+   */
+  public static clearGlobCache(): void {
+    this.globRegexCache.clear();
+  }
+
   /**
    * Safely resolves the canonical real path of a directory to prevent symlink recursion.
    *
@@ -180,4 +198,123 @@ export class PathUtils {
 
     return path.basename(filePath);
   }
+
+  /**
+   * Converts a wildcard glob pattern into an optimized matching regular expression.
+   * Distinguishes between root-anchored rules (starting with '/'), floating filename patterns
+   * without slashes (e.g. `*.meta`, matching at any directory depth), and path-specific rules.
+   * Employs internal memory caching to guarantee O(1) retrieval on repeated evaluations.
+   *
+   * @param pattern - Glob pattern string (e.g. `**\/*.meta`, `src/utils/**`, `node_modules`, `/index.ts`).
+   * @returns Precompiled regular expression.
+   */
+  public static globToRegex(pattern: string): RegExp {
+    const cached = this.globRegexCache.get(pattern);
+    if (cached) {
+      return cached;
+    }
+
+    let p = pattern.trim().replace(/\\/g, '/');
+
+    if (!p.includes('/') && !p.includes('*') && !p.includes('?')) {
+      const bareRegex = new RegExp(`(^|/)${escapeRegex(p)}(/|$)`, 'i');
+      if (this.globRegexCache.size >= this.MAX_GLOB_CACHE_SIZE) {
+        this.globRegexCache.clear();
+      }
+      this.globRegexCache.set(pattern, bareRegex);
+      return bareRegex;
+    }
+
+    let matchesChildren = false;
+    if (p.endsWith('/**')) {
+      p = p.slice(0, -3);
+      matchesChildren = true;
+      if (!p.includes('/') && !p.includes('*') && !p.includes('?')) {
+        const trailingRegex = new RegExp(`(^|/)${escapeRegex(p)}(/|$)`, 'i');
+        if (this.globRegexCache.size >= this.MAX_GLOB_CACHE_SIZE) {
+          this.globRegexCache.clear();
+        }
+        this.globRegexCache.set(pattern, trailingRegex);
+        return trailingRegex;
+      }
+    } else if (p.endsWith('/')) {
+      p = p.slice(0, -1);
+      matchesChildren = true;
+    }
+
+    let regexStr = '^';
+    let i = 0;
+
+    if (p.startsWith('**/')) {
+      regexStr += '(?:.*/)?';
+      i = 3;
+    } else if (p.startsWith('/')) {
+      regexStr += '/';
+      i = 1;
+    } else if (!p.includes('/')) {
+      // Floating pattern without slashes (e.g. *.meta) matches files at any level
+      regexStr += '(?:.*/)?';
+    }
+
+    while (i < p.length) {
+      const c = p[i];
+
+      if (c === '*' && p[i + 1] === '*') {
+        if (p[i + 2] === '/') {
+          regexStr += '(?:.*/)?';
+          i += 3;
+        } else {
+          regexStr += '.*';
+          i += 2;
+        }
+      } else if (c === '*') {
+        regexStr += '[^/]*';
+        i++;
+      } else if (c === '?') {
+        regexStr += '[^/]';
+        i++;
+      } else if ('/.$+()[]{}^|\\'.includes(c)) {
+        regexStr += `\\${c}`;
+        i++;
+      } else {
+        regexStr += c;
+        i++;
+      }
+    }
+
+    if (matchesChildren) {
+      regexStr += '(?:/.*)?$';
+    } else {
+      regexStr += '$';
+    }
+
+    const compiled = new RegExp(regexStr, 'i');
+
+    if (this.globRegexCache.size >= this.MAX_GLOB_CACHE_SIZE) {
+      this.globRegexCache.clear();
+    }
+    this.globRegexCache.set(pattern, compiled);
+
+    return compiled;
+  }
+
+  /**
+   * Checks whether a given path or filename matches a glob pattern using cached regular expressions.
+   *
+   * @param testPath - POSIX relative path or filename.
+   * @param pattern - Glob pattern.
+   * @returns True if path matches glob.
+   */
+  public static matchesGlob(testPath: string, pattern: string): boolean {
+    const norm = testPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const regex = this.globToRegex(pattern);
+    return regex.test(norm) || regex.test(`/${norm}`);
+  }
+}
+
+/**
+ * Escapes characters with special meaning in Regular Expressions.
+ */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

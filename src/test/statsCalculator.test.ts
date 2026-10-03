@@ -110,7 +110,7 @@ suite('StatsCalculator: Token Budget & Format Overhead Tests', () => {
       'markdown'
     );
 
-    assert.strictEqual(stats.count, 1);
+    assert.strictEqual(stats.count, 0, 'Physical file count must be 0 for deleted files to keep UI count clean');
     assert.ok(stats.tokens > 0, 'Tokens must be allocated for the deleted file placeholder block');
   });
 });

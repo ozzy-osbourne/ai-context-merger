@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import { WorkspaceScanner } from '../services/workspaceScanner';
+import { PathUtils } from '../utils/pathUtils';
 import { FilterSettings } from '../types';
 
 /**
@@ -43,19 +44,24 @@ suite('WorkspaceScanner: Traversal, Filters & Symlink Security Tests', () => {
     assert.strictEqual(WorkspaceScanner.isIgnoredByPathSegments(venvPath), true);
   });
 
-  test('Correctly identifies ignored root path segments on POSIX paths without workspace root', () => {
-    const rootDistFile = '/dist/bundle.js';
-    const rootNodeModules = '/node_modules/lodash/index.js';
-    const validRootFile = '/src/index.ts';
+  test('Correctly identifies and ignores Unity meta files and Unity build directories', () => {
+    assert.strictEqual(WorkspaceScanner.isIgnoredByPathSegments('/workspace/Assets/Scripts.meta'), true);
+    assert.strictEqual(WorkspaceScanner.isIgnoredByPathSegments('/workspace/Assets/Car.cs.meta'), true);
+    assert.strictEqual(WorkspaceScanner.isIgnoredByPathSegments('/workspace/Library/ArtifactDB'), true);
+    assert.strictEqual(WorkspaceScanner.isIgnoredByPathSegments('/workspace/Logs/AssetImportWorker0.log'), true);
+  });
 
-    assert.strictEqual(WorkspaceScanner.isIgnoredByPathSegments(rootDistFile), true);
-    assert.strictEqual(WorkspaceScanner.isIgnoredByPathSegments(rootNodeModules), true);
-    assert.strictEqual(WorkspaceScanner.isIgnoredByPathSegments(validRootFile), false);
+  test('Correctly matches wildcard glob patterns', () => {
+    assert.strictEqual(PathUtils.matchesGlob('Assets/Model.fbx.meta', '**/*.meta'), true);
+    assert.strictEqual(PathUtils.matchesGlob('src/deep/sub/file.meta', '**/*.meta'), true);
+    assert.strictEqual(PathUtils.matchesGlob('Library/ShaderCache/test', '**/Library/**'), true);
+    assert.strictEqual(PathUtils.matchesGlob('src/app.ts', '**/*.meta'), false);
   });
 
   test('Permits valid project source files in workspace root and subdirectories', () => {
     assert.strictEqual(WorkspaceScanner.isIgnoredByPathSegments('/workspace/my-app/src/index.ts'), false);
     assert.strictEqual(WorkspaceScanner.isIgnoredByPathSegments('/workspace/my-app/package.json'), false);
+    assert.strictEqual(WorkspaceScanner.isIgnoredByPathSegments('/workspace/Assets/Scripts/CarController.cs'), false);
   });
 
   test('Strictly forbids following symbolic links to prevent traversal and loops', async () => {

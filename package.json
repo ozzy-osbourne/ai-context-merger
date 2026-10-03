@@ -2,7 +2,7 @@
   "name": "ai-context-merger",
   "displayName": "AI Context Merger - Combine Code to Prompt & Markdown",
   "description": "%extension.description%",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "alex-developer",
   "author": {
     "name": "Alex Developer",
@@ -76,7 +76,7 @@
           "description": "%config.language.description%",
           "scope": "application"
         },
-        "aiContextMerger.ignoredDirectoryPatterns": {
+        "aiContextMerger.excludePatterns": {
           "type": "array",
           "items": {
             "type": "string"
@@ -119,6 +119,8 @@
             "Logs",
             "UserSettings",
             "MemoryCaptures",
+            "**/*.meta",
+            "**/*.unitypackage",
             "coverage",
             ".nyc_output",
             ".cache",
@@ -126,7 +128,34 @@
             "Thumbs.db",
             "desktop.ini"
           ],
-          "description": "%config.ignoredDirectoryPatterns.description%",
+          "description": "%config.excludePatterns.description%",
+          "scope": "resource"
+        },
+        "aiContextMerger.secretPatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "^\\.env(\\..+)?$",
+            "^\\.envrc$",
+            "\\.(pem|key|cert|crt|cer|der|csr|p8|p12|pfx|pkcs12|keystore|jks|gpg|asc|sig)$",
+            "^key\\.properties$",
+            "^id_(rsa|ed25519|ecdsa|dsa)(_sk)?(\\..+)?$",
+            "(\\.|\\.auto\\.)(tfvars|tfstate)(\\.backup|\\.json)?$",
+            "postman_(environment|globals).*\\.json$",
+            "insomnia.*\\.json$",
+            "^(client_secret|credentials)(\\..+)?\\.json$",
+            "^service[-_]account.*\\.json$",
+            "^\\.?(npmrc|pypirc|netrc|dockercfg)$",
+            "^\\.yarnrc\\.ya?ml$",
+            "^auth\\.json$",
+            "^\\.?htpasswd$",
+            "^\\.git-credentials$",
+            "^secring\\.gpg$",
+            "^master\\.key$"
+          ],
+          "description": "%config.secretPatterns.description%",
           "scope": "resource"
         },
         "aiContextMerger.lockFilePatterns": {
@@ -162,13 +191,17 @@
             "type": "string"
           },
           "default": [
+            ".fbx", ".obj", ".blend", ".dae", ".3ds", ".max", ".c4d", ".gltf", ".glb",
+            ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".svg", ".bmp", ".tiff", ".tif",
+            ".tga", ".dds", ".exr", ".hdr", ".psd", ".ai", ".raw",
+            ".mp3", ".wav", ".ogg", ".flac", ".aac", ".aif", ".aiff", ".bank", ".bnk", ".wem",
+            ".mp4", ".avi", ".webm", ".mkv", ".mov", ".wmv",
             ".rpyc", ".rpym", ".rpymc", ".rpyb", ".rpa", ".save", ".pyc", ".pyo", ".pyd", ".class",
-            ".exe", ".dll", ".so", ".dylib", ".wasm", ".o", ".obj", ".bin", ".hex",
-            ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".svg", ".bmp", ".tiff", ".psd", ".ai",
-            ".mp3", ".wav", ".ogg", ".flac", ".aac", ".mp4", ".avi", ".webm", ".mkv", ".mov", ".wmv",
-            ".zip", ".tar", ".gz", ".tgz", ".rar", ".7z", ".bz2", ".xz", ".jar", ".war", ".apk", ".ipa",
+            ".spv", ".dxbc", ".dxil",
+            ".exe", ".dll", ".so", ".dylib", ".wasm", ".o", ".bin", ".hex",
+            ".zip", ".tar", ".gz", ".tgz", ".rar", ".7z", ".bz2", ".xz", ".jar", ".war", ".apk", ".ipa", ".pck",
             ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-            ".ttf", ".otf", ".woff", ".woff2", ".eot",
+            ".ttf", ".otf", ".woff", ".woff2", ".eot", ".dfont",
             ".sqlite", ".sqlite3", ".db", ".dat", ".cache"
           ],
           "description": "%config.binaryExtensions.description%",
@@ -262,6 +295,26 @@
         "category": "AI Context Merger"
       },
       {
+        "command": "aiContextMerger.hideExtension",
+        "title": "%command.hideExtension%",
+        "category": "AI Context Merger"
+      },
+      {
+        "command": "aiContextMerger.hidePath",
+        "title": "%command.hidePath%",
+        "category": "AI Context Merger"
+      },
+      {
+        "command": "aiContextMerger.unhidePath",
+        "title": "%command.unhidePath%",
+        "category": "AI Context Merger"
+      },
+      {
+        "command": "aiContextMerger.manageExcludedPatterns",
+        "title": "%command.manageExcludedPatterns%",
+        "category": "AI Context Merger"
+      },
+      {
         "command": "aiContextMerger.treeToggleSelectedOnly",
         "title": "%command.treeToggleSelectedOnly%",
         "category": "AI Context Merger",
@@ -345,6 +398,22 @@
         {
           "command": "aiContextMerger.copyGitDiffImmediately",
           "group": "2_copy@2"
+        },
+        {
+          "command": "aiContextMerger.hideExtension",
+          "group": "3_filter@1"
+        },
+        {
+          "command": "aiContextMerger.hidePath",
+          "group": "3_filter@2"
+        },
+        {
+          "command": "aiContextMerger.unhidePath",
+          "group": "3_filter@3"
+        },
+        {
+          "command": "aiContextMerger.manageExcludedPatterns",
+          "group": "3_filter@4"
         }
       ],
       "view/title": [
@@ -414,6 +483,21 @@
           "command": "aiContextMerger.copyGitDiffImmediately",
           "when": "view == aiContextMergerTreeView",
           "group": "3_batch@2"
+        },
+        {
+          "command": "aiContextMerger.hideExtension",
+          "when": "view == aiContextMergerTreeView && viewItem =~ /file/",
+          "group": "4_filter@1"
+        },
+        {
+          "command": "aiContextMerger.hidePath",
+          "when": "view == aiContextMergerTreeView",
+          "group": "4_filter@2"
+        },
+        {
+          "command": "aiContextMerger.manageExcludedPatterns",
+          "when": "view == aiContextMergerTreeView",
+          "group": "4_filter@3"
         }
       ]
     }

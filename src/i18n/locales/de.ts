@@ -145,7 +145,27 @@ export const deLocale: TranslationSchema = {
     presetTextTooLong: 'Text der Vorlage ist zu lang (maximal 10.000 Zeichen).',
     presetLimitReached: 'Limit für benutzerdefinierte Vorlagen erreicht (maximal 50).',
     presetInvalidId: 'Ungültige Vorlagen-ID.',
-    presetNotFound: 'Vorlage nicht gefunden oder bereits gelöscht.'
+    presetNotFound: 'Vorlage nicht gefunden oder bereits gelöscht.',
+    confirmHideExtensionTitle: (ext: string) => `Alle Dateien *${ext} aus dem AI Context-Baum ausblenden?`,
+    confirmHidePathTitle: (itemPath: string, isDir: boolean) =>
+      isDir ? `Ordner "${itemPath}" aus dem AI Context-Baum ausblenden?` : `Datei "${itemPath}" aus dem AI Context-Baum ausblenden?`,
+    confirmHideDetail: 'Sie können dies jederzeit über "⚙️ Ausgeschlossene Muster verwalten..." oder in den Einstellungen rückgängig machen.',
+    btnConfirmHide: 'Ausblenden',
+    btnCancelHide: 'Abbrechen',
+    noExtensionToHide: 'Die ausgewählte Datei hat keine Dateiendung zum Ausblenden.',
+    hiddenAllExtensionFiles: (ext: string) => `Alle Dateien *${ext} aus dem AI Context-Baum ausgeblendet.`,
+    hiddenPathInTree: (itemPath: string) => `Pfad "${itemPath}" im AI Context-Baum ausgeblendet.`,
+    restoredPathInTree: (name: string) => `"${name}" im AI Context-Baum wiederhergestellt.`,
+    notMatchedExcludedPattern: (name: string) => `"${name}" stimmt mit keinem excludePatterns-Muster überein. (Prüfen Sie, ob der Filter "Medien & Binärdateien" aktiv ist).`,
+    noExcludePatternsConfigured: 'Derzeit sind keine Ausschlussmuster konfiguriert.',
+    manageExcludedQuickPickPlaceholder: 'Wählen Sie ein Ausschlussmuster zur Verwaltung (wieder einblenden, entfernen oder wiederherstellen)',
+    customRuleQuickPickDesc: 'Benutzerdefinierte Regel (Klicken zum Einblenden)',
+    defaultRuleQuickPickDesc: 'Standardregel (Klicken zum Entfernen)',
+    removedDefaultRuleQuickPickDesc: 'Entfernte Standardregel (Klicken zum Wiederherstellen)',
+    removedCustomPattern: (pattern: string) => `Benutzerdefiniertes Muster "${pattern}" aus Ausschlüssen entfernt.`,
+    restoredDefaultRule: (pattern: string) => `Standardregel "${pattern}" wiederhergestellt.`,
+    removedDefaultRule: (pattern: string) => `Standardregel "${pattern}" aus Ausschlüssen entfernt.`,
+    btnUndo: 'Rückgängig'
   },
   presets: {
     bugs: {
