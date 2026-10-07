@@ -68,6 +68,7 @@ export class MarkdownBuilder {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     const sortedFiles = Array.from(selectedFiles).sort();
     const relativePaths = sortedFiles.map((file) => PathUtils.getRelativePath(file, workspaceFolders));
+    const isDiffOnlyActive = Boolean(gitDiffSettings?.includeGitDiff && gitDiffSettings?.diffOnly);
 
     const outputBlocks: string[] = [];
 
@@ -92,7 +93,7 @@ export class MarkdownBuilder {
       outputBlocks.push(`## Problems & Diagnostics:\n${diagnosticsContent.trim()}`);
     }
 
-    if (!gitDiffSettings?.diffOnly) {
+    if (!isDiffOnlyActive) {
       for (let i = 0; i < sortedFiles.length; i++) {
         const filePath = sortedFiles[i];
         const relativePath = relativePaths[i];

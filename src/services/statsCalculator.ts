@@ -62,6 +62,7 @@ export class StatsCalculator {
     const sortedFiles = Array.from(selectedFiles).sort();
     const workspaceFolders = vscode.workspace.workspaceFolders;
     const maxLimitBytes = getMaxFileSizeBytes();
+    const isDiffOnlyActive = Boolean(gitDiffSettings?.includeGitDiff && gitDiffSettings?.diffOnly);
 
     const relativePaths = sortedFiles.map((filePath) =>
       PathUtils.getRelativePath(filePath, workspaceFolders)
@@ -101,7 +102,7 @@ export class StatsCalculator {
       }
 
       // 5. Documents container and file entries
-      if (!gitDiffSettings?.diffOnly && sortedFiles.length > 0) {
+      if (!isDiffOnlyActive && sortedFiles.length > 0) {
         totalChars += '  <documents>\n  </documents>\n\n'.length;
 
         const fileStatPromises = sortedFiles.map(async (filePath, index) => {
@@ -181,7 +182,7 @@ export class StatsCalculator {
       }
 
       // 5. File sections
-      if (!gitDiffSettings?.diffOnly && sortedFiles.length > 0) {
+      if (!isDiffOnlyActive && sortedFiles.length > 0) {
         const fileStatPromises = sortedFiles.map(async (filePath, index) => {
           const relPath = relativePaths[index];
           const fileName = path.basename(filePath);

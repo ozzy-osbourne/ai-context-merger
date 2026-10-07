@@ -4,6 +4,15 @@ All notable changes to the **AI Context Merger** extension will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-10-07
+
+### Fixed
+- Fixed an issue where the "Diff Only (no files)" option would omit file contents and calculate zero file tokens even when "Attach Git Diff" was disabled or unchecked.
+- Fixed `diffOnly` evaluation across Markdown and XML builders so that file code exclusion is only triggered when both "Attach Git Diff" and "Diff Only" are simultaneously active.
+- Fixed clipboard context assembly from Explorer context menu shortcuts when Git Diff options were previously configured.
+
+---
+
 ## [1.1.0] - 2026-10-03
 
 ### Added

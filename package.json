@@ -2,7 +2,7 @@
   "name": "ai-context-merger",
   "displayName": "AI Context Merger - Combine Code to Prompt & Markdown",
   "description": "%extension.description%",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "publisher": "alex-developer",
   "author": {
     "name": "Alex Developer",

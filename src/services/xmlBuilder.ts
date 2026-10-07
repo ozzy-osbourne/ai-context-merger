@@ -38,6 +38,7 @@ export class XmlBuilder {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     const sortedFiles = Array.from(selectedFiles).sort();
     const relativePaths = sortedFiles.map((file) => PathUtils.getRelativePath(file, workspaceFolders));
+    const isDiffOnlyActive = Boolean(gitDiffSettings?.includeGitDiff && gitDiffSettings?.diffOnly);
 
     // Initialize document with standard XML 1.0 prolog and root <context> tag
     const xmlSections: string[] = [
@@ -78,7 +79,7 @@ export class XmlBuilder {
     }
 
     // Section 5: Documents Container (skipped entirely if "Diff Only" mode is active)
-    if (!gitDiffSettings?.diffOnly && sortedFiles.length > 0) {
+    if (!isDiffOnlyActive && sortedFiles.length > 0) {
       xmlSections.push('  <documents>');
 
       for (let i = 0; i < sortedFiles.length; i++) {
